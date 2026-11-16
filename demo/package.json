@@ -1,0 +1,28 @@
+{
+  "name": "dunebot-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "An animated mock of Dunebot for a launch page or README, built with the Stageshow kit. Not part of the app.",
+  "scripts": {
+    "dev": "vite playground --config playground/vite.config.ts --port 5198",
+    "typecheck": "tsc --noEmit -p playground",
+    "build": "vite build playground --config playground/vite.config.ts --outDir ../dist --emptyOutDir",
+    "film": "node scripts/film.mjs"
+  },
+  "dependencies": {
+    "geist": "^1.9.2",
+    "lucide-react": "0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.7.0",
+    "playwright-core": "~1.48.2",
+    "postcss": "^8.5.6",
+    "typescript": "^5.6.3",
+    "vite": "^6.4.5"
+  }
+}

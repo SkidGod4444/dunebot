@@ -1,0 +1,44 @@
+{
+  "name": "dunebot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "core": "cargo build --manifest-path core/Cargo.toml",
+    "build": "bun run core && bun run native && vite build",
+    "start": "node scripts/start.mjs",
+    "dev": "bun run core && bun run native && node scripts/dev.mjs",
+    "test:core": "cargo test --manifest-path core/Cargo.toml && bun run core && python3 -I scripts/core_smoke.py core/target/debug/dunebot-core \"$(mktemp -d)\"",
+    "native": "node scripts/native.mjs",
+    "package": "node scripts/package.mjs"
+  },
+  "trustedDependencies": [
+    "electron"
+  ],
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "@mdx-js/mdx": "3.1.1",
+    "@tailwindcss/vite": "^4.3.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "electron": "^45.3.2",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  },
+  "dependencies": {
+    "@streamdown/code": "2.0.0",
+    "geist": "^1.9.2",
+    "lucide-react": "^1.73.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "rehype-harden": "1.1.9",
+    "streamdown": "^2.7.1"
+  },
+  "optionalDependencies": {
+    "electron-liquid-glass": "1.1.1",
+    "node-gyp-build": "4.8.4"
+  }
+}

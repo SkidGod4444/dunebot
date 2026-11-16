@@ -1,0 +1,9 @@
+node_modules/
+dist/
+core/target/
+.DS_Store
+*.log
+.dev/
+native/target/
+native/*.node
+out/

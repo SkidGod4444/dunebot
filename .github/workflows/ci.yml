@@ -1,0 +1,100 @@
+# The same checks on macOS, Windows and Linux: the core's tests, the core run end to end, the pages
+# built, and every window drawn hidden in light and dark (pictures + measurements). The last job
+# compares Windows and Linux against macOS: same parts, same places, same colours.
+name: ci
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - name: Linux packages (sound for the mic, a virtual display for the windows)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev xvfb libgtk-3-0 libnss3 libgbm1 libxss1 libatk-bridge2.0-0
+      - name: Windows, where bindgen finds clang (speech-to-text)
+        if: runner.os == 'Windows'
+        run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
+      - run: bun install --frozen-lockfile
+      - name: Core tests
+        run: cargo test --manifest-path core/Cargo.toml
+      - name: Core end to end
+        run: |
+          cargo build --manifest-path core/Cargo.toml
+          PY=$(command -v python3 || command -v python)
+          "$PY" -I scripts/core_smoke.py core/target/debug/dunebot-core "$(mktemp -d)"
+      - name: Pages
+        run: bunx tsc --noEmit -p . && bunx vite build
+      - name: The answer card follows the pointer (never on it, always on the screen, no flapping at an edge)
+        run: node scripts/check_follow.mjs
+      - name: Replies render safely (every partial state, the reply tags, attacks in the real windows) and are spoken as plain words
+        run: |
+          bun scripts/check_reply.tsx
+          bun scripts/check_speech.ts
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1440x900x24" bun scripts/check_reply_live.ts
+          else bun scripts/check_reply_live.ts; fi
+      - name: Windows drawn hidden
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1440x900x24" node scripts/snapshots.mjs snapshots
+          else node scripts/snapshots.mjs snapshots; fi
+          # The Mac also draws the Windows and Linux versions of the pages, the reference for those systems.
+          if [ "$RUNNER_OS" = macOS ]; then node scripts/snapshots.mjs snapshots win32 && node scripts/snapshots.mjs snapshots linux; fi
+      - name: Packaged app (unpacked folder) checks itself and draws the same pages
+        shell: bash
+        run: |
+          bun run package
+          APP=$(node -e 'const p={darwin:"out/Dunebot-darwin-%s/Dunebot.app/Contents/MacOS/Dunebot",win32:"out/Dunebot-win32-%s/Dunebot.exe",linux:"out/Dunebot-linux-%s/dunebot"}[process.platform]; console.log(require("path").resolve(p.replace("%s",process.arch)))')
+          if [ "$RUNNER_OS" = Linux ]; then
+            DUNEBOT_SELFCHECK=1 xvfb-run -a "$APP" --no-sandbox
+            DUNEBOT_SNAPSHOT_APP="$APP" xvfb-run -a -s "-screen 0 1440x900x24" node scripts/snapshots.mjs packaged
+          else
+            DUNEBOT_SELFCHECK=1 "$APP"
+            DUNEBOT_SNAPSHOT_APP="$APP" node scripts/snapshots.mjs packaged
+          fi
+          python3 scripts/compare_snapshots.py snapshots "$(node -p process.platform)" packaged "$(node -p process.platform)" 6
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: snapshots-${{ runner.os }}
+          path: snapshots/
+
+  same-everywhere:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: shots
+      - name: Windows and Linux draw their pages as the Mac draws them
+        run: |
+          python3 scripts/compare_snapshots.py shots/snapshots-macOS win32 shots/snapshots-Windows win32 6 bar,caption,caption-tags,caption-approval,setup,main,fixes,schedules,permissions
+          python3 scripts/compare_snapshots.py shots/snapshots-macOS linux shots/snapshots-Linux linux 6 bar,caption,caption-tags,caption-approval,setup,main,fixes,schedules,permissions
+      # 6 px: Windows/Linux scrollbars take room (macOS's float), which moves centred content 5 px.
+      - name: The bar and history window are the same page on every system
+        run: |
+          python3 scripts/compare_snapshots.py shots/snapshots-macOS darwin shots/snapshots-macOS win32 6 bar,caption,caption-tags,caption-approval,main,fixes,schedules,permissions
+          python3 scripts/compare_snapshots.py shots/snapshots-macOS darwin shots/snapshots-macOS linux 6 bar,caption,caption-tags,caption-approval,main,fixes,schedules,permissions
