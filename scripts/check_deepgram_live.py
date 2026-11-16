@@ -3,7 +3,7 @@
 Usage: python3 -I scripts/check_deepgram_live.py <core> <key-file> [<key-file> …] <out-dir>
 <key-file>: .env files holding DEEPGRAM_API_KEY=… (and, to check Hindi goes to Sarvam, SARVAM_API_KEY=…);
 read here, never printed. Made-up sentences only."""
-import base64, json, os, queue, subprocess, sys, threading, time, urllib.request
+import base64, json, os, queue, re, subprocess, sys, threading, time, urllib.request, wave
 
 core, key_files, out = sys.argv[1], sys.argv[2:-1], sys.argv[-1]
 def key_named(name):
@@ -116,18 +116,52 @@ if SARVAM:
     first, _, err = stream_first_sound(sid, "आज मौसम बहुत अच्छा है, चलो पार्क में घूमने चलते हैं।")
     check("stream: a Hindi answer goes to Sarvam (switching costs a reconnect)", first is not None and "voice: Sarvam reads this answer" in stderr(), f"first sound {first and round(first, 2)} s" if first else err)
     call("voice.streamClose", stream=sid)
-    # You speak Hindi (made-up speech, Sarvam's own voice): a stream opened while you talked moves to
-    # Sarvam as soon as you're heard, so the Hindi answer doesn't wait for a reconnect.
-    body = json.dumps({"text": "आज मौसम कैसा है?", "target_language_code": "hi-IN", "speaker": "simran_enhi_companion",
-                       "model": "bulbul:v4-flash", "speech_sample_rate": 16000, "output_audio_codec": "wav"}).encode()
-    req = urllib.request.Request("https://api.sarvam.ai/text-to-speech", data=body, method="POST",
-                                 headers={"api-subscription-key": SARVAM, "content-type": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        open(os.path.join(out, "hi-question.wav"), "wb").write(base64.b64decode(json.loads(resp.read())["audios"][0]))
-    # (Nothing has been heard yet, so it connects to the American voice first.)
+
+    def heard_back(name, chunks):
+        """What Sarvam hears in the streamed sound: (language, text)."""
+        pcm = b"".join(base64.b64decode(c["audio"]) for c in chunks)
+        f = os.path.join(out, f"{name}.wav")
+        with wave.open(f, "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(chunks[0]["rate"] if chunks else 22050); w.writeframes(pcm[: len(pcm) // 2 * 2])
+        before = stderr().count("speech in")
+        text = call("voice.transcribeFile", path=f).get("result", {}).get("text", "")
+        time.sleep(0.1)
+        langs = re.findall(r"of (\S+) speech in", stderr())
+        return (langs[-1] if len(langs) > before else "?"), text
+
+    # Opened for the American voice (nothing heard yet), then the answer turns out Tamil or Hinglish:
+    # Sarvam reads it, in that language.
+    for name, text, want in [("tamil", "இன்று வானிலை மிகவும் நன்றாக உள்ளது.", "ta-IN"),
+                             ("hinglish", "Rainbow tab banta hai jab sunlight hawa mein maujood paani ki boondon se guzarti hai.", "hi-IN")]:
+        sid = call("voice.streamOpen")["result"]["stream"]
+        opened(sid)
+        first, chunks, err = stream_first_sound(sid, text)
+        call("voice.streamClose", stream=sid)
+        lang, said = heard_back(name, chunks) if chunks else ("?", "")
+        check(f"stream: a {name} answer is read by Sarvam in {want}", first is not None and lang == want,
+              f"first sound {first and round(first, 2)} s, heard {lang}: {said[:50]}" if first else err)
     sid = call("voice.streamOpen")["result"]["stream"]
     opened(sid)
-    heard = call("voice.transcribeFile", path=os.path.join(out, "hi-question.wav")).get("result", {}).get("text", "")
+    stream_first_sound(sid, "Sure, here is how it works.")
+    r = call("voice.streamSay", stream=sid, text="Rainbow tab banta hai jab sunlight paani ki boondon se guzarti hai.")
+    check("stream: Hinglish inside an English answer is refused (Sarvam reads it whole)", "error" in r, r.get("error", ""))
+    call("voice.streamClose", stream=sid)
+    # You speak Hindi (made-up speech, Sarvam's own voice): a stream opened while you talked moves to
+    # Sarvam as soon as you're heard, so the Hindi answer doesn't wait for a reconnect.
+    def question(name, text, lang):
+        """Made-up speech in Sarvam's voice, as a 16 kHz WAV."""
+        body = json.dumps({"text": text, "target_language_code": lang, "speaker": "simran_enhi_companion",
+                           "model": "bulbul:v4-flash", "speech_sample_rate": 16000, "output_audio_codec": "wav"}).encode()
+        req = urllib.request.Request("https://api.sarvam.ai/text-to-speech", data=body, method="POST",
+                                     headers={"api-subscription-key": SARVAM, "content-type": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            open(os.path.join(out, f"{name}.wav"), "wb").write(base64.b64decode(json.loads(resp.read())["audios"][0]))
+        return os.path.join(out, f"{name}.wav")
+    # You last spoke English, so a new stream connects to the American voice; then you speak Hindi.
+    call("voice.transcribeFile", path=question("en-question", "What is the weather like today?", "en-IN"))
+    sid = call("voice.streamOpen")["result"]["stream"]
+    opened(sid)
+    heard = call("voice.transcribeFile", path=question("hi-question", "आज मौसम कैसा है?", "hi-IN")).get("result", {}).get("text", "")
     drain(2.5)
     first, _, err = stream_first_sound(sid, "आज मौसम बहुत अच्छा है।")
     check("stream: after you speak Hindi it's ready with Sarvam, no reconnect", first is not None and first < 1.0 and "ready with Sarvam" in stderr(),

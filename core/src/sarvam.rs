@@ -199,10 +199,10 @@ pub fn hinglish(text: &str) -> bool {
     found.len() >= 2
 }
 
-/// Sarvam's voice for each language: the English-Hindi one (Simran) by default, a native voice where
-/// bulbul:v4-flash has one. Each was checked by reading a sentence and listening to it again with
-/// Sarvam (2026-11-16: every language heard back word for word). Odia uses the Bengali voice: the
-/// default one read it unusually slowly.
+/// Sarvam's voice for each language: a native woman's voice where bulbul:v4-flash has one, else the
+/// English-Hindi one (Simran; Tamil's native voices are all men's, Malayalam has none). Odia uses the
+/// Bengali voice: Simran read it unusually slowly. Each was checked by reading a sentence and listening
+/// to it again with Sarvam (2026-11-16: every language heard back word for word), not by ear.
 pub fn speaker_for(lang: &str) -> &'static str {
     match lang {
         "bn-IN" | "od-IN" => "roopa_bn_conversational",

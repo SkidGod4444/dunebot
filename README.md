@@ -38,7 +38,8 @@ Dune Bot has no main window. It sits in the menu bar (tray on Windows/Linux).
 languages, mixed too; recordings over 29 s go in parts cut at a quiet moment), and answers are read
 aloud with `bulbul:v4-flash`: Hindi, Bengali, Tamil, Telugu, Gujarati, Kannada, Malayalam, Marathi,
 Punjabi and Odia, each picked from the answer's script (Marathi when that's what you last spoke) and
-read by a voice for that language (`speaker_for` in `core/src/sarvam.rs`). With your own [Deepgram](https://deepgram.com)
+read by a voice for that language (`speaker_for` in `core/src/sarvam.rs`); Hindi written in Latin
+letters ("Rainbow tab banta hai…") is read as Hindi too. With your own [Deepgram](https://deepgram.com)
 key saved too, **English answers are read in an American voice** (Aura-2 `aura-2-thalia-en`), and
 answers in Hindi and other Indian languages stay with Sarvam; the answer's first sentence decides,
 and a Hindi sentence later in an English answer is read whole by Sarvam after the English
