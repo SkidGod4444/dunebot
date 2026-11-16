@@ -537,10 +537,16 @@ const followTest = snapshot && process.env.DUNEBOT_SNAPSHOT_FOLLOW
   ? { tick: 0, moves: 0, sides: 0, under: 0, outside: 0, heldTicks: 0, movedWhileHeld: 0, grab: process.env.DUNEBOT_SNAPSHOT_FOLLOW === "grab", grabbedAt: 0, movedAfterGrab: 0 }
   : null;
 
+// The scripted checks place the card on a fixed 1440×900 screen (Linux CI's), whatever the machine's
+// display: on a small one (macOS CI) the 360×320 card fills the room beside the pointer, so moving
+// "beside" it already heads into it and the scripted path would mean something else.
+const TEST_SCREEN = { x: 0, y: 25, width: 1440, height: 875 };
+const workAreaAt = (p) => (followTest ? TEST_SCREEN : screen.getDisplayNearestPoint(p).workArea);
+
 function pointer() {
   if (!followTest) return screen.getCursorScreenPoint();
   // A path that crosses the screen, runs along its right and bottom edges and jiggles there.
-  const wa = screen.getPrimaryDisplay().workArea;
+  const wa = TEST_SCREEN;
   const t = followTest.tick;
   const cx = wa.x + wa.width / 2;
   const cy = wa.y + wa.height / 2;
@@ -618,7 +624,7 @@ function followStep() {
     updateFollow();
     return;
   }
-  const wa = screen.getDisplayNearestPoint(p).workArea;
+  const wa = workAreaAt(p);
   const r = placeCaption(p, wa, captionPlace);
   trail.push({ at: now, p, card: r.card });
   if (followTest) {
@@ -671,7 +677,7 @@ function createCaption() {
 function showCaption(threadId, { speak = true, corner = false, held = false } = {}) {
   if (!caption || caption.isDestroyed()) createCaption();
   const p = pointer();
-  const wa = screen.getDisplayNearestPoint(p).workArea;
+  const wa = workAreaAt(p);
   const { x, y, side, align } = corner ? captionCorner(wa) : placeCaption(p, wa, null);
   captionThread = threadId;
   captionOpen = true;
@@ -1531,7 +1537,7 @@ async function takeSnapshot(win) {
   if (followTest) {
     const f = followTest;
     log(`follow: ${f.moves} moves, ${f.sides} side changes, ${f.under} on the pointer, ${f.outside} off the screen, held for a card ${f.heldTicks} ticks with ${f.movedWhileHeld} moves`);
-    if (f.grab) log(`grab: held at tick ${f.grabbedAt} after ${f.moves} moves, ${f.movedAfterGrab} moves after`);
+    if (f.grab) log(`grab: held at tick ${f.grabbedAt} after ${f.moves} moves, ${f.movedAfterGrab} moves after (card ${captionPlace?.side}/${captionPlace?.align}; this display ${screen.getPrimaryDisplay().workArea.width}x${screen.getPrimaryDisplay().workArea.height})`);
   }
   console.log("snapshot:", snapshot);
   app.quit();

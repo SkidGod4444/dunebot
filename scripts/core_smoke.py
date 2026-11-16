@@ -56,18 +56,27 @@ ok("error" in send("settings.set", action="write-file", mode="auto"), "Auto is r
 ta0 = send("threads.create", agent="echo")["result"]["id"]
 i = len(seen)
 send("threads.send", id=ta0, text="run ls -la")
-wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == ta0)
-ran0 = [m["message"] for m in seen[i:] if m.get("event") == "message.updated" and m["message"]["role"] == "tool"]
-ok(not any(m.get("event") == "approval.request" for m in seen[i:]) and ran0 and ran0[-1]["meta"]["status"] == "done",
-   "Auto: a command that only looks runs without a card")
-send("threads.send", id=ta0, text="run rm -f dunebot-smoke-nothing")
-appr = wait(lambda m: m.get("event") == "approval.request")
-card = [m for m in send("threads.get", id=ta0)["result"]["messages"] if m["role"] == "approval"][-1]
-ok("rm isn't one of the commands that only look" in (card["meta"].get("why") or ""), "Auto: anything else asks, and the card says why")
-time.sleep(0.6)
-send("approvals.respond", id=appr["approvalId"], decision="deny")
-wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == ta0)
-ok(any(r["decision"] == "allowed (auto: only looks)" for r in send("ledger.list")["result"]), "Auto: what ran unasked is in the activity log")
+if ready["platform"] == "windows":
+    # On Windows every command asks for now (core/src/lookonly.rs), even one that only looks.
+    appr = wait(lambda m: m.get("event") == "approval.request")
+    card = [m for m in send("threads.get", id=ta0)["result"]["messages"] if m["role"] == "approval"][-1]
+    ok("on Windows every command asks" in (card["meta"].get("why") or ""), "Auto on Windows: every command asks, and the card says why")
+    time.sleep(0.6)
+    send("approvals.respond", id=appr["approvalId"], decision="deny")
+    wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == ta0)
+else:
+    wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == ta0)
+    ran0 = [m["message"] for m in seen[i:] if m.get("event") == "message.updated" and m["message"]["role"] == "tool"]
+    ok(not any(m.get("event") == "approval.request" for m in seen[i:]) and ran0 and ran0[-1]["meta"]["status"] == "done",
+       "Auto: a command that only looks runs without a card")
+    send("threads.send", id=ta0, text="run rm -f dunebot-smoke-nothing")
+    appr = wait(lambda m: m.get("event") == "approval.request")
+    card = [m for m in send("threads.get", id=ta0)["result"]["messages"] if m["role"] == "approval"][-1]
+    ok("rm isn't one of the commands that only look" in (card["meta"].get("why") or ""), "Auto: anything else asks, and the card says why")
+    time.sleep(0.6)
+    send("approvals.respond", id=appr["approvalId"], decision="deny")
+    wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == ta0)
+    ok(any(r["decision"] == "allowed (auto: only looks)" for r in send("ledger.list")["result"]), "Auto: what ran unasked is in the activity log")
 send("settings.set", action="run-command", mode="ask")  # the checks below are about asking
 
 end, tool = turn("run echo hi-from-dunebot", "once")
