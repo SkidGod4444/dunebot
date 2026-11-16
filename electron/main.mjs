@@ -605,7 +605,9 @@ function followStep() {
   lastPointer = p;
   // Heading for the card over the last ~0.1 s: it stops where it is, so the pointer reaches it.
   // (Not in the scripted check of following, whose path crosses the card on purpose.)
-  const now = Date.now();
+  // The scripted pointer moves per tick, so its check keeps time in ticks: a hidden app's timers can be
+  // bunched by the system (macOS CI), which would leave no sample 60–200 ms old.
+  const now = followTest ? followTest.tick * 16 : Date.now();
   trail = trail.filter((s) => now - s.at < 200);
   const from = trail.find((s) => now - s.at >= 60);
   if ((!followTest || followTest.grab) && from && heading(from.p, p, from.card)) {

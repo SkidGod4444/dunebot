@@ -777,7 +777,9 @@ mod tests {
         check(cmd, &cwd, &data)
     }
 
+    // On Windows every command asks for now (`check`); these two describe the macOS and Linux rule.
     #[test]
+    #[cfg(not(windows))]
     fn look_only_commands_run() {
         for c in [
             // the exact line from the user's chat
@@ -809,6 +811,15 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
+    fn on_windows_every_command_asks() {
+        for c in ["ls -la ~/Downloads", "df -h", "rm -rf ~/x"] {
+            assert_eq!(run(c).err().map(|a| a.category), Some("windows"), "{c}");
+        }
+    }
+
+    #[test]
+    #[cfg(not(windows))]
     fn everything_else_asks() {
         let cases = [
             ("rm -rf ~/x", "not-on-list"),

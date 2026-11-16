@@ -137,7 +137,8 @@ for (const theme of ["light", "dark"])
       if (!m) problems.push(`${name} ${theme}: no "grab:" line in the log (the card never held still)`);
       else {
         const [, at, moves, after] = m.map(Number);
-        if (at < 60) problems.push(`${name} ${theme}: held at tick ${at}, while the pointer only moved beside it`);
+        if (at === 0) problems.push(`${name} ${theme}: never held still, though the pointer headed for it`);
+        else if (at < 60) problems.push(`${name} ${theme}: held at tick ${at}, while the pointer only moved beside it`);
         if (moves < 30) problems.push(`${name} ${theme}: followed only ${moves} moves before holding`);
         if (after) problems.push(`${name} ${theme}: moved ${after} times after holding still`);
         note += ` followed ${moves} moves, held at tick ${at}`;
