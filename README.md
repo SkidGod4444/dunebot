@@ -43,8 +43,12 @@ letters ("Rainbow tab banta hai…") is read as Hindi too. With your own [Deepgr
 key saved too, **English answers are read in an American voice** (Aura-2 `aura-2-thalia-en`), and
 answers in Hindi and other Indian languages stay with Sarvam; the answer's first sentence decides,
 and a Hindi sentence later in an English answer is read whole by Sarvam after the English
-(`core/src/deepgram.rs`, `core/src/speak_stream.rs`). Both are cloud voices, so they sound the same
-on every system. Reading aloud streams: the card opens one WebSocket (through the core, to the voice
+(`core/src/deepgram.rs`, `core/src/speak_stream.rs`). **Ask in Hindi or Hinglish** (Devanagari, Latin
+letters or the two mixed) and the answer is written in English, then read aloud in Hinglish: each
+English sentence goes through Sarvam's translator (`mayura:v1`, code-mixed, ~1.5 s, so the first sound
+comes ~2.2 s after the first sentence instead of ~0.4 s) and Sarvam's Hindi voice reads it; if
+translating fails, the English is read as it is. Other Indian languages are answered and read as
+before. Both are cloud voices, so they sound the same on every system. Reading aloud streams: the card opens one WebSocket (through the core, to the voice
 you're likelier to need, from the language you last spoke) while you're still being written down,
 sends each sentence the moment it's complete (Hindi ends at "।" too), and plays the audio as it
 arrives through an AudioContext, so the first sound comes ~0.3–0.4 s after a sentence instead of

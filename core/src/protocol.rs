@@ -164,8 +164,15 @@ async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<Value
         // voice when its key is saved (Sarvam if Deepgram fails), anything else by Sarvam.
         "voice.say" => {
             let text = s(p, "text")?.to_string();
-            let american = app.deepgram_on() && crate::deepgram::is_english(&text);
             let sarvam = app.sarvam_on();
+            // An answer to a Hindi or Hinglish question: English on the card, Hinglish aloud.
+            if sarvam && app.sarvam.hinglish_answer() && crate::deepgram::is_english(&text) {
+                let spoken = crate::speak_stream::hinglish_or_english(app, &text).await;
+                let app = app.clone();
+                let audio = tokio::task::spawn_blocking(move || app.sarvam.say_as(&spoken, "hi-IN", 1500)).await??;
+                return Ok(json!({ "audio": audio, "type": "audio/mpeg" }));
+            }
+            let american = app.deepgram_on() && crate::deepgram::is_english(&text);
             if !american && !sarvam {
                 anyhow::bail!("Sarvam is off");
             }
@@ -198,7 +205,7 @@ async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<Value
             if !app.sarvam_on() && !app.deepgram_on() {
                 anyhow::bail!("Sarvam is off");
             }
-            crate::speak_stream::say(app, s(p, "stream")?, s(p, "text")?)?;
+            crate::speak_stream::say(app, s(p, "stream")?, s(p, "text")?).await?;
             json!({ "ok": true })
         }
         "voice.streamClose" => {

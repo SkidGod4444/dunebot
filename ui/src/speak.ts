@@ -143,6 +143,8 @@ export class Speaker {
   private streamOver = false; // closed, failed or refused a sentence after some of it was heard: no more sentences go to it
   private streamAlive = false; // the stream may still send sound (for sentences it was given)
   private firstSentAt = 0;
+  /** When the voice took the first sentence (a Hinglish answer's is translated first, ~1.5 s). */
+  private firstTakenAt = 0;
   private lastSentAt = 0;
   private lastSoundAt = 0;
   private ctx: AudioContext | null = null;
@@ -215,6 +217,7 @@ export class Speaker {
       this.sid = sid;
       const ok = !!sid && !this.streamOver && (await Speaker.stream!.say(sid, words));
       this.lastSentAt = performance.now();
+      if (ok && !this.firstTakenAt) this.firstTakenAt = this.lastSentAt;
       if (ok) this.streamSent.push({ words, at: this.lastSentAt });
       this.sending--;
       if (!ok && !this.stopped) this.streamFailed(words);
@@ -283,7 +286,10 @@ export class Speaker {
     if (this.stopped) return;
     const now = performance.now();
     if (!this.heard) {
-      if (this.streamWords.length && now - this.firstSentAt > NO_SOUND_MS) this.streamFailed(null);
+      // Counted from when the voice took the first sentence (a refused or failed one ends it at once).
+      const taken = this.firstTakenAt;
+      // (Or the voice never answered at all: well past a translation's 5 s limit.)
+      if (taken ? now - taken > NO_SOUND_MS : this.streamWords.length && now - this.firstSentAt > NO_SOUND_MS + 8000) this.streamFailed(null);
       return;
     }
     if (!this.finished && !this.streamOver) return;

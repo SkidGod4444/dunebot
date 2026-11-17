@@ -395,6 +395,8 @@ pub async fn send(app: Arc<App>, thread_id: &str, text: &str, spoken: bool) -> a
         bail!("this chat is still working on the last message");
     }
     app.cancelled.lock().unwrap().remove(&thread.id);
+    // A Hindi or Hinglish question: its answer is read aloud in Hinglish (speak_stream.rs).
+    app.sarvam.set_question(text);
     let msg = app.add_message(&thread.id, "user", text, json!({}))?;
     let title = (thread.title == "New chat").then(|| {
         let t: String = text.lines().next().unwrap_or(text).chars().take(48).collect();
@@ -477,6 +479,10 @@ async fn codemax_turn(app: &Arc<App>, thread: &Thread, text: &str, spoken: bool,
     if spoken {
         prompt = format!("{SPOKEN_NOTE}{prompt}");
     }
+    // Asked in Hindi or Hinglish: the answer is written in English (Dune Bot speaks it in Hinglish).
+    if app.sarvam.language_for(text) == "hi-IN" {
+        prompt = format!("{ENGLISH_NOTE}{prompt}");
+    }
     // The user's fixes for earlier mistakes, each given to a chat once (notes only; see fixes.rs).
     if let Some(fixes) = crate::fixes::for_turn(app, &thread.id) {
         prompt = format!("{fixes}{prompt}");
@@ -528,6 +534,10 @@ const MARKDOWN_SAMPLE: &str = "## Plan\n\nThis **deletes** `~/old-builds`, so ba
 /// Every message asked from the bar: its answer is read aloud and shown as a small caption beside the
 /// pointer (ui/src/Caption.tsx), so it should be short and plain.
 pub const SPOKEN_NOTE: &str = "<dunebot-voice>Asked from Dune Bot's bar: your answer is read aloud and shown as a small caption beside the user's pointer. Answer in one or two short, plain sentences unless they ask for more. No headings, tables or code blocks unless they ask; when more is needed, make the first sentence a complete answer on its own.</dunebot-voice>\n\n";
+
+/// A question in Hindi or Hinglish (the user's choice, 2026-11-17): the answer is written in English;
+/// when it's read aloud, Dune Bot says it in Hinglish itself.
+pub const ENGLISH_NOTE: &str = "<dunebot-language>The user asked in Hindi or Hinglish. Write your whole answer in English (their choice): Dune Bot shows your English answer and, when it reads it aloud, says it in Hinglish itself. Don't write Hindi or Hinglish yourself.</dunebot-language>\n\n";
 
 /// The test agent: `run <command>`, `ls <folder>`, `read <file>`, `write <file>` + newline + content.
 async fn echo_turn(app: &Arc<App>, thread: &Thread, text: &str, turn: &mut Turn) -> (&'static str, Option<String>) {

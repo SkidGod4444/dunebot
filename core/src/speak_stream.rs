@@ -11,6 +11,12 @@
 //! what it has, and the card reads that sentence and the rest whole (`voice.say`, which picks the
 //! voice per sentence).
 //!
+//! An answer to a Hindi or Hinglish question (the user's choice, 2026-11-17) is written in English
+//! and read in Hinglish: Sarvam's voice for the whole answer, each English sentence translated first
+//! (sarvam::hinglish_speech, ~1.5 s). `voice.streamSay` replies once the translation is on its way to
+//! the voice, so the card keeps the order and counts quiet from then. If translating fails, the English
+//! sentence is read as it is.
+//!
 //! Neither sends an end-of-speech message we wait for, so the card decides when it has heard
 //! everything. A stream closes when the card says so, after a minute with nothing to do, or after
 //! three minutes at most.
@@ -35,8 +41,8 @@ const MAX_LIFE: Duration = Duration::from_secs(180);
 const MAX_STREAMS: usize = 3;
 
 pub enum Cmd {
-    /// A sentence, and the voice that reads this answer (the first sentence decided it).
-    Say(String, Voice),
+    /// A sentence, the voice that reads this answer and its language (the first sentence decided them).
+    Say(String, Voice, &'static str),
     /// You've just been heard: connect to this voice now if nothing has been read yet.
     Hint(Voice),
     Close,
@@ -48,6 +54,8 @@ pub struct Handle {
     voice: Option<Voice>,
     /// The language its first sentence was in (a Sarvam stream is set up for it).
     lang: &'static str,
+    /// English sentences are translated and read in Hinglish (decided with the first sentence).
+    hinglish: bool,
 }
 
 impl Handle {
@@ -101,7 +109,7 @@ pub fn open(app: &Arc<App>) -> anyhow::Result<String> {
         if streams.len() >= MAX_STREAMS {
             bail!("too many voices at once");
         }
-        streams.insert(id.clone(), Handle { tx, voice: None, lang: "" });
+        streams.insert(id.clone(), Handle { tx, voice: None, lang: "", hinglish: false });
     }
     let (app, sid) = (app.clone(), id.clone());
     tokio::spawn(async move {
@@ -124,8 +132,8 @@ pub fn open(app: &Arc<App>) -> anyhow::Result<String> {
 
 /// A sentence for the stream to read. The first one decides whose voice reads the answer; a later
 /// one that voice can't read (Hindi after English, for Deepgram) is refused, and the card reads it
-/// whole instead.
-pub fn say(app: &Arc<App>, stream: &str, text: &str) -> anyhow::Result<()> {
+/// whole instead. In a Hinglish answer an English sentence is translated first (returns after that).
+pub async fn say(app: &Arc<App>, stream: &str, text: &str) -> anyhow::Result<()> {
     let text = text.trim();
     if text.is_empty() {
         bail!("nothing to read aloud");
@@ -135,21 +143,51 @@ pub fn say(app: &Arc<App>, stream: &str, text: &str) -> anyhow::Result<()> {
     }
     let want = pick(app, Some(text));
     let lang = app.sarvam.language_for(text);
-    let mut streams = app.sarvam.streams.lock().unwrap();
-    let h = streams.get_mut(stream).ok_or_else(|| anyhow!("that voice has stopped"))?;
-    let voice = match h.voice {
-        None => {
-            h.lang = lang;
-            *h.voice.insert(want.ok_or_else(|| anyhow!("no voice for that language"))?)
-        }
-        Some(Voice::Deepgram) if !is_english(text) => bail!("the American voice reads English only"),
-        // English inside an answer in an Indian language is read by that answer's voice.
-        Some(Voice::Sarvam) if lang != "en-IN" && !crate::sarvam::same_voice(h.lang, lang) => {
-            bail!("this voice is set up for another language")
-        }
-        Some(v) => v,
+    let (voice, lang, translate) = {
+        let mut streams = app.sarvam.streams.lock().unwrap();
+        let h = streams.get_mut(stream).ok_or_else(|| anyhow!("that voice has stopped"))?;
+        let voice = match h.voice {
+            // The question was Hindi or Hinglish: Sarvam's Hindi voice reads the whole answer, chosen
+            // here once (a translated sentence isn't guessed at again).
+            None if app.sarvam_on() && app.sarvam.hinglish_answer() => {
+                h.hinglish = true;
+                h.lang = "hi-IN";
+                *h.voice.insert(Voice::Sarvam)
+            }
+            None => {
+                h.lang = lang;
+                *h.voice.insert(want.ok_or_else(|| anyhow!("no voice for that language"))?)
+            }
+            Some(Voice::Deepgram) if !is_english(text) => bail!("the American voice reads English only"),
+            // English inside an answer in an Indian language is read by that answer's voice.
+            Some(Voice::Sarvam) if lang != "en-IN" && !crate::sarvam::same_voice(h.lang, lang) => {
+                bail!("this voice is set up for another language")
+            }
+            Some(v) => v,
+        };
+        (voice, h.lang, h.hinglish && is_english(text))
     };
-    h.tx.send(Cmd::Say(text.to_string(), voice)).map_err(|_| anyhow!("that voice has stopped"))
+    let spoken = if translate { hinglish_or_english(app, text).await } else { text.to_string() };
+    let streams = app.sarvam.streams.lock().unwrap();
+    let h = streams.get(stream).ok_or_else(|| anyhow!("that voice has stopped"))?;
+    h.tx.send(Cmd::Say(spoken, voice, lang)).map_err(|_| anyhow!("that voice has stopped"))
+}
+
+/// `english` as it's said in Hinglish; the English itself if translating fails (never silence).
+pub async fn hinglish_or_english(app: &Arc<App>, english: &str) -> String {
+    let (a, t) = (app.clone(), english.to_string());
+    let started = Instant::now();
+    match tokio::task::spawn_blocking(move || a.sarvam.hinglish_speech(&t)).await {
+        Ok(Ok(s)) => {
+            eprintln!("dunebot-core: voice: said in Hinglish ({} ms to translate)", started.elapsed().as_millis());
+            s
+        }
+        Ok(Err(e)) => {
+            eprintln!("dunebot-core: voice: couldn't translate a sentence ({e:#}); read in English");
+            english.to_string()
+        }
+        Err(_) => english.to_string(),
+    }
 }
 
 /// You've just been heard (Sarvam knows the language now): a stream that hasn't read anything yet
@@ -196,7 +234,7 @@ async fn run(app: &Arc<App>, id: &str, mut rx: mpsc::UnboundedReceiver<Cmd>) -> 
     loop {
         tokio::select! {
             cmd = rx.recv() => match cmd {
-                Some(Cmd::Say(text, want)) => {
+                Some(Cmd::Say(text, want, lang)) => {
                     if !started {
                         // The answer's first sentence decided who reads it (say()).
                         if want != voice {
@@ -207,8 +245,8 @@ async fn run(app: &Arc<App>, id: &str, mut rx: mpsc::UnboundedReceiver<Cmd>) -> 
                         eprintln!("dunebot-core: voice: {} reads this answer", voice.name());
                         if voice == Voice::Sarvam {
                             let config = json!({ "type": "config", "data": {
-                                "speaker": crate::sarvam::speaker_for(app.sarvam.language_for(&text)),
-                                "target_language_code": app.sarvam.language_for(&text),
+                                "speaker": crate::sarvam::speaker_for(lang),
+                                "target_language_code": lang,
                                 "output_audio_codec": "linear16",
                                 "speech_sample_rate": STREAM_RATE,
                                 "min_buffer_size": 30,

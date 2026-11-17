@@ -15,6 +15,7 @@ use std::time::Duration;
 
 pub const STT_URL: &str = "https://api.sarvam.ai/speech-to-text";
 pub const TTS_URL: &str = "https://api.sarvam.ai/text-to-speech";
+pub const TRANSLATE_URL: &str = "https://api.sarvam.ai/translate";
 pub const STT_MODEL: &str = "saaras:v4";
 pub const TTS_MODEL: &str = "bulbul:v4-flash";
 /// An English-Hindi voice: reads English, Hindi and the two mixed.
@@ -33,6 +34,9 @@ pub struct Sarvam {
     /// The language Sarvam last heard you speak ("en-IN", "hi-IN", …): which voice to connect to
     /// before an answer's first sentence says (speak_stream.rs).
     heard: Mutex<String>,
+    /// The question that started the latest turn was Hindi (Devanagari or Hinglish). The user's
+    /// choice (2026-11-17): the answer is written in English, and read aloud in Hinglish.
+    hinglish_answer: std::sync::atomic::AtomicBool,
 }
 
 impl Sarvam {
@@ -98,20 +102,60 @@ impl Sarvam {
         Ok((text.join(" "), lang))
     }
 
+    /// A turn starts with `question`: whether its answer is read in Hinglish (and written in English).
+    pub fn set_question(&self, question: &str) -> bool {
+        let hindi = self.language_for(question) == "hi-IN";
+        self.hinglish_answer.store(hindi, std::sync::atomic::Ordering::Relaxed);
+        hindi
+    }
+
+    /// The answer being read is for a Hindi or Hinglish question, and Sarvam can read it in Hinglish.
+    pub fn hinglish_answer(&self) -> bool {
+        self.hinglish_answer.load(std::sync::atomic::Ordering::Relaxed) && self.has_key()
+    }
+
+    /// An English sentence as it's said in Hinglish, for the voice only (the card stays English):
+    /// Hindi with everyday English words kept, numbers said the English way, in Devanagari, which the
+    /// voice reads best. Takes ~1.5 s.
+    pub fn hinglish_speech(&self, english: &str) -> anyhow::Result<String> {
+        let key = self.key()?;
+        let body = json!({
+            "input": english,
+            "source_language_code": "en-IN",
+            "target_language_code": "hi-IN",
+            "model": "mayura:v1",
+            "mode": "code-mixed",
+            "output_script": "spoken-form-in-native",
+            "speaker_gender": "Female",
+            "numerals_format": "international",
+        });
+        let v = post_within(&key, TRANSLATE_URL, "application/json", serde_json::to_vec(&body)?, Duration::from_secs(5))?;
+        let out = v.get("translated_text").and_then(Value::as_str).unwrap_or("").trim();
+        if out.is_empty() {
+            bail!("Sarvam sent no translation");
+        }
+        Ok(out.to_string())
+    }
+
     /// Speech for `text` (one sentence or a few): base64 MP3.
     pub fn say(&self, text: &str) -> anyhow::Result<String> {
+        self.say_as(text, self.language_for(text), MAX_SAY_CHARS)
+    }
+
+    /// Speech for `text` in the voice for `lang` (a Hinglish answer: hi-IN, whatever its script).
+    pub fn say_as(&self, text: &str, lang: &str, max_chars: usize) -> anyhow::Result<String> {
         let key = self.key()?;
         let text = text.trim();
         if text.is_empty() {
             bail!("nothing to read aloud");
         }
-        if text.chars().count() > MAX_SAY_CHARS {
+        if text.chars().count() > max_chars {
             bail!("too long to read aloud at once");
         }
         let body = json!({
             "text": text,
-            "target_language_code": self.language_for(text),
-            "speaker": speaker_for(self.language_for(text)),
+            "target_language_code": lang,
+            "speaker": speaker_for(lang),
             "model": TTS_MODEL,
             "speech_sample_rate": 22050,
             "output_audio_codec": "mp3",
@@ -127,8 +171,12 @@ impl Sarvam {
 
 /// Sends one request; an error says the status and Sarvam's message, never the key.
 fn post(key: &str, url: &str, content_type: &str, body: Vec<u8>) -> anyhow::Result<Value> {
+    post_within(key, url, content_type, body, Duration::from_secs(20))
+}
+
+fn post_within(key: &str, url: &str, content_type: &str, body: Vec<u8>, limit: Duration) -> anyhow::Result<Value> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(20)))
+        .timeout_global(Some(limit))
         .http_status_as_error(false)
         .build()
         .into();
@@ -321,6 +369,19 @@ mod tests {
         let s = String::from_utf8_lossy(&b);
         assert!(s.starts_with("--XyZ\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nsaaras:v4\r\n--XyZ\r\n"));
         assert!(s.contains("name=\"file\"; filename=\"a.wav\"\r\nContent-Type: audio/wav\r\n\r\nRIFF1234\r\n--XyZ--\r\n"));
+    }
+
+    #[test]
+    fn hindi_questions_get_hinglish_answers() {
+        let s = Sarvam::default();
+        assert!(s.set_question("Hey, यार आज का मौसम कैसा है बताना?")); // Sarvam's own mixed script
+        assert!(s.set_question("yaar aaj mausam kaisa hai batao"));
+        assert!(!s.hinglish_answer(), "no Sarvam key: nothing can say it in Hinglish");
+        s.set_key(Some("0123456789abcdef0123".into())).unwrap();
+        assert!(s.hinglish_answer());
+        assert!(!s.set_question("And tomorrow?")); // a typed English question after a Hindi one
+        assert!(!s.hinglish_answer());
+        assert!(!s.set_question("இன்று வானிலை எப்படி?")); // Tamil stays as it is
     }
 
     #[test]
