@@ -94,7 +94,9 @@ jobs:
           python3 scripts/compare_snapshots.py shots/snapshots-macOS win32 shots/snapshots-Windows win32 6 bar,caption,caption-tags,caption-approval,setup,main,fixes,schedules,permissions
           python3 scripts/compare_snapshots.py shots/snapshots-macOS linux shots/snapshots-Linux linux 6 bar,caption,caption-tags,caption-approval,setup,main,fixes,schedules,permissions
       # 6 px: Windows/Linux scrollbars take room (macOS's float), which moves centred content 5 px.
+      # Not Permissions: the Mac's has a Keys section (the ⌥⌘ tap-and-hold is Mac-only). Each system's
+      # own Permissions page is checked against the Mac's drawing of it in the step above.
       - name: The bar and history window are the same page on every system
         run: |
-          python3 scripts/compare_snapshots.py shots/snapshots-macOS darwin shots/snapshots-macOS win32 6 bar,caption,caption-tags,caption-approval,main,fixes,schedules,permissions
-          python3 scripts/compare_snapshots.py shots/snapshots-macOS darwin shots/snapshots-macOS linux 6 bar,caption,caption-tags,caption-approval,main,fixes,schedules,permissions
+          python3 scripts/compare_snapshots.py shots/snapshots-macOS darwin shots/snapshots-macOS win32 6 bar,caption,caption-tags,caption-approval,main,fixes,schedules
+          python3 scripts/compare_snapshots.py shots/snapshots-macOS darwin shots/snapshots-macOS linux 6 bar,caption,caption-tags,caption-approval,main,fixes,schedules
