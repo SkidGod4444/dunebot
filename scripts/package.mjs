@@ -75,7 +75,8 @@ const codemaxFits = () => {
   if (!fs.existsSync(codemax)) return false;
   if (platform === "win32") return true;
   const kind = execFileSync("file", ["-b", codemax], { encoding: "utf8" });
-  return (isMac ? kind.includes("Mach-O") : kind.includes("ELF")) && kind.includes(arch === "arm64" ? "arm64" : "x86_64");
+  // macOS' file says "arm64" / "x86_64", Linux's "ARM aarch64" / "x86-64".
+  return (isMac ? kind.includes("Mach-O") : kind.includes("ELF")) && (arch === "arm64" ? /arm64|aarch64/ : /x86[-_]64/).test(kind);
 };
 if (process.env.DUNEBOT_PACKAGE_CODEMAX !== "0" && codemaxFits()) {
   fs.mkdirSync(path.join(res, "codemax"), { recursive: true });
