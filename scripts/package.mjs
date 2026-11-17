@@ -48,7 +48,16 @@ if (isMac) {
 fs.writeFileSync(
   path.join(stage, "package.json"),
   JSON.stringify(
-    { name: pkg.name, productName: "Dunebot", version: pkg.version, type: "module", main: pkg.main, description: "Dunebot: your coding agents, on your computer." },
+    {
+      name: pkg.name,
+      productName: "Dunebot",
+      version: pkg.version,
+      type: "module",
+      main: pkg.main,
+      description: "Dunebot: your coding agents, on your computer.",
+      // Windows writes it into the app's file details (CompanyName); packaging for Windows fails without it.
+      author: "OpenHorizon Labs",
+    },
     null,
     2,
   ),
