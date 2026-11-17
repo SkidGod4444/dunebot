@@ -809,6 +809,8 @@ function hideVoiceBarSoon(ms) {
 // ---------- voice: the mic opens only once it's allowed ----------
 // Opening it before would put the system's permission box up mid-sentence and lose what you said.
 function micStatus() {
+  // Snapshots draw the same page on every system: CI's Windows machines have no microphone ("Off").
+  if (snapshot) return "granted";
   if (!isMac && !isWin) return "granted";
   try {
     return systemPreferences.getMediaAccessStatus("microphone");
@@ -995,7 +997,9 @@ function openMain(view = "chat") {
     if (isMac) app.focus({ steal: true });
     return mainWin;
   }
-  const [w, h] = (process.env.DUNEBOT_SNAPSHOT_SIZE ?? "1180x780").split("x").map(Number);
+  // Snapshots: a size that fits every CI machine's screen (Windows ones are 1024×768, and the window
+  // would shrink there), so every system draws the same window.
+  const [w, h] = (process.env.DUNEBOT_SNAPSHOT_SIZE ?? (snapshot ? "1024x720" : "1180x780")).split("x").map(Number);
   mainWin = new BrowserWindow({
     width: w,
     height: h,
