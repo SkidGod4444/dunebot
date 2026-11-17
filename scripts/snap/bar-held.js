@@ -19,7 +19,12 @@
   const early = (await users()).length;
   end = Date.now() + 20000;
   while (Date.now() < end && (await users()).length < 2) await sleep(150);
-  // Long enough for the mic button's color fade to finish: the picture is compared between builds.
+  // Then that answer has ended too: the Stop button turns back into the mic button with a color
+  // fade, and Windows CI once photographed its start. Then long enough for the fade to finish (the
+  // picture is compared between builds).
+  await sleep(300);
+  end = Date.now() + 10000;
+  while (Date.now() < end && dm.get().busy[id]) await sleep(100);
   await sleep(800);
   const all = await users();
   const box = document.querySelector("textarea")?.value ?? null;

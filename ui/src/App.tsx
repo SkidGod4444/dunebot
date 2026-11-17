@@ -392,7 +392,7 @@ function NewChat() {
 
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Agent</h2>
           {!agents ? (
-            <p className="text-[14px] text-muted">Looking for agents on this computer…</p>
+            <p data-loading className="text-[14px] text-muted">Looking for agents on this computer…</p>
           ) : (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {agents.map((a) => (

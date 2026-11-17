@@ -1580,15 +1580,17 @@ const SETTLE = `(async () => {
     await new Promise((r) => setTimeout(r, 100));
   }
 })()`;
-// Before a picture in the snapshot suite (DUNEBOT_SNAPSHOT_STILL): nothing fading or moving (finite CSS transitions and animations; a spinner's loop
+// Before a picture in the snapshot suite (DUNEBOT_SNAPSHOT_STILL): nothing loading (a part marked
+// data-loading, like Setup before its status arrives: it holds still while empty), nothing fading or moving (finite CSS transitions and animations; a spinner's loop
 // doesn't count), and the parts where they were for 500 ms. A slow machine (CI's Windows ones) was
-// photographed mid-fade or before a page had drawn. Gives up after 6 s and takes the picture anyway.
+// photographed mid-fade or before a page had drawn. Gives up after 15 s and takes the picture anyway.
 const STILL = `(async () => {
   const measure = () => ${MEASURE};
-  const end = Date.now() + 6000;
+  const end = Date.now() + 15000;
   let last = "", since = Date.now();
   while (Date.now() < end) {
-    const moving = document.getAnimations().some((a) => a.playState === "running" && a.effect?.getComputedTiming().iterations !== Infinity);
+    const moving = !!document.querySelector("[data-loading]") ||
+      document.getAnimations().some((a) => a.playState === "running" && a.effect?.getComputedTiming().iterations !== Infinity);
     const now = moving ? "moving" : JSON.stringify(measure());
     if (now !== last || moving) (last = now), (since = Date.now());
     else if (Date.now() - since >= 500) return true;
@@ -1618,7 +1620,7 @@ async function takeSnapshot(win) {
   }
   await new Promise((r) => setTimeout(r, Number(process.env.DUNEBOT_SNAPSHOT_WAIT ?? 700)));
   const still = !process.env.DUNEBOT_SNAPSHOT_STILL || (await win.webContents.executeJavaScript(STILL).catch(() => false));
-  if (!still) console.log(`snapshot: ${path.basename(snapshot)} never held still for 500 ms in 6 s`);
+  if (!still) console.log(`snapshot: ${path.basename(snapshot)} never held still for 500 ms in 15 s`);
   if (placing) barReport("resized");
   const img = await win.webContents.capturePage();
   fs.writeFileSync(snapshot, img.toPNG());

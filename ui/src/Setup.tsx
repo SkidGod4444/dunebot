@@ -160,7 +160,8 @@ export function Setup() {
     }
   }
 
-  if (!st) return <div ref={box} className="h-80" />;
+  // data-loading: snapshots wait until no part of the page is still loading (electron/main.mjs STILL).
+  if (!st) return <div ref={box} data-loading className="h-80" />;
   const keys = st.keys ?? "⌥⌘";
 
   const folders = Object.entries(st.folders);
