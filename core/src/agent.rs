@@ -543,7 +543,7 @@ pub const SPOKEN_NOTE: &str = "<dunebot-voice>Asked from Dune Bot's bar: your an
 pub const ENGLISH_NOTE: &str = "<dunebot-language>The user asked in Hindi or Hinglish. Write your whole answer in English (their choice): Dune Bot shows your English answer and, when it reads it aloud, says it in Hinglish itself. Don't write Hindi or Hinglish yourself.</dunebot-language>\n\n";
 
 /// The test agent: `run <command>`, `ls <folder>`, `read <file>`, `write <file>` + newline + content,
-/// `look`, `where`, `search [words]`.
+/// `look`, `where`, `search [words]`, `pause <words>`.
 async fn echo_turn(app: &Arc<App>, thread: &Thread, text: &str, turn: &mut Turn) -> (&'static str, Option<String>) {
     let (head, rest) = text.split_once(char::is_whitespace).unwrap_or((text, ""));
     let rest = rest.trim();
@@ -567,6 +567,13 @@ async fn echo_turn(app: &Arc<App>, thread: &Thread, text: &str, turn: &mut Turn)
                     _ => tokio::time::sleep(Duration::from_millis(50)).await,
                 }
             }
+            return ("done", None);
+        }
+        "pause" => {
+            // A real agent thinks a moment before its first words: the card beside the pointer opens
+            // before them (scripts/snap/caption-voice-ask.js).
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+            say(turn, &format!("Echo: {rest}")).await;
             return ("done", None);
         }
         "fixes" => {

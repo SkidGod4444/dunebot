@@ -115,7 +115,15 @@ function onEvent(m: any) {
       break;
     case "message.created": {
       const msg: Message = m.message;
-      set((s) => (s.messages[msg.threadId] ? { messages: { ...s.messages, [msg.threadId]: [...s.messages[msg.threadId], msg] } } : {}));
+      set((s) => {
+        const list = s.messages[msg.threadId];
+        if (list) return { messages: { ...s.messages, [msg.threadId]: [...list, msg] } };
+        // The caption keeps every turn from its start, and a turn starts with its question, which the
+        // core sends just before "turn.started". Without it, a new chat's first answer has no question
+        // above it on the card and isn't read aloud.
+        if (trackTurns && msg.role === "user") return { messages: { ...s.messages, [msg.threadId]: [msg] } };
+        return {};
+      });
       break;
     }
     case "message.updated": {
@@ -141,7 +149,8 @@ function onEvent(m: any) {
       set((s) => ({ waiting: { ...s.waiting, [m.threadId]: (s.waiting[m.threadId] ?? 0) + 1 } }));
       break;
     case "turn.started":
-      // The caption keeps every turn from its start (so a fast reply can't arrive before it looks).
+      // The caption keeps every turn from its start (so a fast reply can't arrive before it looks), if
+      // its question didn't already start the list.
       set((s) => ({ busy: { ...s.busy, [m.threadId]: true }, ...(trackTurns && !s.messages[m.threadId] ? { messages: { ...s.messages, [m.threadId]: [] } } : {}) }));
       break;
     case "turn.ended":

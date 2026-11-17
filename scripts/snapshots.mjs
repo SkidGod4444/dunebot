@@ -40,6 +40,8 @@ const SHOTS = [
   ["caption-approval-next", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-approval-next.js") }],
   ["caption-first-line", "caption", { DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-first-line.js") }],
   ["caption-held-read", "caption", { DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-held-read.js") }],
+  // The first question of a new chat, spoken from the bar, is read aloud.
+  ["caption-voice-ask", "caption", { DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-voice-ask.js") }],
   ["bar-held", "bar", { DUNEBOT_SNAPSHOT_HELD: "1", DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bar-held.js") }],
   ["setup", "setup", {}],
   ["main", "main", {}],
@@ -109,6 +111,11 @@ for (const theme of ["light", "dark"])
       if (!m) problems.push(`${name} ${theme}: no "speech:" line in the log`);
       else if (m[1] !== "2" || m[2] !== "0") problems.push(`${name} ${theme}: Sarvam read ${m[1]}, ${m[2]} went to the system voice (blob audio blocked?)`);
       else note += " sarvam played 2 of 2";
+    }
+    if (name === "caption-voice-ask") {
+      // A new chat's first answer: read aloud (a "speech:" line with sentences streamed).
+      if (!/speech: .*streamed [1-9]/.test(log)) problems.push(`${name} ${theme}: a new chat's first answer wasn't read aloud\n${log.split("\n").filter((l) => /speech|caption|turn/.test(l)).slice(-6).join("\n")}`);
+      else note += " read aloud";
     }
     if (name === "caption-held-read") {
       // The held question goes only after the answer has been read: "speech:" (reading over) first.
