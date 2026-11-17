@@ -328,5 +328,34 @@ listed = echo_turn("search")["meta"].get("output", "")
 ok("from the last 7 days" in listed and tid[:12] in listed and t4[:12] not in listed, "search_chats lists recent chats, not the one asking")
 whole = echo_turn(f"search zzz-no-such-words-qq")["meta"].get("output", "")
 ok("No past chat mentions" in whole, "search_chats says when nothing matches")
+
+# clicks: by a point in the chat's latest picture of the screen, done by the app, without asking
+blind = echo_turn("click 10 10 the tab")
+ok(blind["meta"]["status"] != "done" and "Look at the screen first" in blind["meta"].get("output", ""), "click needs a picture of the screen first")
+send("threads.send", id=t4, text="look")
+cap = wait(lambda m: m.get("event") == "screen.capture")
+PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+send("screen.result", requestId=cap["requestId"], data=PNG, mime="image/png", width=800, height=500,
+     display={"x": 1512, "y": 0, "width": 1600, "height": 1000}, pointer={"x": 1600, "y": 100})
+wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == t4)
+send("threads.send", id=t4, text="click 100 50 the Career tab")
+ask = wait(lambda m: m.get("event") in ("input.click", "approval.request"))
+ok(ask.get("event") == "input.click" and ask["x"] == 1712 and ask["y"] == 100 and ask["count"] == 1 and ask["button"] == "left",
+   f"click asks the app at the screen point, without a card ({ask.get('x')},{ask.get('y')})")
+send("input.result", requestId=ask["requestId"])
+wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == t4)
+done = [m for m in send("threads.get", id=t4)["result"]["messages"] if m["role"] == "tool"][-1]
+ok(done["meta"]["status"] == "done" and "the Career tab" in done["meta"].get("output", ""), "click reports what it clicked")
+ok(any(r["action"] == "click" and r["decision"] == "allowed (always)" and r["target"] == "the Career tab" for r in send("ledger.list")["result"]), "click is in the activity log")
+send("threads.send", id=t4, text="click 100 50 Dune Bot's card")
+own = wait(lambda m: m.get("event") == "input.click")
+send("input.result", requestId=own["requestId"], error="That point is on Dune Bot's own answer card, and Dune Bot never clicks itself.")
+wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == t4)
+refused = [m for m in send("threads.get", id=t4)["result"]["messages"] if m["role"] == "tool"][-1]
+ok(refused["meta"]["status"] != "done" and "never clicks itself" in refused["meta"].get("output", ""), "the app's refusal reaches the agent")
+outside = echo_turn("click 900 50 off the picture")
+ok("isn't in the picture" in outside["meta"].get("output", ""), "a point outside the picture is refused")
+ok(send("input.result", requestId="nope").get("error"), "an unknown click answer is refused")
+
 p2.stdin.close(); p2.wait(timeout=5)
 print("ALL PASS")

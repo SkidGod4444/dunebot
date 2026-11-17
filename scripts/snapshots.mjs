@@ -42,6 +42,12 @@ const SHOTS = [
   ["caption-held-read", "caption", { DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-held-read.js") }],
   // The first question of a new chat, spoken from the bar, is read aloud.
   ["caption-voice-ask", "caption", { DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-voice-ask.js") }],
+  // The test agent clicks a point in a picture of the screen; the app logs it (stand-ins, no real click).
+  ["caption-click", "caption", {
+    DUNEBOT_SCREEN_STUB: path.join(root, "electron", "assets", "icon.png"),
+    DUNEBOT_CLICK_STUB: "1",
+    DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-click.js"),
+  }],
   ["bar-held", "bar", { DUNEBOT_SNAPSHOT_HELD: "1", DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bar-held.js") }],
   ["setup", "setup", {}],
   ["main", "main", {}],
@@ -116,6 +122,11 @@ for (const theme of ["light", "dark"])
       // A new chat's first answer: read aloud (a "speech:" line with sentences streamed).
       if (!/speech: .*streamed [1-9]/.test(log)) problems.push(`${name} ${theme}: a new chat's first answer wasn't read aloud\n${log.split("\n").filter((l) => /speech|caption|turn/.test(l)).slice(-6).join("\n")}`);
       else note += " read aloud";
+    }
+    if (name === "caption-click") {
+      // The picture is 512 px of the display under the pointer: (10, 20) in it is a point on that display.
+      if (!/click: stand-in click ×1 at -?\d+,-?\d+/.test(log)) problems.push(`${name} ${theme}: the app didn't take the click\n${log.split("\n").filter((l) => /click|screen|turn/.test(l)).slice(-6).join("\n")}`);
+      else note += " clicked (stand-in)";
     }
     if (name === "caption-held-read") {
       // The held question goes only after the answer has been read: "speech:" (reading over) first.

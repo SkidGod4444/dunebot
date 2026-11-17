@@ -1136,6 +1136,68 @@ async function locationForCore(requestId) {
   call("location.result", { requestId, ...answer }).catch((e) => log(`location: answer not taken: ${e.message}`));
 }
 
+// ---------- clicks, for the core's click ----------
+// Done here, not in the core, so the permission (macOS's Accessibility list) belongs to Dune Bot.
+// Never on Dune Bot's own windows: an agent must not answer its own cards or change its settings.
+const ACCESSIBILITY_PANE = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
+
+/** Which of Dune Bot's own windows a click at this point would reach, if one would. A window of
+ * Dune Bot's behind another app's doesn't count; the card while it follows the pointer doesn't either
+ * (it lets clicks through then, and a pointer passing it never makes it take them). */
+function ownWindowAt(x, y) {
+  const shown = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && w.isVisible());
+  const passes = (w) => w === caption && captionMoving;
+  const hit = (w) => {
+    const b = w.getBounds();
+    return !passes(w) && x >= b.x && x < b.x + b.width && y >= b.y && y < b.y + b.height;
+  };
+  const name = (w) => (w === caption ? "answer card" : w === bar ? "bar" : "window");
+  if (isMac && addon?.frontWindowOwner) {
+    const owner = addon.frontWindowOwner(x, y, shown.filter(passes).map((w) => w.getNativeWindowHandle()));
+    if (owner !== process.pid) return null;
+    const w = shown.find(hit);
+    return w ? name(w) : "menu bar icon";
+  }
+  const w = shown.find(hit);
+  return w ? name(w) : null;
+}
+
+async function clickAt({ x, y, button, count }) {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error("Dune Bot couldn't click: no point was given.");
+  const own = ownWindowAt(x, y);
+  if (own)
+    throw new Error(
+      `That point is on Dune Bot's own ${own}, and Dune Bot never clicks itself. If what you want is under it, ask the user to move it out of the way, then look again.`,
+    );
+  const right = button === "right";
+  const twice = count === 2 ? 2 : 1;
+  // Checks: a stand-in that only logs the point. A test run never clicks the real screen.
+  if (process.env.DUNEBOT_CLICK_STUB) return `stand-in ${right ? "right " : ""}click ×${twice} at ${Math.round(x)},${Math.round(y)}`;
+  if (snapshot || selfcheck) throw new Error("Clicks are off in this test run.");
+  if (!isMac || !addon?.click) throw new Error("Clicking for the user isn't available on this system yet. Tell the user what to click instead.");
+  if (!addon.postEventAccess(false)) {
+    // The first time, macOS shows its own box; either way the list it adds Dune Bot to opens.
+    addon.postEventAccess(true);
+    shell.openExternal(ACCESSIBILITY_PANE);
+    throw new Error(
+      "Dune Bot can't click yet: macOS needs Dune Bot turned on in System Settings → Privacy & Security → Accessibility (open on the user's screen now). Ask the user to turn it on, then try the click again.",
+    );
+  }
+  if (!(await addon.click(x, y, right, twice))) throw new Error("Dune Bot couldn't click there.");
+  return `${right ? "right " : ""}click ×${twice}`;
+}
+
+async function clickForCore(m) {
+  try {
+    const done = await clickAt({ x: Number(m.x), y: Number(m.y), button: m.button, count: Number(m.count) });
+    log(`click: ${done}`);
+    await call("input.result", { requestId: m.requestId });
+  } catch (err) {
+    log(`click: ${err.message}`);
+    call("input.result", { requestId: m.requestId, error: err.message }).catch(() => {});
+  }
+}
+
 // ---------- pictures of the screen, for the core's look_at_screen ----------
 // Taken here, not in the core, so the permission belongs to Dune Bot (the same app as the mic).
 // One picture of the display under the pointer, its long edge at most what Claude reads unshrunk.
@@ -1480,6 +1542,9 @@ function onCoreEvent(m) {
     case "location.request":
       locationForCore(m.requestId);
       return;
+    case "input.click":
+      clickForCore(m);
+      return;
     case "chord.ready":
       chord = !!m.available;
       log(`chord ${chord ? `listening (tap ${m.keys ?? "⌥⌘"} opens, hold talks)` : "unavailable"}`);
@@ -1676,6 +1741,8 @@ async function runSelfcheck() {
   }
   r.codemax = codemaxBinary() ?? "not bundled (agents are looked for on PATH)";
   r.addon = isMac ? (addon ? "loaded" : "not loaded") : "not used here";
+  // The core's click needs the addon's (an addon from before them would fail only on first use).
+  r.clicks = isMac ? (typeof addon?.click === "function" && typeof addon?.postEventAccess === "function" ? "found" : "missing") : "not on this system yet";
   r.glass = isMac ? (liquidGlass ? "loaded" : "not loaded") : "not used here";
   const icons = [...Object.values(ICONS).map((f) => path.join(here, "assets", f)), ...(WINDOW_ICON.icon ? [WINDOW_ICON.icon] : [])];
   r.trayIcons = icons.every((f) => fs.existsSync(f) && !nativeImage.createFromPath(f).isEmpty()) ? "found" : `missing: ${icons.join(", ")}`;
@@ -1683,7 +1750,7 @@ async function runSelfcheck() {
   r.dataDir = process.env.DUNEBOT_DATA_DIR;
   const temp = (p) => !!p && path.resolve(p).startsWith(fs.realpathSync(os.tmpdir())) || !!p && path.resolve(p).startsWith(os.tmpdir());
   r.tempFolders = temp(r.userData) && temp(r.dataDir);
-  r.ok = r.pages === "found" && r.coreAnswered.startsWith("version") && r.trayIcons === "found" && r.tempFolders && (!isMac || (!!addon && !!liquidGlass));
+  r.ok = r.pages === "found" && r.coreAnswered.startsWith("version") && r.trayIcons === "found" && r.tempFolders && (!isMac || (!!addon && !!liquidGlass && r.clicks === "found"));
   console.log(`selfcheck ${JSON.stringify(r)}`);
   core?.stdin.end();
   app.exit(r.ok ? 0 : 1);

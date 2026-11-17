@@ -215,13 +215,20 @@ fn instructions(thread: &Thread) -> String {
          Use them to do what the user asks. To look at files and folders (what's in a folder, how many files, how big, \
          the largest ones) use list_folder (deep: true counts the subfolders too) and read_file: they never ask the user. \
          Use run_command only when those can't do it. search_chats finds the user's earlier Dune Bot chats: use it when they \
-         refer to something that isn't in this chat. Some actions ask the user first; if one is declined, don't retry it, \
+         refer to something that isn't in this chat.{click} Some actions ask the user first; if one is declined, don't retry it, \
          say what you'd need instead. When a request needs these tools, first write one short line saying what you're \
          doing, ending with a full stop (\"Sure, checking the weather where you are.\"): it's shown and read aloud at once, \
          so the user isn't left waiting while you work. Then do the work and answer, without repeating that line. When you \
          can answer straight away, just answer. This chat's working folder is {cwd}. Keep replies short and plain.",
         os = std::env::consts::OS,
-        cwd = thread.cwd
+        cwd = thread.cwd,
+        click = if cfg!(target_os = "macos") {
+            " To click something on the screen for the user, take a picture with look_at_screen, then use click with a \
+             point in it: it doesn't ask the user. Never click through run_command (osascript, cliclick): that asks the user \
+             every time."
+        } else {
+            ""
+        }
     )
 }
 
@@ -543,7 +550,7 @@ pub const SPOKEN_NOTE: &str = "<dunebot-voice>Asked from Dune Bot's bar: your an
 pub const ENGLISH_NOTE: &str = "<dunebot-language>The user asked in Hindi or Hinglish. Write your whole answer in English (their choice): Dune Bot shows your English answer and, when it reads it aloud, says it in Hinglish itself. Don't write Hindi or Hinglish yourself.</dunebot-language>\n\n";
 
 /// The test agent: `run <command>`, `ls <folder>`, `read <file>`, `write <file>` + newline + content,
-/// `look`, `where`, `search [words]`, `pause <words>`.
+/// `look`, `where`, `click <x> <y> [what]` (a point in the latest picture), `search [words]`, `pause <words>`.
 async fn echo_turn(app: &Arc<App>, thread: &Thread, text: &str, turn: &mut Turn) -> (&'static str, Option<String>) {
     let (head, rest) = text.split_once(char::is_whitespace).unwrap_or((text, ""));
     let rest = rest.trim();
@@ -553,6 +560,14 @@ async fn echo_turn(app: &Arc<App>, thread: &Thread, text: &str, turn: &mut Turn)
         "read" if !rest.is_empty() => Some(("read_file", json!({ "path": rest }))),
         "look" => Some(("look_at_screen", json!({}))),
         "where" => Some(("find_location", json!({}))),
+        "click" => {
+            let mut w = rest.splitn(3, char::is_whitespace);
+            let n = |v: Option<&str>| v.and_then(|v| v.parse::<f64>().ok());
+            match (n(w.next()), n(w.next())) {
+                (Some(x), Some(y)) => Some(("click", json!({ "x": x, "y": y, "what": w.next().unwrap_or("a point").trim() }))),
+                _ => None,
+            }
+        }
         "search" => Some(("search_chats", if rest.is_empty() { json!({}) } else { json!({ "query": rest }) })),
         "stream" | "markdown" => {
             // A long reply in the rhythm a real agent streams (measured from Claude Code through

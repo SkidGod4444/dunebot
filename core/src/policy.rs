@@ -12,16 +12,19 @@ pub enum Action {
     LookScreen,
     /// Where the computer is, from the system's location services.
     FindLocation,
+    /// A click on the screen for the user (the app does it; macOS asks once for Accessibility).
+    Click,
 }
 
 impl Action {
-    pub const ALL: [Action; 7] = [
+    pub const ALL: [Action; 8] = [
         Action::RunCommand,
         Action::WriteFile,
         Action::ReadFile,
         Action::ListFolder,
         Action::SearchChats,
         Action::LookScreen,
+        Action::Click,
         Action::FindLocation,
     ];
 
@@ -34,6 +37,7 @@ impl Action {
             Action::SearchChats => "search-chats",
             Action::LookScreen => "look-screen",
             Action::FindLocation => "find-location",
+            Action::Click => "click",
         }
     }
 
@@ -46,6 +50,7 @@ impl Action {
             Action::SearchChats => "Search your past chats",
             Action::LookScreen => "Look at your screen",
             Action::FindLocation => "Find where you are",
+            Action::Click => "Click on your screen",
         }
     }
 
@@ -58,6 +63,9 @@ impl Action {
             Action::ReadFile | Action::ListFolder | Action::SearchChats | Action::LookScreen => Mode::Always,
             // The user asked for the exact location from the system (2026-11-17); macOS asks once itself.
             Action::FindLocation => Mode::Always,
+            // The user chose clicks without asking, through Dune Bot's own tool (2026-11-18); osascript,
+            // which can do far more than click, still asks under Auto.
+            Action::Click => Mode::Always,
         }
     }
 

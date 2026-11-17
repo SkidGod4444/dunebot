@@ -14,6 +14,10 @@
 //!   macOS, and what is it set to), so the log shows a style setting that was silently skipped.
 //! - `locationStart` / `locationPoll` / `locationName` / `locationStop`: where this Mac is, from
 //!   Location Services, and the area's name (the core's `find_location`; see `mod location`).
+//! - `postEventAccess` / `click`: whether this app may click for the user (macOS's Accessibility
+//!   list), and one click or a double click at a point on the screen (the core's `click`).
+//! - `frontWindowOwner`: which process owns the frontmost window at a point (so a click never lands
+//!   on Dune Bot itself, while one of its windows behind another app's doesn't count).
 
 use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
@@ -313,6 +317,242 @@ pub fn request_screen_access() -> bool {
     {
         true
     }
+}
+
+/// Clicking for the user (the core's `click` tool): Quartz events, the same a mouse sends.
+#[cfg(target_os = "macos")]
+mod input {
+    use std::ffi::c_void;
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct CGPoint {
+        pub x: f64,
+        pub y: f64,
+    }
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        pub fn CGPreflightPostEventAccess() -> bool;
+        pub fn CGRequestPostEventAccess() -> bool;
+        pub fn CGEventCreate(source: *const c_void) -> *mut c_void;
+        pub fn CGEventGetLocation(event: *const c_void) -> CGPoint;
+        pub fn CGEventCreateMouseEvent(source: *const c_void, kind: u32, at: CGPoint, button: u32) -> *mut c_void;
+        pub fn CGEventSetIntegerValueField(event: *mut c_void, field: u32, value: i64);
+        pub fn CGEventPost(tap: u32, event: *mut c_void);
+        pub fn CGWarpMouseCursorPosition(at: CGPoint) -> i32;
+        pub fn CGAssociateMouseAndMouseCursorPosition(connected: u32) -> i32;
+    }
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        pub fn CFRelease(cf: *const c_void);
+    }
+
+    const MOUSE_MOVED: u32 = 5;
+    const CLICK_STATE: u32 = 1; // kCGMouseEventClickState
+    const HID_TAP: u32 = 0; // kCGHIDEventTap
+
+    /// One mouse event at `at`, posted as the mouse would. False when it couldn't be made.
+    fn post(kind: u32, at: CGPoint, button: u32, clicks: i64) -> bool {
+        unsafe {
+            let e = CGEventCreateMouseEvent(std::ptr::null(), kind, at, button);
+            if e.is_null() {
+                return false;
+            }
+            if clicks > 0 {
+                CGEventSetIntegerValueField(e, CLICK_STATE, clicks);
+            }
+            CGEventPost(HID_TAP, e);
+            CFRelease(e);
+        }
+        true
+    }
+
+    fn pause(ms: u64) {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+    }
+
+    /// Moves to `at`, clicks `count` times (2: a double click), then puts the pointer back where it was.
+    pub fn click(at: CGPoint, right: bool, count: i64) -> bool {
+        let was = unsafe {
+            let e = CGEventCreate(std::ptr::null());
+            if e.is_null() {
+                None
+            } else {
+                let p = CGEventGetLocation(e);
+                CFRelease(e);
+                Some(p)
+            }
+        };
+        let (button, down, up) = if right { (1, 3, 4) } else { (0, 1, 2) };
+        if !post(MOUSE_MOVED, at, button, 0) {
+            return false;
+        }
+        pause(40);
+        for n in 1..=count {
+            if !post(down, at, button, n) {
+                return false;
+            }
+            pause(15);
+            if !post(up, at, button, n) {
+                return false;
+            }
+            pause(40);
+        }
+        if let Some(p) = was {
+            pause(60);
+            unsafe {
+                CGWarpMouseCursorPosition(p);
+                // A warp holds the real mouse still for a moment unless it's let go at once.
+                CGAssociateMouseAndMouseCursorPosition(1);
+            }
+        }
+        true
+    }
+}
+
+/// macOS: whether this app may click for the user (it's on in System Settings › Privacy & Security ›
+/// Accessibility). With `ask`, macOS shows its box the first time (and lists the app there). Other
+/// systems: false (clicking isn't there yet).
+#[napi]
+pub fn post_event_access(ask: bool) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe { if ask { input::CGRequestPostEventAccess() } else { input::CGPreflightPostEventAccess() } }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = ask;
+        false
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod front {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::NSString;
+    use std::ffi::c_void;
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> *const c_void;
+    }
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        fn CFRelease(cf: *const c_void);
+    }
+    const ON_SCREEN_ONLY: u32 = 1;
+    const EXCLUDE_DESKTOP: u32 = 16;
+
+    unsafe fn get(dict: *mut AnyObject, key: &str) -> *mut AnyObject {
+        unsafe { msg_send![dict, objectForKey: &*NSString::from_str(key)] }
+    }
+    unsafe fn num(obj: *mut AnyObject) -> Option<f64> {
+        if obj.is_null() { None } else { Some(unsafe { msg_send![obj, doubleValue] }) }
+    }
+
+    /// The window number of the window a view is in, or -1.
+    pub unsafe fn window_number(view: *mut AnyObject) -> i64 {
+        unsafe {
+            let w: *mut AnyObject = msg_send![view, window];
+            if w.is_null() { -1 } else { msg_send![w, windowNumber] }
+        }
+    }
+
+    /// The owner of the frontmost visible window at (x, y), in the screen's top-left points (what a
+    /// click there would reach), passing over the windows in `skip`. -1: none.
+    pub unsafe fn owner_at(x: f64, y: f64, skip: &[i64]) -> i64 {
+        unsafe {
+            let list = CGWindowListCopyWindowInfo(ON_SCREEN_ONLY | EXCLUDE_DESKTOP, 0) as *mut AnyObject;
+            if list.is_null() {
+                return -1;
+            }
+            let mut owner = -1;
+            let count: usize = msg_send![list, count];
+            for i in 0..count {
+                let w: *mut AnyObject = msg_send![list, objectAtIndex: i];
+                if num(get(w, "kCGWindowAlpha")).unwrap_or(1.0) <= 0.0 {
+                    continue;
+                }
+                if num(get(w, "kCGWindowNumber")).is_some_and(|n| skip.contains(&(n as i64))) {
+                    continue;
+                }
+                let b = get(w, "kCGWindowBounds");
+                if b.is_null() {
+                    continue;
+                }
+                let (Some(bx), Some(by), Some(bw), Some(bh)) = (num(get(b, "X")), num(get(b, "Y")), num(get(b, "Width")), num(get(b, "Height"))) else {
+                    continue;
+                };
+                if x >= bx && x < bx + bw && y >= by && y < by + bh {
+                    owner = num(get(w, "kCGWindowOwnerPID")).map(|p| p as i64).unwrap_or(-1);
+                    break;
+                }
+            }
+            CFRelease(list as *const c_void);
+            owner
+        }
+    }
+}
+
+/// macOS: the process id that owns the frontmost visible window at (x, y) (top-left screen points),
+/// passing over the windows of `skip` (Electron window handles); -1 when there is none. Other
+/// systems: -2 (not known).
+#[napi]
+pub fn front_window_owner(x: f64, y: f64, skip: Vec<Buffer>) -> napi::Result<i64> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut numbers = Vec::with_capacity(skip.len());
+        for h in &skip {
+            numbers.push(unsafe { front::window_number(view_of(h)?) });
+        }
+        Ok(unsafe { front::owner_at(x, y, &numbers) })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (x, y, skip);
+        Ok(-2)
+    }
+}
+
+/// One click, off Electron's main thread (it waits between the mouse's events).
+pub struct ClickTask {
+    x: f64,
+    y: f64,
+    right: bool,
+    count: u32,
+}
+
+impl napi::Task for ClickTask {
+    type Output = bool;
+    type JsValue = bool;
+
+    fn compute(&mut self) -> napi::Result<bool> {
+        #[cfg(target_os = "macos")]
+        {
+            if !self.x.is_finite() || !self.y.is_finite() {
+                return Ok(false);
+            }
+            Ok(input::click(input::CGPoint { x: self.x, y: self.y }, self.right, self.count.clamp(1, 2) as i64))
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Ok(false)
+        }
+    }
+
+    fn resolve(&mut self, _env: napi::Env, output: bool) -> napi::Result<bool> {
+        Ok(output)
+    }
+}
+
+/// macOS: one click (or a double click, `count` 2) at a point on the screen, in points from the top
+/// left of the main display, with the right button when `right`; the pointer goes back where it was.
+/// Resolves false when the events couldn't be made. Other systems: false.
+#[napi]
+pub fn click(x: f64, y: f64, right: bool, count: u32) -> napi::bindgen_prelude::AsyncTask<ClickTask> {
+    napi::bindgen_prelude::AsyncTask::new(ClickTask { x, y, right, count })
 }
 
 /// What the last notification request answered ("granted", "declined", "error: …"), once.

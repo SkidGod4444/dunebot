@@ -524,6 +524,11 @@ function Permissions() {
                   Commands run without asking unless they're risky: deleting or saving files, running code, admin, other apps or the screen, sending data online, changing git, installing. Those ask, and the card says why. Scheduled chats always ask. Always: no cards at all.
                 </p>
               )}
+              {r.action === "click" && r.mode !== "never" && (
+                <p className="mt-1.5 text-[13px] text-muted">
+                  A click where an agent saw something on your screen (a tab, a button), as your mouse would; the pointer goes back where it was. Never on Dune Bot itself. macOS asks once to let Dune Bot control the computer. Scheduled chats always ask.
+                </p>
+              )}
               {r.action === "look-screen" && r.mode !== "never" && (
                 <p className="mt-1.5 text-[13px] text-muted">
                   A picture of the screen under your pointer, when an agent needs to see it. It goes only to that agent; Dune Bot keeps none. Scheduled chats always ask.

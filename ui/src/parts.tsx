@@ -131,13 +131,14 @@ const FAILED: Record<string, string> = {
   search_chats: "Couldn't search past chats",
   look_at_screen: "Couldn't see the screen",
   find_location: "Couldn't find where you are",
+  click: "Couldn't click",
 };
 
 /** What a failed step was, for "Teach a fix" (kept with the fix; the chat doesn't show steps). */
 export function failureOf(m: Message) {
   const failed = FAILED[m.meta.tool] ?? m.text;
   const args = m.meta.args ?? {};
-  const target: string = args.command ?? args.path ?? args.query ?? (args.chat ? `chat ${args.chat}` : "");
+  const target: string = args.command ?? args.path ?? args.query ?? args.what ?? (args.chat ? `chat ${args.chat}` : "");
   return { failure: target ? `${failed}: ${target}` : failed, detail: firstLine(m.meta.output) };
 }
 

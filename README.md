@@ -28,8 +28,8 @@ Antigravity. codemax, which runs them, is included in every download.
 Linux), and a setup window asks once for what it uses: the microphone (then checks that sound
 really arrives), notifications, your Desktop, Documents and Downloads folders, the speech model
 download and, last, Screen Recording (macOS answers that one in System Settings, then asks to
-reopen Dune Bot). It never asks for Full Disk Access, Accessibility or Input Monitoring. Reopen setup from the menu
-bar: **Set up Dune Bot…**.
+reopen Dune Bot). It never asks for Full Disk Access or Input Monitoring; Accessibility only the
+first time an agent clicks for you. Reopen setup from the menu bar: **Set up Dune Bot…**.
 
 ## Use it
 
@@ -74,6 +74,7 @@ only), Ask, Always or Never.
 | Read a file, look inside a folder, search your past chats | **Always** |
 | Look at your screen | **Always** (macOS asks once for Screen Recording) |
 | Find where you are | **Always** (macOS asks once for Location Services) |
+| Click on your screen | **Always** (macOS only; macOS asks once for Accessibility) |
 
 What Auto counts as risky, and the limits nothing can lift, are under [Safety](#safety).
 
@@ -148,6 +149,13 @@ voice local even with keys saved.
   from the internet address, and to pass the coordinates on (`wttr.in/LAT,LON`, which runs under
   Auto). The place goes to the agent and is kept with the chat's hidden step record; the activity log
   and the logs get none. Windows and Linux: not yet (the agent asks you instead).
+- **Clicking for you** (`click`, macOS) is one click, double click or right click at a point in the
+  chat's latest picture of the screen (`look_at_screen`, at most 3 minutes old); the app turns it
+  into a point on the screen, clicks with Quartz events and puts the pointer back. It never clicks
+  Dune Bot itself: the app asks macOS which window is frontmost at that point and refuses its own bar,
+  card, windows and menu bar icon, so an agent can't answer its own approval cards. The first click
+  asks macOS for Accessibility (System Settings opens on it). Agents are told to click with it, not
+  with osascript, which can drive any app and so still asks under Auto.
 - `list_folder` counts a whole folder tree (`deep: true`: files, folders, sizes, the largest files)
   without asking, and agents are told to use it instead of a command.
 - Stop ends the running command, not just the agent's turn. Cards left open when Dune Bot quits come
@@ -189,7 +197,7 @@ to have `serve`.
 
 Agents run in codemax's `mcp-only` policy: their own file and shell tools are refused, so their only
 way to act is Dune Bot's tools (`run_command`, `read_file`, `write_file`, `list_folder`,
-`search_chats`, `look_at_screen`, `find_location`), served on a loopback port with a separate token
+`search_chats`, `look_at_screen`, `find_location`, and `click` on macOS), served on a loopback port with a separate token
 per chat. Agents are told to write one short line saying what they're doing before they use a tool
 (`instructions` in `core/src/agent.rs`), and questions asked from the bar carry a note asking for one
 or two short sentences (`SPOKEN_NOTE`).

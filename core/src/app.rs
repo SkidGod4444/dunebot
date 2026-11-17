@@ -73,6 +73,11 @@ pub struct App {
     /// Pictures of the screen asked of the app (Electron takes them), by request id.
     captures: Mutex<HashMap<String, oneshot::Sender<Result<Value, String>>>>,
     locations: Mutex<HashMap<String, oneshot::Sender<Value>>>,
+    /// Clicks asked of the app (it holds macOS's Accessibility permission), by request id.
+    clicks: Mutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
+    /// Each chat's latest picture of the screen: where it lies on the screen, so a click can be given
+    /// as a point in it.
+    pub shots: Mutex<HashMap<String, crate::tools::Shot>>,
 }
 
 pub fn new_id() -> String {
@@ -110,6 +115,8 @@ impl App {
             fixes_sent: Mutex::new(HashMap::new()),
             captures: Mutex::new(HashMap::new()),
             locations: Mutex::new(HashMap::new()),
+            clicks: Mutex::new(HashMap::new()),
+            shots: Mutex::new(HashMap::new()),
         }
     }
 
@@ -146,6 +153,35 @@ impl App {
         let id = p.get("requestId").and_then(Value::as_str).unwrap_or("");
         let tx = self.locations.lock().unwrap().remove(id).ok_or_else(|| anyhow!("no such location request"))?;
         let _ = tx.send(p.clone());
+        Ok(json!({ "ok": true }))
+    }
+
+    /// Asks the app to click at a point on the screen (in points, as the app's screen counts them).
+    pub async fn click(&self, x: f64, y: f64, right: bool, count: u32) -> Result<(), String> {
+        let id = new_id();
+        let (tx, rx) = oneshot::channel();
+        self.clicks.lock().unwrap().insert(id.clone(), tx);
+        self.out.event(
+            "input.click",
+            json!({ "requestId": id, "x": x, "y": y, "button": if right { "right" } else { "left" }, "count": count }),
+        );
+        let answer = tokio::time::timeout(std::time::Duration::from_secs(15), rx).await;
+        self.clicks.lock().unwrap().remove(&id);
+        match answer {
+            Ok(Ok(r)) => r,
+            _ => Err("Dune Bot couldn't click: the app didn't answer.".into()),
+        }
+    }
+
+    /// The app's answer to `input.click`. Single use; an unknown id is refused.
+    pub fn click_result(&self, p: &Value) -> anyhow::Result<Value> {
+        let id = p.get("requestId").and_then(Value::as_str).unwrap_or("");
+        let tx = self.clicks.lock().unwrap().remove(id).ok_or_else(|| anyhow!("no such click request"))?;
+        let r = match p.get("error").and_then(Value::as_str) {
+            Some(e) => Err(e.chars().take(300).collect()),
+            None => Ok(()),
+        };
+        let _ = tx.send(r);
         Ok(json!({ "ok": true }))
     }
 
@@ -366,7 +402,7 @@ impl App {
             // A chat a schedule started runs while you may be away: it always asks before commands,
             // file changes and looks at the screen, whatever Permissions says ("Never" still means never).
             Mode::Always | Mode::Auto
-                if matches!(action, Action::RunCommand | Action::WriteFile | Action::LookScreen)
+                if matches!(action, Action::RunCommand | Action::WriteFile | Action::LookScreen | Action::Click)
                     && self.db(|d| d.is_scheduled(thread_id)).unwrap_or(true) =>
             {
                 Mode::Ask

@@ -1,4 +1,4 @@
-// macOS: builds Dunebot's addon (Rust: notification permission, window appearance, glass read-back, location)
+// macOS: builds Dunebot's addon (Rust: notification permission, window appearance, glass read-back, location, clicks)
 // to native/dunebot_native.node. Other systems: nothing to do.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

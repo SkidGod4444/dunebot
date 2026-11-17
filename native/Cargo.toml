@@ -2,7 +2,7 @@
 name = "dunebot-native"
 version = "0.1.0"
 edition = "2024"
-description = "Dunebot on macOS: notification permission and window appearance (the glass comes from electron-liquid-glass)."
+description = "Dunebot on macOS: notification permission, window appearance, location and clicks (the glass comes from electron-liquid-glass)."
 
 [lib]
 crate-type = ["cdylib"]
