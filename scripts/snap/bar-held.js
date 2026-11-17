@@ -19,7 +19,8 @@
   const early = (await users()).length;
   end = Date.now() + 20000;
   while (Date.now() < end && (await users()).length < 2) await sleep(150);
-  await sleep(300);
+  // Long enough for the mic button's color fade to finish: the picture is compared between builds.
+  await sleep(800);
   const all = await users();
   const box = document.querySelector("textarea")?.value ?? null;
   return { ok: early === 1 && all.length === 2 && all[1] === "and how big is it?" && !box, early, users: all, box };

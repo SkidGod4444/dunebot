@@ -187,7 +187,8 @@ const HINGLISH: &[&str] = &[
     "wahan", "kahan", "kaun", "kitna", "kitne", "paani", "hawa", "ki", "ke", "ka", "ko", "se",
 ];
 
-/// Hindi in Latin letters: two or more different Hindi words, and no Indian script.
+/// Hindi in Latin letters: two or more different Hindi words, at least one of them 3+ letters (so
+/// "KO" and "SE" alone don't make English Hindi).
 pub fn hinglish(text: &str) -> bool {
     let mut found: Vec<String> = Vec::new();
     for w in text.split(|c: char| !c.is_alphanumeric()) {
@@ -196,7 +197,7 @@ pub fn hinglish(text: &str) -> bool {
             found.push(w);
         }
     }
-    found.len() >= 2
+    found.len() >= 2 && found.iter().any(|w| w.len() >= 3)
 }
 
 /// Sarvam's voice for each language: a native woman's voice where bulbul:v4-flash has one, else the
@@ -354,6 +355,8 @@ mod tests {
             "I'm Dune Bot, made to help with your files and apps.",
             "The agar plate is in the fridge; ask Ki if you need it.",
             "Kaizen means small changes, so start with one.",
+            "Load module.ko first, then check the SE region.",
+            "KO in round 3; ka and ki are notes in the scale.",
         ] {
             assert_eq!(language_of(english, ""), "en-IN", "{english}");
         }
