@@ -29,6 +29,20 @@ def ok(cond, what):
 
 ready = wait(lambda m: m.get("event") == "ready")
 ok(True, f"core ready on {ready['platform']}")
+WIN = ready["platform"] == "windows"
+
+def slow(n):
+    """A command that runs for n seconds in a child process (cmd.exe on Windows, sh elsewhere)."""
+    return f"cd . && ping -n {n} 127.0.0.1 > nul && echo late" if WIN else f"cd . && sleep {n}; echo late"
+
+def still_running(unix_pattern):
+    """Is the slow command's child process still running?"""
+    if WIN:
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq PING.EXE", "/NH"], capture_output=True, text=True).stdout
+        return "PING.EXE" in out.upper()
+    left = subprocess.run(["pgrep", "-f", unix_pattern], capture_output=True, text=True).stdout.strip()
+    if left: print(subprocess.run(["ps", "-o", "pid,pgid,ppid,stat,command", "-p", ",".join(left.split())], capture_output=True, text=True).stdout)
+    return bool(left)
 t = send("threads.create", agent="echo")["result"]
 tid = t["id"]
 
@@ -103,7 +117,7 @@ ledger = send("ledger.list")["result"]
 ok(sum(1 for r in ledger if r["decision"] == "blocked (protected)") == 2, "protected refusals are in the activity log")
 
 # Stop ends a running command (approved earlier "for this chat", so no card)
-send("threads.send", id=tid, text="run cd . && sleep 61; echo late")
+send("threads.send", id=tid, text="run " + slow(61))
 wait(lambda m: m.get("event") == "message.created" and m["message"]["role"] == "tool")
 time.sleep(0.5)
 t0 = time.time()
@@ -111,9 +125,7 @@ send("threads.cancel", id=tid)
 end = wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == tid, 10)
 ok(end["status"] == "cancelled" and time.time() - t0 < 3, f"stop ended the turn in {time.time()-t0:.1f}s")
 time.sleep(1.0)
-left = subprocess.run(["pgrep", "-f", "sleep 61"], capture_output=True, text=True).stdout.strip()
-if left: print(subprocess.run(["ps", "-o", "pid,pgid,ppid,stat,command", "-p", ",".join(left.split())], capture_output=True, text=True).stdout)
-ok(not left, "stop killed the command and its children")
+ok(not still_running("sleep 61"), "stop killed the command and its children")
 
 # Known limit, shown on the Permissions screen: an allowed command can reach protected files.
 end, tool = turn("run ls -d ~/.ssh")
@@ -152,8 +164,8 @@ ok(any(x["action"] == "undo" for x in send("ledger.list")["result"]), "undo is i
 send("settings.set", action="run-command", mode="always")
 ta = send("threads.create", agent="echo")["result"]["id"]
 tb = send("threads.create", agent="echo")["result"]["id"]
-send("threads.send", id=ta, text="run cd . && sleep 62; echo late")
-send("threads.send", id=tb, text="run cd . && sleep 63; echo late")
+send("threads.send", id=ta, text="run " + slow(62))
+send("threads.send", id=tb, text="run " + slow(63))
 for x in (ta, tb):
     started = lambda m, x=x: m.get("event") == "message.created" and m["message"]["role"] == "tool" and m["message"]["threadId"] == x
     if not any(started(m) for m in seen): wait(started)
@@ -165,8 +177,7 @@ def ended(x):
 ends = [ended(x) for x in (ta, tb)]
 ok(r["stopped"] == 2 and all(e["status"] == "cancelled" for e in ends), "stop all ended both working chats")
 time.sleep(1.0)
-left = subprocess.run(["pgrep", "-f", "sleep 6[23]"], capture_output=True, text=True).stdout.strip()
-ok(not left, "stop all killed both commands")
+ok(not still_running("sleep 6[23]"), "stop all killed both commands")
 ok(send("agents.stopAll")["result"]["stopped"] == 0, "stop all with nothing working does nothing")
 send("settings.set", action="run-command", mode="ask")
 

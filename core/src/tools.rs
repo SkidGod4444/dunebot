@@ -197,10 +197,14 @@ async fn run_command(app: &App, thread: &Thread, args: &Value) -> Result<String,
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true);
+        // On Windows KillGroup ends the whole tree, which it finds from cmd.exe: killing cmd.exe
+        // first would leave what it started running.
+        .kill_on_drop(cfg!(unix));
     // Own process group, so Stop and timeouts end everything the command started.
     #[cfg(unix)]
     cmd.process_group(0);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
     // A command that only looks (it may have run without asking) gets a clean environment: whatever
     // the look-only check missed, there are no tokens or keys in it to find.
     #[cfg(unix)]
@@ -238,7 +242,10 @@ async fn run_command(app: &App, thread: &Thread, args: &Value) -> Result<String,
     }
 }
 
-/// Kills a command's whole process group when dropped (on Stop or timeout).
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Kills a command's whole process group (Windows: its process tree) when dropped (on Stop or timeout).
 struct KillGroup(Option<u32>);
 
 impl Drop for KillGroup {
@@ -249,6 +256,18 @@ impl Drop for KillGroup {
             unsafe {
                 libc::killpg(pid as i32, libc::SIGKILL);
             }
+        }
+        #[cfg(windows)]
+        if let Some(pid) = self.0 {
+            use std::os::windows::process::CommandExt;
+            // cmd.exe and everything it started; taskkill is in System32 on every Windows.
+            let _ = std::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .creation_flags(CREATE_NO_WINDOW)
+                .status();
         }
     }
 }
