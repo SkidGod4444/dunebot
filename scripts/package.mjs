@@ -62,6 +62,7 @@ fs.writeFileSync(
       description: "Dunebot: your coding agents, on your computer.",
       // Windows writes it into the app's file details (CompanyName); packaging for Windows fails without it.
       author: "OpenHorizon Labs",
+      license: pkg.license,
     },
     null,
     2,
@@ -69,7 +70,8 @@ fs.writeFileSync(
 );
 fs.mkdirSync(path.join(res, "core"), { recursive: true });
 fs.copyFileSync(path.join(root, "core", "target", "release", `dunebot-core${exe}`), path.join(res, "core", `dunebot-core${exe}`));
-const extraResource = [path.join(res, "core")];
+// Dune Bot's license (AGPL-3.0-only) ships with every download: resources/LICENSE.
+const extraResource = [path.join(res, "core"), path.join(root, "LICENSE")];
 const codemax = process.env.DUNEBOT_CODEMAX_BIN || path.join(root, "..", "codemax-cli", "dist", `codemax${exe}`);
 const codemaxFits = () => {
   if (!fs.existsSync(codemax)) return false;
