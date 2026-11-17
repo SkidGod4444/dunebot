@@ -2,9 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, CalendarClock, FolderOpen, FolderPlus, History, Monitor, Play, Search, ShieldCheck, Square, SquarePen, Trash2, Undo2, Wrench } from "lucide-react";
 import {
   KEYS, agentName, call, get, keysLabel, loadAgents, openThread, send, set, setMode, startChat, toast, useStore,
-  type Fix, type LedgerRow, type Schedule, type Thread,
+  type Fix, type LedgerRow, type Message, type Schedule, type Thread,
 } from "./store";
-import { AgentAvatar, ApprovalCard, AssistantBubble, Mascot, ThinkingBubble, ToolCard, UserBubble } from "./parts";
+import { AgentAvatar, ApprovalCard, AssistantBubble, failureOf, Mascot, TeachFix, ThinkingBubble, UserBubble } from "./parts";
 import { useStickToBottom } from "./stick";
 import { plainPreview } from "./reply";
 
@@ -253,15 +253,15 @@ function ThreadView() {
         className="flex-1 overflow-y-auto"
       >
         <div className="mx-auto flex max-w-[780px] flex-col gap-3 px-6 py-6">
-          {msgs?.map((m) =>
-            m.role === "user" ? (
-              <UserBubble key={m.id} m={m} />
-            ) : m.role === "assistant" ? (
-              <AssistantBubble key={m.id} m={m} />
-            ) : m.role === "tool" ? (
-              <ToolCard key={m.id} m={m} waiting={waiting} />
+          {chatItems(msgs ?? [], busy).map((it) =>
+            it.teach ? (
+              <TeachFix key={`fix-${it.m.id}`} threadId={id} {...failureOf(it.m)} />
+            ) : it.m.role === "user" ? (
+              <UserBubble key={it.m.id} m={it.m} />
+            ) : it.m.role === "assistant" ? (
+              <AssistantBubble key={it.m.id} m={it.m} />
             ) : (
-              <ApprovalCard key={m.id} m={m} agent={thread.agent} />
+              <ApprovalCard key={it.m.id} m={it.m} agent={thread.agent} />
             ),
           )}
           {showTyping && (
@@ -272,6 +272,28 @@ function ThreadView() {
       <Composer threadId={id} agent={thread.agent} busy={busy} />
     </>
   );
+}
+
+/** The chat as a person sees it (2026-11-17, "our user dont need to care what the agent is
+ * calling"): what you said, the answers and the cards that need you. The agent's steps (tool calls)
+ * aren't shown; Activity lists every one. A turn where a step failed still offers "Teach a fix",
+ * after its answer, once the turn is over. */
+function chatItems(msgs: Message[], busy: boolean): { m: Message; teach?: true }[] {
+  const out: { m: Message; teach?: true }[] = [];
+  let failed: Message | null = null;
+  for (const m of msgs) {
+    if (m.role === "tool") {
+      if (m.meta.status === "failed") failed ??= m;
+      continue;
+    }
+    if (m.role === "user" && failed) {
+      out.push({ m: failed, teach: true });
+      failed = null;
+    }
+    out.push({ m });
+  }
+  if (failed && !busy) out.push({ m: failed, teach: true });
+  return out;
 }
 
 function useAutosize(value: string) {
@@ -322,7 +344,7 @@ function Composer({ threadId, agent, busy }: { threadId: string; agent: string; 
             </button>
           )}
         </div>
-        <p className="mt-2 text-center text-[11.5px] text-muted">Dune Bot works on this computer. It asks before running commands or changing files.</p>
+        <p className="mt-2 text-center text-[11.5px] text-muted">Dune Bot works on this computer. It asks before anything risky.</p>
       </div>
     </div>
   );

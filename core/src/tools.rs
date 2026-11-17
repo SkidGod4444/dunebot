@@ -117,8 +117,8 @@ pub async fn call(app: &App, thread: &Thread, name: &str, args: &Value) -> (Stri
 }
 
 /// Where the computer is, from the app (macOS Location Services). The place goes to the agent and
-/// shows in the chat's tool card (kept on this computer with the chat); the activity log and the
-/// logs get no place.
+/// is kept with the chat's step record on this computer (not shown); the activity log and the logs
+/// get no place.
 async fn find_location(app: &App, thread: &Thread) -> Result<String, String> {
     app.gate(&thread.id, Action::FindLocation, "where your computer is", "").await?;
     let answer = app.find_location().await.ok_or("Dune Bot couldn't find the location: the app didn't answer.")?;

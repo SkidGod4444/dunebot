@@ -13,10 +13,13 @@ Dune Bot has no main window. It sits in the menu bar (tray on Windows/Linux).
   another key or a click (⌥⌘Esc, ⌥⌘D, …) is ignored. If another app wants the same keys, pick others:
   ⌥⌘, ⌃⌥, ⌃⌘ or Right ⌘ alone (Permissions › Keys, or Keys in the menu bar). HeyClicky talks on ⌃⌥. Right ⌘ uses the left/right bits macOS adds to the modifier state; left ⌘ never fires it.
 - **Windows/Linux:** Ctrl+Alt+Space (the tray menu shows the fallback if taken); hold the mic button to talk.
+- **Talks like a person, not a log.** Neither the card nor the chat shows the agent's steps (which
+  tools it called, 2026-11-17): only what you said, the answers, and cards that need your OK. Activity
+  lists every step. When a step failed, "Teach a fix" sits under that turn's answer.
 - **No chat on screen.** Once you ask, the bar closes and the answer appears in a small card beside
   the pointer and is read aloud with the system's voice (`ui/src/Caption.tsx`, `ui/src/speak.ts`).
-  The card shows what's happening (working, a step running, an error) and any card waiting for your
-  OK; it fades a few seconds after the answer has been read. Point at it to keep it, close it, or open
+  The card shows what's happening (listening, thinking dots while it works, an error) and any card
+  waiting for your OK; it fades a few seconds after the answer has been read. Point at it to keep it, close it, or open
   the chat. It **follows the pointer** while it listens, works and reads the answer, never under the
   pointer and always on the screen (`electron/caption-place.mjs`). It holds still while a card waits
   for your OK, when it popped up in the corner, once the answer has been read, and as soon as you move
@@ -157,8 +160,8 @@ loopback port with a separate token per chat.
   rough or none without). Agents are told to use it for weather, "near me" and the like, never to
   guess from the internet address, and to pass the coordinates on (`wttr.in/LAT,LON`, which runs
   under Auto). It doesn't ask in Dune Bot (Permissions: "Find where you are", Always); macOS asks
-  once. The place goes to the agent and the chat's tool card; the activity log and the logs get
-  none. Windows and Linux: not yet (the agent asks you instead). Check: `scripts/core_location_turn.py`
+  once. The place goes to the agent (and is kept with the chat's hidden step record); the activity
+  log and the logs get none. Windows and Linux: not yet (the agent asks you instead). Check: `scripts/core_location_turn.py`
   (a stand-in place, never the real one).
 - `list_folder` counts a whole folder tree (`deep: true`: files, folders, sizes, the largest files)
   without asking, and agents are told to use it instead of a command.

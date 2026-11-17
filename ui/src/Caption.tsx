@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Loader2, Maximize2, Volume2, VolumeX, X } from "lucide-react";
+import { AlertCircle, Maximize2, Volume2, VolumeX, X } from "lucide-react";
 import { agentName, call, get, keysLabel, openThread, set, useStore, type Message } from "./store";
-import { ApprovalCard, TOOL } from "./parts";
+import { ApprovalCard } from "./parts";
 import { Reply, TypingLine } from "./reply";
 import { useSmoothText } from "./smooth";
 import { noteStream } from "./parts";
@@ -12,8 +12,9 @@ import { Speaker } from "./speak";
  * The answer beside the pointer (HeyClicky-style): no chat, just what Dune Bot is doing now and its
  * answer, read aloud. The window is see-through, click-through and a fixed size; the card sits in the
  * corner nearest the pointer and grows away from it, so the window itself never moves while a reply
- * arrives. It carries everything a turn can need from you: listening, working, a step running, the
- * answer, an error, and approval cards (clickable: the card takes the mouse while the pointer is on it).
+ * arrives. It carries everything a turn can need from you: listening, working (thinking dots: the
+ * agent's steps aren't shown, 2026-11-17), the answer, an error, and approval cards (clickable: the
+ * card takes the mouse while the pointer is on it).
  */
 export type CaptionShow = { threadId: string | null; side: "below" | "above"; align: "left" | "right"; speak: boolean };
 
@@ -57,7 +58,6 @@ export function Caption() {
   const shown = exchange(list);
   const approval = shown.find((m) => m.role === "approval" && m.meta.status === "pending");
   const reply = [...shown].reverse().find((m) => m.role === "assistant");
-  const step = [...shown].reverse().find((m) => m.role === "tool" && m.meta.status === "running");
   const listening = voice.state === "listening";
   const transcribing = voice.state === "transcribing";
   const speaker = useRef<Speaker | null>(null);
@@ -211,8 +211,6 @@ export function Caption() {
   // Short states (listening, working, a step) hug their words; an answer or a card takes the full
   // width at once, so its lines don't reflow as it grows.
   const wide = !!approval || !!note || !!(reply && reply.text);
-  const t = step ? TOOL[step.meta.tool] : undefined;
-  const target: string = step ? step.meta.args?.command ?? step.meta.args?.path ?? step.meta.args?.query ?? "" : "";
 
   return (
     <div className={`flex h-full p-4 ${show.side === "above" ? "items-end" : "items-start"} ${show.align === "right" ? "justify-end" : "justify-start"}`}>
@@ -258,16 +256,15 @@ export function Caption() {
             <>
               {reply && !asked && (reply.text || reply.meta.status === "streaming") ? (
                 <Answer m={reply} />
-              ) : (busy || asked) && !approval && !step ? (
+              ) : (busy || asked) && !approval ? (
                 <div className="text-[15px] leading-[1.5]">
                   <TypingLine />
                 </div>
               ) : null}
-              {step && !approval && (
-                <div className="flex min-w-0 items-center gap-2 text-[12.5px] text-muted">
-                  <Loader2 size={13} className="shrink-0 animate-spin" />
-                  <span className="shrink-0 font-medium">{t?.doing ?? step.text}</span>
-                  {target && <code className="min-w-0 truncate font-mono text-[11.5px]">{target}</code>}
+              {/* A line like "On it." with work after it: the dots again, not the step itself. */}
+              {reply && !asked && reply.text && busy && !approval && !replyIsLast && (
+                <div className="text-[15px] leading-[1.5]">
+                  <TypingLine />
                 </div>
               )}
               {approval && <ApprovalCard m={approval} agent={thread?.agent ?? "claude"} bar />}

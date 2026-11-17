@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Reply, Typing, TypingLine } from "./reply";
 import { useSmoothText, type StreamStats } from "./smooth";
-import { Check, ChevronDown, FilePen, FileText, FolderOpen, History, Loader2, MapPin, Monitor, ShieldAlert, ShieldCheck, ShieldX, TerminalSquare, Wrench, X } from "lucide-react";
+import { Check, ShieldAlert, ShieldCheck, ShieldX, Wrench } from "lucide-react";
 import { AGENT_LOOK, agentName, answer, call, toast, type Message } from "./store";
 
 /** "Teach a fix": the user writes what the agent should do instead. Kept with this failure; agents
@@ -127,49 +127,23 @@ export function ThinkingBubble() {
   );
 }
 
-export const TOOL: Record<string, { icon: typeof FileText; doing: string; done: string; failed: string }> = {
-  run_command: { icon: TerminalSquare, doing: "Running a command", done: "Ran a command", failed: "Command didn't run" },
-  read_file: { icon: FileText, doing: "Reading a file", done: "Read a file", failed: "Couldn't read a file" },
-  write_file: { icon: FilePen, doing: "Writing a file", done: "Wrote a file", failed: "Didn't write the file" },
-  list_folder: { icon: FolderOpen, doing: "Looking in a folder", done: "Looked in a folder", failed: "Couldn't open a folder" },
-  search_chats: { icon: History, doing: "Searching past chats", done: "Searched past chats", failed: "Couldn't search past chats" },
-  look_at_screen: { icon: Monitor, doing: "Looking at your screen", done: "Looked at your screen", failed: "Couldn't see the screen" },
-  find_location: { icon: MapPin, doing: "Finding where you are", done: "Found where you are", failed: "Couldn't find where you are" },
+/** How a failed step reads in a fix ("Command didn't run: npm install"). */
+const FAILED: Record<string, string> = {
+  run_command: "Command didn't run",
+  read_file: "Couldn't read a file",
+  write_file: "Didn't write the file",
+  list_folder: "Couldn't open a folder",
+  search_chats: "Couldn't search past chats",
+  look_at_screen: "Couldn't see the screen",
+  find_location: "Couldn't find where you are",
 };
 
-/** `teach`: offer "Teach a fix" when the step failed (the history window; the bar leaves it out). */
-export function ToolCard({ m, waiting, teach = true }: { m: Message; waiting: boolean; teach?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const t = TOOL[m.meta.tool] ?? { icon: TerminalSquare, doing: m.text, done: m.text, failed: m.text };
-  const status: string = m.meta.status;
+/** What a failed step was, for "Teach a fix" (kept with the fix; the chat doesn't show steps). */
+export function failureOf(m: Message) {
+  const failed = FAILED[m.meta.tool] ?? m.text;
   const args = m.meta.args ?? {};
   const target: string = args.command ?? args.path ?? args.query ?? (args.chat ? `chat ${args.chat}` : "");
-  const Icon = t.icon;
-  return (
-    <div className="w-full max-w-[85%] self-start overflow-hidden rounded-2xl border border-line bg-white">
-      <button onClick={() => setOpen(!open)} disabled={!m.meta.output} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left disabled:cursor-default">
-        <Icon size={16} className="shrink-0 text-muted" />
-        <span className="shrink-0 text-[13.5px] font-semibold">{status === "running" ? t.doing : status === "failed" ? t.failed : t.done}</span>
-        <code className="min-w-0 truncate font-mono text-[12px] text-muted">{target}</code>
-        <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[12px] text-muted">
-          {status === "running" && (waiting ? <span className="font-medium text-[#b9761a]">Waiting for you</span> : <Loader2 size={14} className="animate-spin" />)}
-          {status === "done" && <Check size={15} className="text-[#2f9e62]" />}
-          {status === "failed" && <X size={15} className="text-[#c4553f]" />}
-          {m.meta.output && <ChevronDown size={15} className={`transition-transform ${open ? "rotate-180" : ""}`} />}
-        </span>
-      </button>
-      {open && (
-        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words border-t border-line bg-side px-3.5 py-3 font-mono text-[12px] leading-[1.5] select-text">
-          {m.meta.output}
-        </pre>
-      )}
-      {status === "failed" && teach && (
-        <div className="border-t border-line">
-          <TeachFix inset threadId={m.threadId} failure={`${t.failed}: ${target}`} detail={firstLine(m.meta.output)} />
-        </div>
-      )}
-    </div>
-  );
+  return { failure: target ? `${failed}: ${target}` : failed, detail: firstLine(m.meta.output) };
 }
 
 const ASK: Record<string, string> = {
