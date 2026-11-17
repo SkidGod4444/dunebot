@@ -1,0 +1,90 @@
+# A release: pushing a tag like v0.1.0 (the version in package.json) makes a draft GitHub release
+# with its notes (docs/releases/<tag>.md) and builds the Windows and Linux downloads into it, each
+# with codemax bundled and checked by the packaged app's self-check. The Mac download is built,
+# signed with the Developer ID and notarized on a Mac (scripts/package.mjs), then attached; the
+# draft is published once every download is there.
+name: release
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+env:
+  CODEMAX_VERSION: v0.1.25
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag is the version in package.json, and it has notes
+        run: |
+          want="v$(node -p 'require("./package.json").version')"
+          [ "$GITHUB_REF_NAME" = "$want" ] || { echo "tag $GITHUB_REF_NAME but package.json says $want"; exit 1; }
+          [ -f "docs/releases/$GITHUB_REF_NAME.md" ] || { echo "no docs/releases/$GITHUB_REF_NAME.md"; exit 1; }
+      - name: Draft release (left as it is when it already exists)
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "Dune Bot ${GITHUB_REF_NAME#v}" --notes-file "docs/releases/$GITHUB_REF_NAME.md"
+
+  build:
+    needs: draft
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            codemax: codemax-windows-x64.exe
+          - os: ubuntu-latest
+            codemax: codemax-linux-x64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - name: Linux packages (sound for the mic, a virtual display for the self-check)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev xvfb libgtk-3-0 libnss3 libgbm1 libxss1 libatk-bridge2.0-0
+      - name: Windows, where bindgen finds clang (speech-to-text)
+        if: runner.os == 'Windows'
+        run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
+      - run: bun install --frozen-lockfile
+      - name: codemax ${{ env.CODEMAX_VERSION }}, checked against its published checksum
+        run: |
+          mkdir -p "$RUNNER_TEMP/codemax" && cd "$RUNNER_TEMP/codemax"
+          gh release download "$CODEMAX_VERSION" -R SkidGod4444/codemax-cli -p "${{ matrix.codemax }}" -p "${{ matrix.codemax }}.sha256"
+          want=$(cut -d' ' -f1 "${{ matrix.codemax }}.sha256")
+          got=$(sha256sum "${{ matrix.codemax }}" | cut -d' ' -f1)
+          [ "$want" = "$got" ] || { echo "codemax checksum $got, want $want"; exit 1; }
+          chmod +x "${{ matrix.codemax }}"
+          echo "DUNEBOT_CODEMAX_BIN=$RUNNER_TEMP/codemax/${{ matrix.codemax }}" >> "$GITHUB_ENV"
+      - name: Package, check it, archive it
+        run: |
+          DUNEBOT_ARCHIVE=1 bun run package
+          APP=$(node -e 'const p={win32:"out/Dunebot-win32-%s/Dunebot.exe",linux:"out/Dunebot-linux-%s/dunebot"}[process.platform]; console.log(require("path").resolve(p.replace("%s",process.arch)))')
+          if [ "$RUNNER_OS" = Linux ]; then DUNEBOT_SELFCHECK=1 xvfb-run -a "$APP" --no-sandbox; else DUNEBOT_SELFCHECK=1 "$APP"; fi
+          [ -f "$(dirname "$APP")/resources/codemax/$(basename "$DUNEBOT_CODEMAX_BIN" | sed 's/-windows-x64//; s/-linux-x64//')" ] || { echo "codemax isn't bundled"; ls -R "$(dirname "$APP")/resources" | head -40; exit 1; }
+      - name: Attach to the draft
+        run: |
+          cd out
+          for f in Dunebot-*.zip Dunebot-*.tar.gz; do
+            [ -f "$f" ] || continue
+            sha256sum "$f" > "$f.sha256"
+            gh release upload "$GITHUB_REF_NAME" "$f" "$f.sha256" --clobber
+          done

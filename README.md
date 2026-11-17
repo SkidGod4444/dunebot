@@ -210,9 +210,21 @@ DUNEBOT_SNAPSHOT_APP=<that executable> node scripts/snapshots.mjs out/packaged-s
 It packs only what the app loads (`electron/`, `dist/ui/`, the macOS addon and the glass package),
 with the release core in `Resources/core` and, when `../codemax-cli/dist` has a build for this
 system, codemax in `Resources/codemax` (`DUNEBOT_PACKAGE_CODEMAX=0` leaves it out; without it,
-agents are looked for on PATH). macOS builds are signed ad hoc: no Apple Developer ID, not notarized,
-so another Mac will refuse it until it's signed properly. The self-check uses temp folders and never
-touches your chats.
+agents are looked for on PATH; `DUNEBOT_CODEMAX_BIN` bundles another build). macOS builds are signed
+ad hoc unless `DUNEBOT_SIGN_IDENTITY` names a Developer ID certificate: then every part is signed for
+the hardened runtime with only the entitlements it needs, and with `DUNEBOT_NOTARY_PROFILE` (a
+`xcrun notarytool store-credentials` profile) notarized, stapled and checked with Gatekeeper.
+`DUNEBOT_ARCHIVE=1` also writes `out/Dunebot-<version>-<os>-<arch>.zip` (`.tar.gz` on Linux). The
+self-check uses temp folders and never touches your chats.
+
+### Release
+
+1. Set the version in `package.json` and write `docs/releases/v<version>.md`.
+2. Push the tag `v<version>`. `.github/workflows/release.yml` makes a draft release with those notes
+   and attaches the Windows and Linux downloads (codemax bundled, each self-checked).
+3. On a Mac, build the Mac download and attach it:
+   `DUNEBOT_SIGN_IDENTITY=… DUNEBOT_NOTARY_PROFILE=… DUNEBOT_CODEMAX_BIN=… DUNEBOT_ARCHIVE=1 bun run package`.
+4. Publish the draft once every download is there.
 
 ## Tests
 
