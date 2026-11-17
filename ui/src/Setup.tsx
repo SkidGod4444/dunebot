@@ -34,7 +34,7 @@ function Row(props: {
 }) {
   const { icon, title, why, tone, label, action, focus } = props;
   return (
-    <div className={`flex items-center gap-3.5 rounded-2xl bg-white px-4 py-3.5 ${focus ? "ring-2 ring-coral/70" : ""}`}>
+    <div className={`flex items-center gap-3.5 rounded-2xl bg-white px-4 py-3.5 ${focus ? "ring-2 ring-brand/70" : ""}`}>
       <span className="grid size-9 shrink-0 place-items-center rounded-full bg-bubble text-ink">{icon}</span>
       <div className="min-w-0 flex-1">
         <div className="text-[14.5px] font-semibold leading-tight">{title}</div>
@@ -225,13 +225,13 @@ export function Setup() {
       </div>
 
       {step === "screen" && !screenOk && (
-        <p className="mt-4 rounded-xl bg-coral/12 px-3.5 py-2.5 text-[13px] font-medium text-ink">
+        <p className="mt-4 rounded-xl bg-brand/12 px-3.5 py-2.5 text-[13px] font-medium text-ink">
           Looking at your screen needs Screen Recording. Allow it below; macOS then asks to quit and reopen Dune Bot.
         </p>
       )}
 
       {step === "mic" && !micOk && (
-        <p className="mt-4 rounded-xl bg-coral/12 px-3.5 py-2.5 text-[13px] font-medium text-ink">Talking needs the microphone. Allow it below, then hold {keys} again.</p>
+        <p className="mt-4 rounded-xl bg-brand/12 px-3.5 py-2.5 text-[13px] font-medium text-ink">Talking needs the microphone. Allow it below, then hold {keys} again.</p>
       )}
 
       <p className="mt-5 text-[13px] text-muted">

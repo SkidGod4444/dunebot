@@ -1011,6 +1011,7 @@ function openMain(view = "chat") {
     // macOS: a see-through page over glass (sidebar style), which sits on the system's window colour.
     backgroundColor: isMac && !snapshot ? "#00000000" : PAPER(),
     title: "Dune Bot",
+    ...WINDOW_ICON,
     titleBarStyle: isMac ? "hiddenInset" : "hidden",
     ...(isMac ? { trafficLightPosition: { x: 22, y: 22 } } : { titleBarOverlay: titleBarOverlay() }),
     autoHideMenuBar: !isMac,
@@ -1239,6 +1240,7 @@ function openSetup(step = "") {
     fullscreenable: false,
     hasShadow: true,
     title: "Set up Dune Bot",
+    ...WINDOW_ICON,
     webPreferences,
   });
   harden(setupWin);
@@ -1364,6 +1366,9 @@ const titles = new Map();
 const ICONS = isMac
   ? { idle: "trayTemplate.png", busy: "tray-busyTemplate.png" }
   : { idle: "tray-color.png", busy: "tray-color-busy.png" };
+// The app's own icon on its windows, for Windows and Linux (scripts/icon.mjs draws it). macOS takes the
+// app bundle's icon, and Windows' taskbar the .exe's, but Linux has only this.
+const WINDOW_ICON = isMac ? {} : { icon: path.join(here, "assets", "icon.png") };
 
 function refreshTray() {
   if (!tray) return;
@@ -1672,7 +1677,7 @@ async function runSelfcheck() {
   r.codemax = codemaxBinary() ?? "not bundled (agents are looked for on PATH)";
   r.addon = isMac ? (addon ? "loaded" : "not loaded") : "not used here";
   r.glass = isMac ? (liquidGlass ? "loaded" : "not loaded") : "not used here";
-  const icons = Object.values(ICONS).map((f) => path.join(here, "assets", f));
+  const icons = [...Object.values(ICONS).map((f) => path.join(here, "assets", f)), ...(WINDOW_ICON.icon ? [WINDOW_ICON.icon] : [])];
   r.trayIcons = icons.every((f) => fs.existsSync(f) && !nativeImage.createFromPath(f).isEmpty()) ? "found" : `missing: ${icons.join(", ")}`;
   r.userData = app.getPath("userData");
   r.dataDir = process.env.DUNEBOT_DATA_DIR;

@@ -99,7 +99,7 @@ function StopAll({ count }: { count: number }) {
   if (!count) return null;
   return (
     <div className="mx-2 mb-2 flex items-center gap-2 rounded-xl bg-black/[.045] px-3 py-2 text-[13px]">
-      <span className="size-2 animate-pulse rounded-full bg-coral" />
+      <span className="size-2 animate-pulse rounded-full bg-brand" />
       <span className="text-ink">{count === 1 ? "1 chat working" : `${count} chats working`}</span>
       <button
         onClick={() => call("agents.stopAll").catch((e) => toast(String(e.message ?? e)))}

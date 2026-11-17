@@ -131,7 +131,8 @@ html:not([data-os="darwin"]) .dm-top {
   --color-line: var(--dm-line);
   --color-side: var(--dm-side);
   --color-bubble: var(--dm-bubble);
-  --color-coral: #ff6b4a;
+  /* The accent: the pink of the kitten's nose in the app's icon. */
+  --color-brand: #ff8fa3;
   --color-amber-card: var(--dm-amber-card);
   --color-amber-line: var(--dm-amber-line);
   /* shadcn names that Streamdown (AI Elements' reply renderer) draws with. `muted` stays the app's. */

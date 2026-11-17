@@ -10,7 +10,7 @@ const mac = window.dunebot.platform === "darwin";
 function Spark({ busy }: { busy?: boolean }) {
   return (
     <svg width="22" height="22" viewBox="0 0 40 40" aria-hidden className={busy ? "animate-pulse" : ""}>
-      <path d="M20 3c1.6 8.4 7.6 14.4 17 17-9.4 2.6-15.4 8.6-17 17-1.6-8.4-7.6-14.4-17-17C12.4 17.4 18.4 11.4 20 3z" fill="var(--color-coral)" />
+      <path d="M20 3c1.6 8.4 7.6 14.4 17 17-9.4 2.6-15.4 8.6-17 17-1.6-8.4-7.6-14.4-17-17C12.4 17.4 18.4 11.4 20 3z" fill="var(--color-brand)" />
     </svg>
   );
 }
@@ -22,7 +22,7 @@ function Level({ level }: { level: number }) {
       {[0.55, 0.85, 1, 0.8, 0.5].map((w, i) => (
         <span
           key={i}
-          className="w-[3px] rounded-full bg-coral transition-[height] duration-75"
+          className="w-[3px] rounded-full bg-brand transition-[height] duration-75"
           style={{ height: `${Math.max(4, Math.round(20 * Math.min(1, level * 1.6) * w))}px` }}
         />
       ))}
@@ -289,7 +289,7 @@ export function Bar() {
                 onPointerUp={talkEnd}
                 onPointerCancel={talkEnd}
                 className={`grid size-8 place-items-center rounded-full transition-colors ${
-                  listening ? "bg-coral text-[#fff]" : "text-muted hover:bg-bubble hover:text-ink"
+                  listening ? "bg-brand text-[#1d1418]" : "text-muted hover:bg-bubble hover:text-ink"
                 }`}
               >
                 <Mic size={17} />

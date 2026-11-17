@@ -12,6 +12,7 @@
     "dev": "bun run core && bun run native && node scripts/dev.mjs",
     "test:core": "cargo test --manifest-path core/Cargo.toml && bun run core && python3 -I scripts/core_smoke.py core/target/debug/dunebot-core \"$(mktemp -d)\"",
     "native": "node scripts/native.mjs",
+    "icon": "electron scripts/icon.mjs",
     "package": "node scripts/package.mjs"
   },
   "trustedDependencies": [

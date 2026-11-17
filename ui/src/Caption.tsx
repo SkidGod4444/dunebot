@@ -299,7 +299,7 @@ export function Caption() {
           <div className="flex items-center gap-2 border-t border-line px-4 py-1.5 text-[11.5px] text-muted">
             {speaking ? (
               <button title="Stop reading this answer" onClick={() => (speaker.current?.stop(), setSpeaking(false))} className="flex items-center gap-1.5 hover:text-ink">
-                <Volume2 size={12} className="shrink-0 text-coral" /> Speaking · stop
+                <Volume2 size={12} className="shrink-0 text-brand" /> Speaking · stop
               </button>
             ) : (
               <button
@@ -339,7 +339,7 @@ function Level({ level }: { level: number }) {
   return (
     <span className="inline-flex h-5 items-center gap-[3px]" aria-hidden>
       {[0.55, 0.85, 1, 0.8, 0.5].map((w, i) => (
-        <span key={i} className="w-[3px] rounded-full bg-coral transition-[height] duration-75" style={{ height: `${Math.max(4, Math.round(20 * Math.min(1, level * 1.6) * w))}px` }} />
+        <span key={i} className="w-[3px] rounded-full bg-brand transition-[height] duration-75" style={{ height: `${Math.max(4, Math.round(20 * Math.min(1, level * 1.6) * w))}px` }} />
       ))}
     </span>
   );

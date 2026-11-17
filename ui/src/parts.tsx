@@ -3,6 +3,7 @@ import { Reply, Typing, TypingLine } from "./reply";
 import { useSmoothText, type StreamStats } from "./smooth";
 import { Check, ShieldAlert, ShieldCheck, ShieldX, Wrench } from "lucide-react";
 import { AGENT_LOOK, agentName, answer, call, toast, type Message } from "./store";
+import mascot from "./mascot.svg";
 
 /** "Teach a fix": the user writes what the agent should do instead. Kept with this failure; agents
  * read it as a note from then on (it never changes what they may do). */
@@ -62,15 +63,9 @@ export function TeachFix({ failure, detail, threadId, inset }: { failure: string
 
 const firstLine = (s?: string) => (s ?? "").split("\n").map((l) => l.trim()).find(Boolean)?.slice(0, 200) ?? "";
 
-/** Dune Bot's own mark: a coral tile with a spark. */
+/** Dune Bot's own mark: the app's icon (the white kitten on its black tile), drawn by scripts/icon.mjs. */
 export function Mascot({ size = 40 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden>
-      <rect width="40" height="40" rx="12" fill="var(--color-coral)" />
-      <path d="M20 7.5c1.3 6.8 5.7 11.2 12.5 12.5-6.8 1.3-11.2 5.7-12.5 12.5C18.7 25.7 14.3 21.3 7.5 20 14.3 18.7 18.7 14.3 20 7.5z" fill="#fff" />
-      <circle cx="30.5" cy="9.5" r="2.2" fill="#fff" opacity=".85" />
-    </svg>
-  );
+  return <img src={mascot} width={size} height={size} alt="" draggable={false} className="shrink-0 select-none" />;
 }
 
 export function AgentAvatar({ id, size = 36, dot }: { id: string; size?: number; dot?: "busy" | "waiting" }) {

@@ -115,6 +115,8 @@ const [appDir] = await packager({
   appVersion: pkg.version,
   appBundleId: "com.openhorizon.dunebot",
   appCategoryType: "public.app-category.productivity",
+  // .icns on macOS, .ico on Windows (scripts/icon.mjs draws both); Linux windows take electron/assets/icon.png.
+  icon: path.join(root, "assets", "icon", "dunebot"),
   asar: { unpack: "**/*.node" },
   prune: false,
   extraResource,

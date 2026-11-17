@@ -1,3 +1,5 @@
+<img src="assets/icon/dunebot.svg" width="128" height="128" alt="Dune Bot's icon: a white kitten on a black tile">
+
 # Dune Bot
 
 An assistant for your own computer. Ask it something from a small bar, or hold a key and talk. A
@@ -250,6 +252,10 @@ hardened runtime with only the entitlements it needs, and with `DUNEBOT_NOTARY_P
 `xcrun notarytool store-credentials` profile) notarized, stapled and checked with Gatekeeper.
 `DUNEBOT_ARCHIVE=1` also writes `out/Dunebot-<version>-<os>-<arch>.zip` (`.tar.gz` on Linux). The
 self-check uses temp folders and never touches your chats.
+
+The icon is drawn once from `assets/icon/dunebot.svg`: `bun run icon` makes the macOS `.icns`, the
+Windows `.ico`, the window icon Linux uses (`electron/assets/icon.png`) and the mark the app's pages
+show (`ui/src/mascot.svg`), and all four are kept in the repo.
 
 ### Release
 
