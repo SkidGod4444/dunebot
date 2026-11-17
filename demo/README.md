@@ -14,6 +14,11 @@ The strings on the bar and the card are the app's own (`ui/src/Bar.tsx`, `Captio
 
 ## Run it
 
+The kit's brand logos (`kit/brands/`) aren't in this repo: other companies' marks, kept on the
+author's machine. `kit/index.ts` and `parts/BrandMark.tsx` import them, so a fresh clone needs a
+`kit/brands/index.ts` that exports `brandMarks` (an empty registry is enough; the Dune Bot film
+doesn't use any logo).
+
 ```sh
 cd demo
 bun install

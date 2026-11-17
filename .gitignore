@@ -9,3 +9,7 @@ native/*.node
 out/
 __pycache__/
 *.pyc
+
+# Kept on this machine, not in the public repo
+REVIEW.md
+demo/kit/brands/
