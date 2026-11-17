@@ -65,6 +65,7 @@ for (const theme of ["light", "dark"])
       DUNEBOT_APPROVAL_MIN_MS: "0",
       ...(packaged ? {} : { DUNEBOT_CORE: core }),
       DUNEBOT_SNAPSHOT: file,
+      DUNEBOT_SNAPSHOT_STILL: "1",
       DUNEBOT_SNAPSHOT_VIEW: view,
       DUNEBOT_SNAPSHOT_THEME: theme,
       // Times on the pages read the same on every system (the digits are tabular).

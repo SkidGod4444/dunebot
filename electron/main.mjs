@@ -591,7 +591,9 @@ function followStep() {
     followTimer = null;
     return;
   }
-  if (followTest) followTest.tick++;
+  // The grab check's path starts when the card first follows: a slow machine (CI's Windows ones)
+  // showed the card late and spent the sideways part of the path before it was there.
+  if (followTest && (!followTest.grab || captionMoving || followTest.tick > 0)) followTest.tick++;
   if (!captionMoving) {
     if (followTest?.grabbedAt) {
       const [x, y] = caption.getPosition();
@@ -1506,7 +1508,7 @@ const SETTLE = `(async () => {
     await new Promise((r) => setTimeout(r, 100));
   }
 })()`;
-// Before a picture: nothing fading or moving (finite CSS transitions and animations; a spinner's loop
+// Before a picture in the snapshot suite (DUNEBOT_SNAPSHOT_STILL): nothing fading or moving (finite CSS transitions and animations; a spinner's loop
 // doesn't count), and the parts where they were for 500 ms. A slow machine (CI's Windows ones) was
 // photographed mid-fade or before a page had drawn. Gives up after 6 s and takes the picture anyway.
 const STILL = `(async () => {
@@ -1543,7 +1545,7 @@ async function takeSnapshot(win) {
     await win.webContents.executeJavaScript(SETTLE).catch(() => {});
   }
   await new Promise((r) => setTimeout(r, Number(process.env.DUNEBOT_SNAPSHOT_WAIT ?? 700)));
-  const still = await win.webContents.executeJavaScript(STILL).catch(() => false);
+  const still = !process.env.DUNEBOT_SNAPSHOT_STILL || (await win.webContents.executeJavaScript(STILL).catch(() => false));
   if (!still) console.log(`snapshot: ${path.basename(snapshot)} never held still for 500 ms in 6 s`);
   if (placing) barReport("resized");
   const img = await win.webContents.capturePage();
