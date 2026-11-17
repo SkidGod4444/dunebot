@@ -38,6 +38,7 @@ const SHOTS = [
   ["caption-stream", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-stream.js") }],
   ["caption-next", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-next.js") }],
   ["caption-approval-next", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-approval-next.js") }],
+  ["caption-first-line", "caption", { DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-first-line.js") }],
   ["caption-held-read", "caption", { DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-held-read.js") }],
   ["bar-held", "bar", { DUNEBOT_SNAPSHOT_HELD: "1", DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bar-held.js") }],
   ["setup", "setup", {}],
@@ -115,6 +116,15 @@ for (const theme of ["light", "dark"])
       const done = log.indexOf("card done with the answer");
       if (read < 0 || done < 0 || done < read) problems.push(`${name} ${theme}: reading over at ${read}, card done at ${done} (done must come after)\n${log.split("\n").filter((l) => /speech|card |turn/.test(l)).slice(-8).join("\n")}`);
       else note += " waited for the reading to end";
+    }
+    if (name === "caption-first-line") {
+      // "On it." read while the command still ran, then "Done." after it.
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      if (!res?.ok) problems.push(`${name} ${theme}: first line ${JSON.stringify(res)}\n${log.split("\n").filter((l) => /speech|card |turn/.test(l)).slice(-8).join("\n")}`);
+      else note += " first line read while working, then the answer";
     }
     if (name === "bar-held") {
       // Said mid-answer: held, the card done with that answer, then asked by itself.

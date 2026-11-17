@@ -216,7 +216,10 @@ fn instructions(thread: &Thread) -> String {
          the largest ones) use list_folder (deep: true counts the subfolders too) and read_file: they never ask the user. \
          Use run_command only when those can't do it. search_chats finds the user's earlier Dune Bot chats: use it when they \
          refer to something that isn't in this chat. Some actions ask the user first; if one is declined, don't retry it, \
-         say what you'd need instead. This chat's working folder is {cwd}. Keep replies short and plain.",
+         say what you'd need instead. When a request needs these tools, first write one short line saying what you're \
+         doing, ending with a full stop (\"Sure, checking the weather where you are.\"): it's shown and read aloud at once, \
+         so the user isn't left waiting while you work. Then do the work and answer, without repeating that line. When you \
+         can answer straight away, just answer. This chat's working folder is {cwd}. Keep replies short and plain.",
         os = std::env::consts::OS,
         cwd = thread.cwd
     )
@@ -533,7 +536,7 @@ const MARKDOWN_SAMPLE: &str = "## Plan\n\nThis **deletes** `~/old-builds`, so ba
 
 /// Every message asked from the bar: its answer is read aloud and shown as a small caption beside the
 /// pointer (ui/src/Caption.tsx), so it should be short and plain.
-pub const SPOKEN_NOTE: &str = "<dunebot-voice>Asked from Dune Bot's bar: your answer is read aloud and shown as a small caption beside the user's pointer. Answer in one or two short, plain sentences unless they ask for more. No headings, tables or code blocks unless they ask; when more is needed, make the first sentence a complete answer on its own.</dunebot-voice>\n\n";
+pub const SPOKEN_NOTE: &str = "<dunebot-voice>Asked from Dune Bot's bar: your answer is read aloud and shown as a small caption beside the user's pointer. Answer in one or two short, plain sentences unless they ask for more (a short first line saying what you're doing, before you use tools, doesn't count). No headings, tables or code blocks unless they ask; when more is needed, make the first sentence a complete answer on its own.</dunebot-voice>\n\n";
 
 /// A question in Hindi or Hinglish (the user's choice, 2026-11-17): the answer is written in English;
 /// when it's read aloud, Dune Bot says it in Hinglish itself.

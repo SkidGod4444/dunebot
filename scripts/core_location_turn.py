@@ -2,7 +2,8 @@
 computer is (`location.request`), it answers with a stand-in place, never the real one.
  - The test agent (`where`): each answer the app can give becomes the right sentence; nothing asks;
    the activity log gets a row with no place in it; the core's log holds no place.
- - A real agent (optional, [agent]): "what's the weather where I am?" must use find_location, then
+ - A real agent (optional, [agent]): "what's the weather where I am?" must say what it's doing first
+   (a short line before its first step), use find_location, then
    fetch the weather for those coordinates without a card, and never guess from the internet address.
 Usage: python3 -I core_location_turn.py <core> <data-dir> [agent]   (DUNEBOT_CODEMAX: a codemax with `serve`)"""
 import json, os, queue, sqlite3, subprocess, sys, tempfile, threading, time
@@ -82,6 +83,11 @@ if agent:
     ip_guess = any(t == "run_command" and ("ipinfo" in a or "ip-api" in a or "wttr.in/?" in a or "wttr.in?" in a) for t, a in tools)
     check(f"{agent}: weather where I am", "find_location" in names and not c.asked and not ip_guess and (used_coords or "Connaught" in reply or "Delhi" in reply),
           f"{dt:.0f}s tools={tools} asked={c.asked} reply={reply[:200]!r}")
+    # It says what it's doing before its first step: that line is read aloud while the work goes on.
+    roles = [m["role"] for m in msgs if m["role"] in ("assistant", "tool")]
+    first = next((m["text"].strip() for m in msgs if m["role"] == "assistant"), "")
+    check(f"{agent}: a short first line before the first step", bool(roles) and roles[0] == "assistant" and "tool" in roles and 0 < len(first) <= 120,
+          f"order={roles} first={first[:120]!r}")
 c.close()
 
 db = os.path.join(data, "dunebot.db")

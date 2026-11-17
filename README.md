@@ -16,6 +16,9 @@ Dune Bot has no main window. It sits in the menu bar (tray on Windows/Linux).
 - **Talks like a person, not a log.** Neither the card nor the chat shows the agent's steps (which
   tools it called, 2026-11-17): only what you said, the answers, and cards that need your OK. Activity
   lists every step. When a step failed, "Teach a fix" sits under that turn's answer.
+- **Answers at once, works after.** When a request needs work, the agent first says what it's doing
+  ("Sure, checking the weather where you are."). The card shows that line and reads it aloud right
+  away while the work goes on, then reads the answer after it with the same voice.
 - **No chat on screen.** Once you ask, the bar closes and the answer appears in a small card beside
   the pointer and is read aloud with the system's voice (`ui/src/Caption.tsx`, `ui/src/speak.ts`).
   The card shows what's happening (listening, thinking dots while it works, an error) and any card

@@ -61,7 +61,8 @@ export function Caption() {
   const listening = voice.state === "listening";
   const transcribing = voice.state === "transcribing";
   const speaker = useRef<Speaker | null>(null);
-  const spokenFor = useRef<string | null>(null);
+  const spokenFor = useRef<string | null>(null); // the last answer there when the card opened (not read again)
+  const turnFor = useRef<string | null>(null); // the question whose turn is being read
   const scroller = useRef<HTMLDivElement>(null);
   const moving = useRef(false); // following the pointer: it can't be pointed at, so hovering is ignored
 
@@ -69,6 +70,7 @@ export function Caption() {
     const open = (s: CaptionShow) => {
       speaker.current?.stop();
       speaker.current = null;
+      turnFor.current = null;
       setSpeaking(false);
       // The answer already there (to the last question) isn't read again; only what comes next.
       const before = s.threadId ? get().messages[s.threadId] ?? [] : [];
@@ -123,21 +125,36 @@ export function Caption() {
     };
   }, []);
 
-  // Reads the reply aloud as it arrives (only replies to what you asked from the bar). A line that a
-  // step follows ("On it.") isn't read unless it was already being read: the answer comes after it,
-  // and stopping a voice mid-word can leave the next one without events (speak.ts).
+  // Reads the turn aloud as it arrives (only answers to what you asked from the bar), all of it in
+  // order with one voice: a first line like "Sure, checking the weather now" the moment it's
+  // written, while the work goes on, then the answer after it (never cutting the first line off).
+  // What was already there when the card opened isn't read again.
   const replyIsLast = !!reply && shown[shown.length - 1]?.id === reply.id;
+  const question = shown[0]?.role === "user" ? shown[0].id : null;
+  let said = shown.filter((m) => m.role === "assistant" && m.meta.status !== "error");
+  const seen = said.findIndex((m) => m.id === spokenFor.current);
+  if (seen >= 0) said = said.slice(seen + 1);
+  let turnText = "";
+  const starts: number[] = [];
+  for (const m of said) {
+    starts.push(turnText.length);
+    turnText += m.text;
+    // The one still arriving is the last so far. A line a step follows has ended, though the core
+    // only marks it done when the next words come: read it now, while the step runs.
+    if (m.meta.status === "streaming" && shown[shown.length - 1]?.id === m.id) break;
+    turnText += "\n\n"; // a finished part ends its last sentence
+  }
+  const turnOver = !busy && !said.some((m) => m.meta.status === "streaming");
   useEffect(() => {
-    if (!show?.speak || !speakPref || !reply || reply.meta.status === "error") return;
-    if (!replyIsLast && !(spokenFor.current === reply.id && speaker.current?.begun)) return;
-    if (spokenFor.current !== reply.id) {
+    if (!show?.speak || !speakPref || !question || !turnText.trim()) return;
+    if (turnFor.current !== question) {
       speaker.current?.stop();
       speaker.current = new Speaker();
       speaker.current.onChange = setSpeaking;
-      spokenFor.current = reply.id;
+      turnFor.current = question;
     }
-    speaker.current?.feed(reply.text, reply.meta.status !== "streaming");
-  }, [show, speakPref, reply?.id, reply?.text, reply?.meta.status, replyIsLast]);
+    speaker.current?.feed(turnText, turnOver, starts);
+  }, [show, speakPref, question, turnText, turnOver]);
 
   // A question waits for this answer: once it has ended and nothing more of it is being read, the
   // bar asks it (held.ts). Once per question.

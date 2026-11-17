@@ -165,6 +165,7 @@ export class Speaker {
   private at = 0; // how far into the reply has been handed to the voice
   private sentences = 0;
   private chars = 0;
+  private part = 0; // which of the turn's parts (a first "On it." line, then the answer) is being read
   private pending = 0;
   private finished = false;
   private timers = new Set<number>();
@@ -180,10 +181,18 @@ export class Speaker {
     return typeof speechSynthesis !== "undefined" && typeof SpeechSynthesisUtterance !== "undefined";
   }
 
-  /** The reply so far; `final` once it has all arrived. */
-  feed(text: string, final: boolean) {
+  /** The reply so far; `final` once it has all arrived. `parts`: where each of the turn's messages
+   * starts in `text` (a first line like "Sure, checking that now", then the answer): each part gets
+   * its own few sentences, so a first line never uses up the answer's. */
+  feed(text: string, final: boolean, parts: number[] = [0]) {
     if (!this.useSarvam && !Speaker.available()) return this.done(final);
     for (const end of sentenceEnds(text, this.at, final)) {
+      const part = parts.filter((p) => p <= this.at).length - 1;
+      if (part > this.part) {
+        this.part = part;
+        this.sentences = 0;
+        this.chars = 0;
+      }
       const words = plainForSpeech(text.slice(this.at, end));
       this.at = end;
       if (!words || this.sentences >= MAX_SENTENCES || this.chars >= MAX_CHARS) continue;
