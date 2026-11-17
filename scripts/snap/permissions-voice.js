@@ -5,7 +5,9 @@
   const end = Date.now() + 5000;
   while (Date.now() < end && !dm.get().modes.length) await sleep(100);
   dm.set({ view: "settings" });
-  const until = Date.now() + 3000;
+  // Windows' packaged app can take over 3 s to draw this page the first time (CI scrolled nothing and
+  // the page was compared at its top).
+  const until = Date.now() + 12000;
   let row;
   while (Date.now() < until && !(row = [...document.querySelectorAll("span")].find((s) => s.textContent?.startsWith("Deepgram key")))) await sleep(100);
   // Centred again until it stays put for 500 ms: a part above it can draw late (CI's packaged app
@@ -20,4 +22,5 @@
     await sleep(100);
   }
   await sleep(300);
+  return { found: !!row };
 })();
