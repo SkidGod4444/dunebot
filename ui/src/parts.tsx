@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Reply, Typing, TypingLine } from "./reply";
 import { useSmoothText, type StreamStats } from "./smooth";
-import {
-  Check, ChevronDown, FileText, FilePen, FolderOpen, History, Loader2, Monitor, ShieldAlert, ShieldCheck, ShieldX, TerminalSquare, Wrench, X,
-} from "lucide-react";
+import { Check, ChevronDown, FilePen, FileText, FolderOpen, History, Loader2, MapPin, Monitor, ShieldAlert, ShieldCheck, ShieldX, TerminalSquare, Wrench, X } from "lucide-react";
 import { AGENT_LOOK, agentName, answer, call, toast, type Message } from "./store";
 
 /** "Teach a fix": the user writes what the agent should do instead. Kept with this failure; agents
@@ -136,6 +134,7 @@ export const TOOL: Record<string, { icon: typeof FileText; doing: string; done: 
   list_folder: { icon: FolderOpen, doing: "Looking in a folder", done: "Looked in a folder", failed: "Couldn't open a folder" },
   search_chats: { icon: History, doing: "Searching past chats", done: "Searched past chats", failed: "Couldn't search past chats" },
   look_at_screen: { icon: Monitor, doing: "Looking at your screen", done: "Looked at your screen", failed: "Couldn't see the screen" },
+  find_location: { icon: MapPin, doing: "Finding where you are", done: "Found where you are", failed: "Couldn't find where you are" },
 };
 
 /** `teach`: offer "Teach a fix" when the step failed (the history window; the bar leaves it out). */

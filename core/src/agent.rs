@@ -539,7 +539,8 @@ pub const SPOKEN_NOTE: &str = "<dunebot-voice>Asked from Dune Bot's bar: your an
 /// when it's read aloud, Dune Bot says it in Hinglish itself.
 pub const ENGLISH_NOTE: &str = "<dunebot-language>The user asked in Hindi or Hinglish. Write your whole answer in English (their choice): Dune Bot shows your English answer and, when it reads it aloud, says it in Hinglish itself. Don't write Hindi or Hinglish yourself.</dunebot-language>\n\n";
 
-/// The test agent: `run <command>`, `ls <folder>`, `read <file>`, `write <file>` + newline + content.
+/// The test agent: `run <command>`, `ls <folder>`, `read <file>`, `write <file>` + newline + content,
+/// `look`, `where`, `search [words]`.
 async fn echo_turn(app: &Arc<App>, thread: &Thread, text: &str, turn: &mut Turn) -> (&'static str, Option<String>) {
     let (head, rest) = text.split_once(char::is_whitespace).unwrap_or((text, ""));
     let rest = rest.trim();
@@ -548,6 +549,7 @@ async fn echo_turn(app: &Arc<App>, thread: &Thread, text: &str, turn: &mut Turn)
         "ls" | "list" => Some(("list_folder", json!({ "path": if rest.is_empty() { "." } else { rest } }))),
         "read" if !rest.is_empty() => Some(("read_file", json!({ "path": rest }))),
         "look" => Some(("look_at_screen", json!({}))),
+        "where" => Some(("find_location", json!({}))),
         "search" => Some(("search_chats", if rest.is_empty() { json!({}) } else { json!({ "query": rest }) })),
         "stream" | "markdown" => {
             // A long reply in the rhythm a real agent streams (measured from Claude Code through

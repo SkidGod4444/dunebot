@@ -136,7 +136,8 @@ enough to have `serve`.
 | `ui/` | React + Tailwind | Draws what the core says. Sends only ids and choices. |
 
 Agents run in codemax's `mcp-only` policy: their own file and shell tools are refused, so their only
-way to act is Dune Bot's tools (`run_command`, `read_file`, `write_file`, `list_folder`), served on a
+way to act is Dune Bot's tools (`run_command`, `read_file`, `write_file`, `list_folder`,
+`search_chats`, `look_at_screen`, `find_location`), served on a
 loopback port with a separate token per chat.
 
 ## Safety
@@ -151,6 +152,14 @@ loopback port with a separate token per chat.
   files, `/proc`, jq reading `env`, and Dune Bot's own data always ask. What runs unasked gets a clean
   environment (PATH, HOME, locale). Pattern matching can miss a disguised command, and a plain fetch
   can carry text in its address. On Windows Auto always asks. Scheduled chats always ask.
+- `find_location` asks the system where the computer is (macOS Location Services; a Mac has no
+  GPS, so the place comes from the Wi-Fi networks nearby: usually tens of metres with Wi-Fi on,
+  rough or none without). Agents are told to use it for weather, "near me" and the like, never to
+  guess from the internet address, and to pass the coordinates on (`wttr.in/LAT,LON`, which runs
+  under Auto). It doesn't ask in Dune Bot (Permissions: "Find where you are", Always); macOS asks
+  once. The place goes to the agent and the chat's tool card; the activity log and the logs get
+  none. Windows and Linux: not yet (the agent asks you instead). Check: `scripts/core_location_turn.py`
+  (a stand-in place, never the real one).
 - `list_folder` counts a whole folder tree (`deep: true`: files, folders, sizes, the largest files)
   without asking, and agents are told to use it instead of a command.
 - Approval cards are single use. "Allow all … in this chat" covers that one action type, in that chat only

@@ -97,6 +97,9 @@ const [appDir] = await packager({
   extendInfo: {
     LSUIElement: true,
     NSMicrophoneUsageDescription: "Dunebot listens only while you hold ⌥⌘ or its mic button.",
+    // The reason macOS shows in its "allow?" box for the location (find_location); without it macOS never asks.
+    NSLocationWhenInUseUsageDescription: "Dunebot finds where you are only when you ask something that depends on it, like the weather.",
+    NSLocationUsageDescription: "Dunebot finds where you are only when you ask something that depends on it, like the weather.",
   },
 });
 

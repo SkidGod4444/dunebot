@@ -35,6 +35,8 @@ function ensureDevApp() {
   set("CFBundleDisplayName", "string", "Dunebot Dev");
   set("LSUIElement", "bool", "true");
   set("NSMicrophoneUsageDescription", "string", "Dunebot listens only while you hold ⌥⌘ or its mic button.");
+  set("NSLocationWhenInUseUsageDescription", "string", "Dunebot finds where you are only when you ask something that depends on it, like the weather.");
+  set("NSLocationUsageDescription", "string", "Dunebot finds where you are only when you ask something that depends on it, like the weather.");
   execFileSync("codesign", ["--force", "--deep", "--sign", "-", DEV_APP], { stdio: "ignore" });
   // Register the new bundle id with Launch Services.
   const lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";

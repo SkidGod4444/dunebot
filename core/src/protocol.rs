@@ -116,6 +116,8 @@ async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<Value
         "approvals.respond" => app.respond(s(p, "id")?, s(p, "decision")?)?,
         // The app only (never a window): the picture asked for by a `screen.capture` event.
         "screen.result" => app.capture_result(p)?,
+        // The app only: where the computer is, asked for by a `location.request` event.
+        "location.result" => app.location_result(p)?,
         "settings.get" => app.settings_json(),
         "settings.set" => {
             app.set_mode(s(p, "action")?, s(p, "mode")?)?;

@@ -1066,6 +1066,75 @@ function screenStatus() {
   }
 }
 
+// ---------- where the computer is, for the core's find_location ----------
+// macOS Location Services through the addon (Wi-Fi positioning: a Mac has no GPS), asked here so the
+// permission belongs to Dune Bot. The place goes to the core only; the log gets its accuracy, never
+// the place. Other systems: not yet ("unsupported"), and the agent asks the user instead.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function findLocation() {
+  // Checks: a stand-in answer. A test run never asks for the real place.
+  const stub = process.env.DUNEBOT_LOCATION_STUB;
+  if (stub) return JSON.parse(stub);
+  if (!addon?.locationStart) return { status: "unsupported" };
+  const poll = () => JSON.parse(addon.locationPoll());
+  const started = Date.now();
+  try {
+    addon.locationStart();
+    // macOS's "allow?" box the first time: wait for the user's click, up to 30 s.
+    let s = poll();
+    while (s.status === "asking" && Date.now() - started < 30_000) {
+      // (A "nokey" answer comes at once and is handled below.)
+      await sleep(200);
+      s = poll();
+    }
+    if (s.status === "asking") return { status: "asking" };
+    // Then the first answer, and better ones for a few seconds: good to 100 m, or 3 s after the
+    // first, at most 12 s in all.
+    const from = Date.now();
+    let firstAt = 0;
+    for (;;) {
+      s = poll();
+      if (["denied", "off"].includes(s.status)) return { status: s.status };
+      if (s.status === "nokey") return { status: "error", error: "this copy of Dune Bot can't ask macOS for the location: its Info.plist has no location reason" };
+      if (s.status === "error" && !s.latitude) return { status: "error", error: s.message ?? "Location Services failed" };
+      if (s.latitude !== undefined) {
+        firstAt ||= Date.now();
+        if (s.accuracy <= 100 || Date.now() - firstAt > 3000) break;
+      }
+      if (Date.now() - from > 12_000) break;
+      await sleep(200);
+    }
+    if (s.latitude === undefined) return { status: "nofix" };
+    // The area's name for this very position (online; without it, the coordinates alone).
+    if (addon.locationName()) {
+      const until = Date.now() + 4000;
+      let n = poll();
+      while (n.naming && Date.now() < until) {
+        await sleep(150);
+        n = poll();
+      }
+      if (n.area && n.areaFor?.[0] === s.latitude && n.areaFor?.[1] === s.longitude) s.area = n.area;
+    }
+    return { status: "located", latitude: s.latitude, longitude: s.longitude, accuracy: s.accuracy, area: s.area ?? "" };
+  } finally {
+    addon.locationStop();
+  }
+}
+
+async function locationForCore(requestId) {
+  const started = Date.now();
+  let answer;
+  try {
+    answer = await findLocation();
+  } catch (err) {
+    answer = { status: "error", error: err.message };
+  }
+  const how = answer.status === "located" ? `±${Math.round(answer.accuracy)} m${answer.area ? ", area named" : ""}` : answer.status;
+  log(`location: ${how} in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  call("location.result", { requestId, ...answer }).catch((e) => log(`location: answer not taken: ${e.message}`));
+}
+
 // ---------- pictures of the screen, for the core's look_at_screen ----------
 // Taken here, not in the core, so the permission belongs to Dune Bot (the same app as the mic).
 // One picture of the display under the pointer, its long edge at most what Claude reads unshrunk.
@@ -1402,6 +1471,9 @@ function onCoreEvent(m) {
       return;
     case "screen.capture":
       captureForCore(m.requestId);
+      return;
+    case "location.request":
+      locationForCore(m.requestId);
       return;
     case "chord.ready":
       chord = !!m.available;

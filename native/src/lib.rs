@@ -12,6 +12,8 @@
 //!   in System Settings (Electron's capture calls don't, until a real picture is taken).
 //! - `glassInfo`: reads back the glass view under a window (does Apple's style switch exist on this
 //!   macOS, and what is it set to), so the log shows a style setting that was silently skipped.
+//! - `locationStart` / `locationPoll` / `locationName` / `locationStop`: where this Mac is, from
+//!   Location Services, and the area's name (the core's `find_location`; see `mod location`).
 
 use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
@@ -349,4 +351,384 @@ pub fn request_notifications() -> napi::Result<()> {
     {
         Ok(())
     }
+}
+
+/// Where this Mac is, from macOS Location Services. A Mac has no GPS: macOS works it out from the
+/// Wi-Fi networks nearby (with Wi-Fi off, the answer is rough or there is none). Asked "while using"
+/// the app; macOS shows its own box the first time. `locationStart` begins, `locationPoll` says how
+/// far it got (JSON), `locationName` asks Apple's geocoder for the area of the best position so far,
+/// and `locationStop` ends the updates. Only the latest answer is kept, in memory.
+#[cfg(target_os = "macos")]
+mod location {
+    use block2::RcBlock;
+    use objc2::encode::{Encode, Encoding};
+    use objc2::rc::{Allocated, Retained};
+    use objc2::runtime::{AnyClass, AnyObject, Bool, NSObject};
+    use objc2::{ClassType, define_class, msg_send};
+    use objc2_foundation::NSString;
+    use std::cell::RefCell;
+    use std::sync::{Mutex, MutexGuard};
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Coordinate {
+        latitude: f64,
+        longitude: f64,
+    }
+    unsafe impl Encode for Coordinate {
+        const ENCODING: Encoding = Encoding::Struct("CLLocationCoordinate2D", &[f64::ENCODING, f64::ENCODING]);
+    }
+
+    #[link(name = "CoreLocation", kind = "framework")]
+    unsafe extern "C" {
+        static kCLLocationAccuracyBest: f64;
+    }
+
+    /// A position older than this is macOS's memory of an earlier one, not where the Mac is now.
+    const STALE_SECS: f64 = 120.0;
+
+    #[derive(Default, Clone)]
+    pub struct State {
+        /// "waiting" (no answer yet), "asking" (macOS's box is up), "located", "denied", "off",
+        /// "nokey" (this app's Info.plist gives macOS no reason to show, so it can't ask), "error"
+        pub status: String,
+        /// latitude, longitude, accuracy in metres, seconds old when it came
+        pub fix: Option<(f64, f64, f64, f64)>,
+        pub fixes: u32,
+        /// The area's name for `named` (the fix it was asked for), "" when the geocoder had none.
+        pub area: Option<String>,
+        pub named: Option<(f64, f64)>,
+        pub naming: bool,
+        pub message: Option<String>,
+    }
+    pub static STATE: Mutex<Option<State>> = Mutex::new(None);
+
+    fn lock() -> MutexGuard<'static, Option<State>> {
+        STATE.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn update(f: impl FnOnce(&mut State)) {
+        f(lock().get_or_insert_with(State::default));
+    }
+
+    unsafe fn text(s: *mut NSString) -> Option<String> {
+        if s.is_null() { None } else { Some(unsafe { (*s).to_string() }).filter(|t| !t.trim().is_empty()) }
+    }
+
+    /// CLAuthorizationStatus: 0 not asked, 1 restricted, 2 denied, 3 always, 4 while using.
+    unsafe fn authorization(manager: &AnyObject) -> i32 {
+        unsafe { msg_send![manager, authorizationStatus] }
+    }
+
+    unsafe fn on_location(location: *mut AnyObject) {
+        if location.is_null() {
+            return;
+        }
+        let c: Coordinate = unsafe { msg_send![location, coordinate] };
+        let accuracy: f64 = unsafe { msg_send![location, horizontalAccuracy] };
+        let when: *mut AnyObject = unsafe { msg_send![location, timestamp] };
+        let age = if when.is_null() {
+            0.0
+        } else {
+            let since: f64 = unsafe { msg_send![when, timeIntervalSinceNow] };
+            -since
+        };
+        if accuracy < 0.0 || !c.latitude.is_finite() || !c.longitude.is_finite() || age > STALE_SECS {
+            return;
+        }
+        update(|s| {
+            s.fixes += 1;
+            s.status = "located".into();
+            if s.fix.is_none_or(|(_, _, a, _)| accuracy <= a) {
+                s.fix = Some((c.latitude, c.longitude, accuracy, age.max(0.0)));
+            }
+        });
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[name = "DunebotLocationDelegate"]
+        struct Delegate;
+
+        impl Delegate {
+            #[unsafe(method(locationManager:didUpdateLocations:))]
+            fn did_update(&self, _manager: *mut AnyObject, locations: *mut AnyObject) {
+                if locations.is_null() {
+                    return;
+                }
+                let count: usize = unsafe { msg_send![locations, count] };
+                for i in 0..count {
+                    let l: *mut AnyObject = unsafe { msg_send![locations, objectAtIndex: i] };
+                    unsafe { on_location(l) };
+                }
+            }
+
+            #[unsafe(method(locationManager:didFailWithError:))]
+            fn did_fail(&self, _manager: *mut AnyObject, error: *mut AnyObject) {
+                if error.is_null() {
+                    return;
+                }
+                // kCLErrorLocationUnknown (0): no position yet, it keeps trying. kCLErrorDenied (1): not allowed.
+                let code: isize = unsafe { msg_send![error, code] };
+                let message = unsafe { text(msg_send![error, localizedDescription]) };
+                update(|s| match code {
+                    0 => s.message = Some("macOS has no position yet".into()),
+                    1 => s.status = "denied".into(),
+                    _ => {
+                        if s.fix.is_none() {
+                            s.status = "error".into();
+                        }
+                        s.message = message;
+                    }
+                });
+            }
+
+            #[unsafe(method(locationManagerDidChangeAuthorization:))]
+            fn did_change(&self, manager: *mut AnyObject) {
+                let Some(manager) = (unsafe { manager.as_ref() }) else { return };
+                match unsafe { authorization(manager) } {
+                    3 | 4 => {
+                        update(|s| {
+                            if s.status == "asking" {
+                                s.status = "waiting".into();
+                            }
+                        });
+                        unsafe {
+                            let _: () = msg_send![manager, startUpdatingLocation];
+                        }
+                    }
+                    1 | 2 => update(|s| s.status = "denied".into()),
+                    _ => {}
+                }
+            }
+        }
+    );
+
+    thread_local! {
+        /// The manager and its delegate, made on the main thread (their answers come there too).
+        static MANAGER: RefCell<Option<(Retained<AnyObject>, Retained<Delegate>)>> = const { RefCell::new(None) };
+        /// The geocoder at work: it must live until it answers.
+        static GEOCODER: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
+    }
+
+    fn manager() -> Result<Retained<AnyObject>, String> {
+        MANAGER.with(|m| {
+            if let Some((manager, _)) = m.borrow().as_ref() {
+                return Ok(manager.clone());
+            }
+            let cls = AnyClass::get(c"CLLocationManager").ok_or("CoreLocation isn't here")?;
+            let manager: Retained<AnyObject> = unsafe { msg_send![cls, new] };
+            let delegate: Retained<Delegate> = unsafe { msg_send![Delegate::class(), new] };
+            unsafe {
+                let _: () = msg_send![&*manager, setDesiredAccuracy: kCLLocationAccuracyBest];
+            }
+            *m.borrow_mut() = Some((manager.clone(), delegate));
+            Ok(manager)
+        })
+    }
+
+    /// Whether this app's Info.plist has the reason macOS shows in its "allow?" box (without one,
+    /// macOS never shows the box and never answers).
+    fn has_reason() -> bool {
+        let Some(cls) = AnyClass::get(c"NSBundle") else { return false };
+        let main: *mut AnyObject = unsafe { msg_send![cls, mainBundle] };
+        if main.is_null() {
+            return false;
+        }
+        ["NSLocationWhenInUseUsageDescription", "NSLocationUsageDescription"].iter().any(|k| {
+            let key = NSString::from_str(k);
+            let v: *mut AnyObject = unsafe { msg_send![main, objectForInfoDictionaryKey: &*key] };
+            !v.is_null()
+        })
+    }
+
+    pub fn start() -> Result<(), String> {
+        let cls = AnyClass::get(c"CLLocationManager").ok_or("CoreLocation isn't here")?;
+        *lock() = Some(State { status: "waiting".into(), ..Default::default() });
+        if !has_reason() {
+            update(|s| s.status = "nokey".into());
+            return Ok(());
+        }
+        let enabled: Bool = unsafe { msg_send![cls, locationServicesEnabled] };
+        if !enabled.as_bool() {
+            update(|s| s.status = "off".into());
+            return Ok(());
+        }
+        let manager = manager()?;
+        // The delegate is set here, outside any borrow: setting it makes macOS report the permission at once.
+        MANAGER.with(|m| {
+            if let Some((_, delegate)) = m.borrow().as_ref() {
+                let d: &AnyObject = delegate;
+                unsafe {
+                    let _: () = msg_send![&*manager, setDelegate: d];
+                }
+            }
+        });
+        match unsafe { authorization(&manager) } {
+            0 => {
+                update(|s| s.status = "asking".into());
+                unsafe {
+                    let _: () = msg_send![&*manager, requestWhenInUseAuthorization];
+                }
+            }
+            1 | 2 => update(|s| s.status = "denied".into()),
+            _ => unsafe {
+                let _: () = msg_send![&*manager, startUpdatingLocation];
+            },
+        }
+        Ok(())
+    }
+
+    pub fn stop() {
+        let manager = MANAGER.with(|m| m.borrow().as_ref().map(|(m, _)| m.clone()));
+        if let Some(manager) = manager {
+            unsafe {
+                let _: () = msg_send![&*manager, stopUpdatingLocation];
+            }
+        }
+    }
+
+    /// Asks Apple's geocoder (online) for the area around the best position so far.
+    pub fn name() -> bool {
+        let Some((lat, lon, _, _)) = lock().as_ref().and_then(|s| s.fix) else { return false };
+        let (Some(loc_cls), Some(geo_cls)) = (AnyClass::get(c"CLLocation"), AnyClass::get(c"CLGeocoder")) else { return false };
+        update(|s| {
+            s.naming = true;
+            s.area = None;
+            s.named = Some((lat, lon));
+        });
+        let location: Retained<AnyObject> = unsafe {
+            let l: Allocated<AnyObject> = msg_send![loc_cls, alloc];
+            msg_send![l, initWithLatitude: lat, longitude: lon]
+        };
+        let geocoder: Retained<AnyObject> = unsafe { msg_send![geo_cls, new] };
+        let block = RcBlock::new(move |placemarks: *mut AnyObject, _error: *mut AnyObject| {
+            let mut parts: Vec<String> = Vec::new();
+            if !placemarks.is_null() {
+                let count: usize = unsafe { msg_send![placemarks, count] };
+                if count > 0 {
+                    let p: *mut AnyObject = unsafe { msg_send![placemarks, objectAtIndex: 0usize] };
+                    if !p.is_null() {
+                        let fields: [*mut NSString; 6] = unsafe {
+                            [
+                                msg_send![p, name],
+                                msg_send![p, subLocality],
+                                msg_send![p, locality],
+                                msg_send![p, administrativeArea],
+                                msg_send![p, postalCode],
+                                msg_send![p, country],
+                            ]
+                        };
+                        for f in fields {
+                            if let Some(v) = unsafe { text(f) } {
+                                if !parts.contains(&v) {
+                                    parts.push(v);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            update(|s| {
+                if s.named == Some((lat, lon)) {
+                    s.naming = false;
+                    s.area = Some(parts.join(", "));
+                }
+            });
+        });
+        unsafe {
+            let _: () = msg_send![&*geocoder, reverseGeocodeLocation: &*location, completionHandler: &*block];
+        }
+        GEOCODER.with(|g| *g.borrow_mut() = Some(geocoder));
+        true
+    }
+
+    fn quote(t: &str) -> String {
+        let mut out = String::from("\"");
+        for ch in t.chars() {
+            match ch {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+                c => out.push(c),
+            }
+        }
+        out.push('"');
+        out
+    }
+
+    pub fn poll() -> String {
+        let s = lock().clone().unwrap_or_default();
+        let mut out = format!("{{\"status\":{},\"fixes\":{},\"naming\":{}", quote(&s.status), s.fixes, s.naming);
+        if let Some((lat, lon, acc, age)) = s.fix {
+            out.push_str(&format!(",\"latitude\":{lat},\"longitude\":{lon},\"accuracy\":{acc},\"age\":{age:.1}"));
+        }
+        if let (Some(area), Some((lat, lon))) = (&s.area, s.named) {
+            out.push_str(&format!(",\"area\":{},\"areaFor\":[{lat},{lon}]", quote(area)));
+        }
+        if let Some(m) = &s.message {
+            out.push_str(&format!(",\"message\":{}", quote(m)));
+        }
+        out.push('}');
+        out
+    }
+}
+
+/// Starts finding where this Mac is (see `location`). False on other systems.
+#[napi]
+pub fn location_start() -> napi::Result<bool> {
+    #[cfg(target_os = "macos")]
+    {
+        location::start().map_err(napi::Error::from_reason)?;
+        Ok(true)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(false)
+    }
+}
+
+/// How far finding the location got: {status, fixes, naming, latitude?, longitude?, accuracy?, age?, area?, areaFor?, message?}.
+#[napi]
+pub fn location_poll() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        location::poll()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        "{\"status\":\"unsupported\"}".into()
+    }
+}
+
+/// Asks for the area's name around the best position so far; false when there is none yet.
+#[napi]
+pub fn location_name() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        location::name()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+#[napi]
+pub fn location_stop() {
+    #[cfg(target_os = "macos")]
+    location::stop()
+}
+
+/// One more entry in the import table, built only with `--cfg dunebot_pad` (scripts/native.mjs does
+/// that when needed): Xcode 27's linker (ld 27106.1) leaves the symbol-name table 4 bytes off the
+/// 8-byte boundary when the table has an odd number of entries, and macOS 27 refuses to load the
+/// library ("mis-aligned LINKEDIT string pool").
+#[cfg(all(target_os = "macos", dunebot_pad))]
+#[unsafe(no_mangle)]
+pub extern "C" fn dunebot_native_pad() -> usize {
+    unsafe extern "C" {
+        fn getppid() -> i32;
+    }
+    getppid as *const () as usize
 }

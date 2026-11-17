@@ -10,11 +10,20 @@ pub enum Action {
     ListFolder,
     SearchChats,
     LookScreen,
+    /// Where the computer is, from the system's location services.
+    FindLocation,
 }
 
 impl Action {
-    pub const ALL: [Action; 6] =
-        [Action::RunCommand, Action::WriteFile, Action::ReadFile, Action::ListFolder, Action::SearchChats, Action::LookScreen];
+    pub const ALL: [Action; 7] = [
+        Action::RunCommand,
+        Action::WriteFile,
+        Action::ReadFile,
+        Action::ListFolder,
+        Action::SearchChats,
+        Action::LookScreen,
+        Action::FindLocation,
+    ];
 
     pub fn key(self) -> &'static str {
         match self {
@@ -24,6 +33,7 @@ impl Action {
             Action::ListFolder => "list-folder",
             Action::SearchChats => "search-chats",
             Action::LookScreen => "look-screen",
+            Action::FindLocation => "find-location",
         }
     }
 
@@ -35,6 +45,7 @@ impl Action {
             Action::ListFolder => "Look inside a folder",
             Action::SearchChats => "Search your past chats",
             Action::LookScreen => "Look at your screen",
+            Action::FindLocation => "Find where you are",
         }
     }
 
@@ -45,6 +56,8 @@ impl Action {
             Action::WriteFile => Mode::Ask,
             // The user chose looks without asking (2026-11-16, "dont ask to look my screen").
             Action::ReadFile | Action::ListFolder | Action::SearchChats | Action::LookScreen => Mode::Always,
+            // The user asked for the exact location from the system (2026-11-17); macOS asks once itself.
+            Action::FindLocation => Mode::Always,
         }
     }
 

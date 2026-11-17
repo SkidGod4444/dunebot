@@ -46,6 +46,7 @@ jobs:
           cargo build --manifest-path core/Cargo.toml
           PY=$(command -v python3 || command -v python)
           "$PY" -I scripts/core_smoke.py core/target/debug/dunebot-core "$(mktemp -d)"
+          "$PY" -I scripts/core_location_turn.py core/target/debug/dunebot-core "$(mktemp -d)"
       - name: Pages
         run: bunx tsc --noEmit -p . && bunx vite build
       - name: The answer card follows the pointer (never on it, always on the screen, no flapping at an edge)

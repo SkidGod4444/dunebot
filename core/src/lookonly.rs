@@ -1127,6 +1127,10 @@ mod tests {
             // Auto since 2026-11-17: anything not risky runs too.
             r#"curl -s -A "curl" "https://wttr.in/Ghaziabad?format=%l:+%C+%t+(feels+%f)&lang=hi&m""#,
             "curl -s wttr.in/?format=3",
+            // Weather for the place find_location gave.
+            r#"curl -s "wttr.in/28.6139,77.2090?format=3""#,
+            "curl -s wttr.in/28.6139,77.2090?format=%l:+%C+%t",
+            r#"curl -s "https://wttr.in/-33.8688,151.2093?m&format=3""#,
             "curl -sL -H 'Accept: application/json' https://api.github.com/repos/rust-lang/rust",
             "curl -I https://example.com",
             "wget -qO- https://example.com",

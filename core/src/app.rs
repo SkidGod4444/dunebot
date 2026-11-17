@@ -72,6 +72,7 @@ pub struct App {
     pub fixes_sent: Mutex<HashMap<String, i64>>,
     /// Pictures of the screen asked of the app (Electron takes them), by request id.
     captures: Mutex<HashMap<String, oneshot::Sender<Result<Value, String>>>>,
+    locations: Mutex<HashMap<String, oneshot::Sender<Value>>>,
 }
 
 pub fn new_id() -> String {
@@ -108,6 +109,7 @@ impl App {
             sessions: tokio::sync::Mutex::new(HashMap::new()),
             fixes_sent: Mutex::new(HashMap::new()),
             captures: Mutex::new(HashMap::new()),
+            locations: Mutex::new(HashMap::new()),
         }
     }
 
@@ -124,6 +126,27 @@ impl App {
             Ok(Ok(r)) => r,
             _ => Err("Dune Bot couldn't take a picture of the screen: the app didn't answer.".into()),
         }
+    }
+
+    /// Asks the app where the computer is (the app holds the system's location permission). Nothing
+    /// here logs the place. The app waits for macOS's own "allow?" box itself (up to 30 s), so this
+    /// waits longer.
+    pub async fn find_location(&self) -> Option<Value> {
+        let id = new_id();
+        let (tx, rx) = oneshot::channel();
+        self.locations.lock().unwrap().insert(id.clone(), tx);
+        self.out.event("location.request", json!({ "requestId": id }));
+        let answer = tokio::time::timeout(std::time::Duration::from_secs(60), rx).await;
+        self.locations.lock().unwrap().remove(&id);
+        answer.ok().and_then(Result::ok)
+    }
+
+    /// The app's answer to `location.request`. Single use; an unknown id is refused.
+    pub fn location_result(&self, p: &Value) -> anyhow::Result<Value> {
+        let id = p.get("requestId").and_then(Value::as_str).unwrap_or("");
+        let tx = self.locations.lock().unwrap().remove(id).ok_or_else(|| anyhow!("no such location request"))?;
+        let _ = tx.send(p.clone());
+        Ok(json!({ "ok": true }))
     }
 
     /// The app's answer to `screen.capture`. Single use; an unknown id is refused.
