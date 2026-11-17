@@ -85,6 +85,7 @@ for (const theme of ["light", "dark"])
       continue;
     }
     let note = "";
+    if (log.includes("never held still")) note += " (never held still: taken after 6 s anyway)";
     if (extra.DUNEBOT_SNAPSHOT_PLACE) {
       // "bar placed: card 596x60 at 378,794; gap below 24, left 378, right 378"
       const seen = [...log.matchAll(/bar (placed|resized): card (\d+)x(\d+) at -?\d+,-?\d+; gap below (-?\d+), left (-?\d+), right (-?\d+)/g)];
