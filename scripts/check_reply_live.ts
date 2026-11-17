@@ -87,9 +87,13 @@ for (const view of ["main", "caption"]) {
   let log = "";
   child.stdout.on("data", (d) => (log += d));
   child.stderr.on("data", (d) => (log += d));
-  const timer = setTimeout(() => child.kill(), 90_000);
+  let killed = false;
+  const timer = setTimeout(() => ((killed = true), child.kill()), 90_000);
   await new Promise((r) => child.on("exit", r));
   clearTimeout(timer);
+  const failedBefore = failed;
+  // Linux CI twice hung here until the kill with the reply missing: show the app's own words then.
+  const showLog = () => failed > failedBefore && console.error(`--- ${view}: the app's log${killed ? " (stopped after 90 s: it never quit)" : ""} ---\n${log.slice(-3000)}\n---`);
   const resultFile = shot.replace(/\.png$/, ".script.json");
   if (!fs.existsSync(resultFile)) {
     fail(`${view}: no result\n${log.slice(-1500)}`);
@@ -110,6 +114,7 @@ for (const view of ["main", "caption"]) {
   if (!refused.includes(CONTROL)) fail(`${view}: control: the page's own outside picture wasn't refused, so this check proves nothing (refused: ${refused.join(", ") || "none"})`);
   const fromReply = refused.filter((u) => u !== CONTROL);
   if (fromReply.length) fail(`${view}: the reply tried to load ${[...new Set(fromReply)].join(", ")}`);
+  showLog();
   console.log(`${failed ? "FAIL" : "ok  "} ${view}: the reply loaded nothing (only the control was refused), ${calls.length} kinds of call (${calls.join(", ")}), nothing ran`);
 }
 console.log(failed ? `${failed} problem(s)` : "ALL PASS");
