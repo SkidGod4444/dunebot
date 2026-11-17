@@ -139,11 +139,14 @@ loopback port with a separate token per chat.
 
 - **Auto / Ask / Always / Never** per action, set in Permissions. Defaults: commands are on Auto,
   file changes ask, reading and listing don't. **Auto** (commands only) runs a command without asking
-  only when it just looks: listing, counting, sizes, reading files (`core/src/lookonly.rs`, an
-  allowlist of programs and flags, parsed, never a guess). Anything else asks, and the card says why
-  ("Asking because rm isn't one of the commands that only look"). Home-wide walks, `~/Library`, other disks, variables, private
-  files, `/proc`, jq reading `env`, and Dune Bot's own data always ask. Commands that only look run
-  with a clean environment (PATH, HOME, locale). On Windows Auto always asks. Scheduled chats always ask.
+  unless something in it is risky (`core/src/lookonly.rs`, parsed, never a guess): deleting, moving or
+  saving files, admin, shells and interpreters, other apps, the screen, speakers, mic or clipboard,
+  network beyond a plain fetch shown on screen (curl/wget uploads, data, other methods, saving),
+  changing git, installs and builds, other agents, system settings. Those ask, and the card says why
+  ("Asking because rm changes, moves, saves or deletes files"). Home-wide walks, `~/Library`, other disks, variables, private
+  files, `/proc`, jq reading `env`, and Dune Bot's own data always ask. What runs unasked gets a clean
+  environment (PATH, HOME, locale). Pattern matching can miss a disguised command, and a plain fetch
+  can carry text in its address. On Windows Auto always asks. Scheduled chats always ask.
 - `list_folder` counts a whole folder tree (`deep: true`: files, folders, sizes, the largest files)
   without asking, and agents are told to use it instead of a command.
 - Approval cards are single use. "Allow all … in this chat" covers that one action type, in that chat only

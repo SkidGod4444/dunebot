@@ -40,7 +40,7 @@ impl Action {
 
     pub fn default_mode(self) -> Mode {
         match self {
-            // The user chose Auto for commands (2026-11-16): commands that only look run unasked.
+            // The user chose Auto for commands (2026-11-16; "only risky ones ask" 2026-11-17).
             Action::RunCommand => Mode::Auto,
             Action::WriteFile => Mode::Ask,
             // The user chose looks without asking (2026-11-16, "dont ask to look my screen").
@@ -58,7 +58,7 @@ pub enum Mode {
     Always,
     Ask,
     Never,
-    /// Commands only: runs a command that only looks (`lookonly.rs`), asks for anything else.
+    /// Commands only: runs a command with nothing risky in it (`lookonly.rs`), asks for the rest.
     Auto,
 }
 

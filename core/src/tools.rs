@@ -181,7 +181,7 @@ async fn run_command(app: &App, thread: &Thread, args: &Value) -> Result<String,
     }
     let secs = args.get("timeout_seconds").and_then(Value::as_u64).unwrap_or(120).clamp(1, 1800);
     let look = crate::lookonly::check(command, &cwd, &app.data_dir);
-    let only_looks = look.is_ok();
+    let nothing_risky = look.is_ok();
     app.gate_with(&thread.id, Action::RunCommand, command, &format!("in {}", cwd.display()), Some(look)).await?;
 
     let mut cmd = if cfg!(windows) {
@@ -205,10 +205,10 @@ async fn run_command(app: &App, thread: &Thread, args: &Value) -> Result<String,
     cmd.process_group(0);
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
-    // A command that only looks (it may have run without asking) gets a clean environment: whatever
-    // the look-only check missed, there are no tokens or keys in it to find.
+    // A command Auto found nothing risky in (it may have run without asking) gets a clean
+    // environment: whatever the check missed, there are no tokens or keys in it to find.
     #[cfg(unix)]
-    if only_looks {
+    if nothing_risky {
         cmd.env_clear();
         for k in ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TZ"] {
             if let Some(v) = std::env::var_os(k) {

@@ -499,7 +499,7 @@ function Permissions() {
               </div>
               {r.mode === "auto" && (
                 <p className="mt-1.5 text-[13px] text-muted">
-                  Commands that only look (list, count, size, read a file) run without asking. Anything else asks, and the card says why. Scheduled chats always ask.
+                  Commands run without asking unless they're risky: deleting or saving files, running code, admin, other apps or the screen, sending data online, changing git, installing. Those ask, and the card says why. Scheduled chats always ask. Always: no cards at all.
                 </p>
               )}
               {r.action === "look-screen" && r.mode !== "never" && (

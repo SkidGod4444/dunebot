@@ -329,7 +329,7 @@ impl App {
         self.gate_with(thread_id, action, target, detail, None).await
     }
 
-    /// `look`: for a command, whether it only looks (decides Auto).
+    /// `look`: for a command, whether it's free of anything risky (decides Auto).
     pub async fn gate_with(
         &self,
         thread_id: &str,
@@ -350,8 +350,8 @@ impl App {
             }
             Mode::Auto => match look {
                 Some(Ok(())) => {
-                    eprintln!("dunebot-core: auto: ran a command that only looks");
-                    self.ledger(thread_id, action, target, "allowed (auto: only looks)", detail);
+                    eprintln!("dunebot-core: auto: ran a command with nothing risky in it");
+                    self.ledger(thread_id, action, target, "allowed (auto: nothing risky)", detail);
                     return Ok(());
                 }
                 Some(Err(a)) => {

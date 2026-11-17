@@ -1,5 +1,5 @@
 (async () => {
-  await window.dunebot.call("settings.set", { action: "run-command", mode: "ask" }); // these commands only look
+  await window.dunebot.call("settings.set", { action: "run-command", mode: "ask" }); // these would run unasked under Auto
   const dm = window.__dm;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const waitFor = async (pred, ms = 8000) => { const end = Date.now() + ms; while (Date.now() < end) { if (pred()) return true; await sleep(100); } return false; };

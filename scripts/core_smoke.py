@@ -63,7 +63,7 @@ def turn(text, answer=None):
     tools = [m["message"] for m in seen if m.get("event") == "message.updated" and m["message"]["role"] == "tool"]
     return end, (tools[-1] if tools else None)
 
-# Auto (the default for commands): a command that only looks runs; anything else asks, saying why.
+# Auto (the default for commands): a command with nothing risky in it runs; a risky one asks, saying why.
 modes = {r["action"]: r for r in send("settings.get")["result"]["modes"]}
 ok(modes["run-command"]["mode"] == "auto" and modes["run-command"]["choices"][0] == "auto", "commands default to Auto")
 ok("error" in send("settings.set", action="write-file", mode="auto"), "Auto is refused for anything but commands")
@@ -82,15 +82,15 @@ else:
     wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == ta0)
     ran0 = [m["message"] for m in seen[i:] if m.get("event") == "message.updated" and m["message"]["role"] == "tool"]
     ok(not any(m.get("event") == "approval.request" for m in seen[i:]) and ran0 and ran0[-1]["meta"]["status"] == "done",
-       "Auto: a command that only looks runs without a card")
+       "Auto: a command with nothing risky in it runs without a card")
     send("threads.send", id=ta0, text="run rm -f dunebot-smoke-nothing")
     appr = wait(lambda m: m.get("event") == "approval.request")
     card = [m for m in send("threads.get", id=ta0)["result"]["messages"] if m["role"] == "approval"][-1]
-    ok("rm isn't one of the commands that only look" in (card["meta"].get("why") or ""), "Auto: anything else asks, and the card says why")
+    ok("rm changes, moves, saves or deletes files" in (card["meta"].get("why") or ""), "Auto: a risky command asks, and the card says why")
     time.sleep(0.6)
     send("approvals.respond", id=appr["approvalId"], decision="deny")
     wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == ta0)
-    ok(any(r["decision"] == "allowed (auto: only looks)" for r in send("ledger.list")["result"]), "Auto: what ran unasked is in the activity log")
+    ok(any(r["decision"] == "allowed (auto: nothing risky)" for r in send("ledger.list")["result"]), "Auto: what ran unasked is in the activity log")
 send("settings.set", action="run-command", mode="ask")  # the checks below are about asking
 
 end, tool = turn("run echo hi-from-dunebot", "once")
@@ -257,7 +257,7 @@ since(j, lambda m: m.get("event") == "turn.ended" and m["threadId"] == r2["threa
 send("settings.set", action="run-command", mode="auto")
 r3 = send("schedules.run", id=sc["id"])["result"]
 appr = since(j, lambda m: m.get("event") == "approval.request" and m["threadId"] == r3["threadId"], 10)
-ok(bool(appr), "with Auto, a scheduled chat still asks, even for a command that only looks")
+ok(bool(appr), "with Auto, a scheduled chat still asks, even for a command with nothing risky in it")
 send("approvals.respond", id=appr["approvalId"], decision="deny")
 since(j, lambda m: m.get("event") == "turn.ended" and m["threadId"] == r3["threadId"])
 send("settings.set", action="run-command", mode="ask")
