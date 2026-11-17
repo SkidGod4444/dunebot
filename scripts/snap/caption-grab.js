@@ -16,8 +16,17 @@
   end = Date.now() + 8000;
   while (Date.now() < end && dm.get().busy[t.id]) await sleep(100);
   await window.dunebot.call("settings.set", { action: "run-command", mode: "auto" });
-  // Long enough for the card to finish reading "Done." (volume 0): the picture is compared between
-  // builds, and one taken mid-reading has an extra "Stop reading" button.
-  await sleep(2500);
+  // Until the card has finished reading "Done." (volume 0): the picture is compared between builds,
+  // and one taken mid-reading has an extra "Stop reading" button. A fixed 2.5 s was too short on a
+  // slow macOS runner; this waits for the button to be gone for 300 ms (at most 12 s).
+  const reading = () => !!document.querySelector('button[title="Stop reading this answer"]');
+  await sleep(500);
+  end = Date.now() + 12000;
+  let quietSince = reading() ? 0 : Date.now();
+  while (Date.now() < end && !(quietSince && Date.now() - quietSince >= 300)) {
+    await sleep(100);
+    if (reading()) quietSince = 0;
+    else quietSince ||= Date.now();
+  }
   return { done: !dm.get().busy[t.id] };
 })();
