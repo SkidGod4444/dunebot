@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { createInput } from "./input.mjs";
 import { place as placeCaption, corner as captionCorner, covers, inside, heading, WIN_W as CAPTION_W, WIN_H as CAPTION_H } from "./caption-place.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -230,6 +231,18 @@ const addon = (() => {
     return nodeRequire(path.join(root, "native", "dunebot_native.node")); // notification permission, appearance
   } catch (e) {
     log("native addon not loaded:", e.message);
+    return null;
+  }
+})();
+// The mouse and keyboard for agents: the same addon on macOS; on Windows and Linux it's loaded for
+// that alone (the calls above are macOS's).
+const inputAddon = (() => {
+  if (isMac) return addon;
+  if (snapshot) return null;
+  try {
+    return nodeRequire(path.join(root, "native", "dunebot_native.node"));
+  } catch (e) {
+    log("input addon not loaded:", e.message);
     return null;
   }
 })();
@@ -1178,8 +1191,6 @@ async function locationForCore(requestId) {
 // Never on Dune Bot's own windows, and never typing into Dune Bot: an agent must not answer its own
 // cards or change its settings.
 const ACCESSIBILITY_PANE = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-const between = (lo, hi) => lo + Math.random() * (hi - lo);
 const ownName = (w) => (w === caption ? "answer card" : w === bar ? "bar" : "window");
 
 /** Which of Dune Bot's own windows a click at this point would reach, if one would. A window of
@@ -1192,11 +1203,13 @@ function ownWindowAt(x, y) {
     const b = w.getBounds();
     return !passes(w) && x >= b.x && x < b.x + b.width && y >= b.y && y < b.y + b.height;
   };
-  if (isMac && addon?.frontWindowOwner) {
-    const owner = addon.frontWindowOwner(x, y, shown.filter(passes).map((w) => w.getNativeWindowHandle()));
+  // macOS and Windows: ask the system which app's window is on top there.
+  if ((isMac || process.platform === "win32") && inputAddon?.frontWindowOwner) {
+    const at = nativePoint(x, y);
+    const owner = inputAddon.frontWindowOwner(at.x, at.y, isMac ? shown.filter(passes).map((w) => w.getNativeWindowHandle()) : []);
     if (owner !== process.pid) return null;
     const w = shown.find(hit);
-    return w ? ownName(w) : "menu bar icon";
+    return w ? ownName(w) : isMac ? "menu bar icon" : "window";
   }
   const w = shown.find(hit);
   return w ? ownName(w) : null;
@@ -1214,7 +1227,7 @@ function refuseOwn(x, y, verb) {
 function keyboardIsOurs() {
   const focused = BrowserWindow.getFocusedWindow();
   if (focused && !focused.isDestroyed()) return `Dune Bot's own ${ownName(focused)} has the keyboard`;
-  if (isMac && addon?.frontmostPid && addon.frontmostPid() === process.pid) return "Dune Bot is the app in front";
+  if (inputAddon?.frontmostPid && inputAddon.frontmostPid() === process.pid) return "Dune Bot is the app in front";
   return null;
 }
 
@@ -1226,10 +1239,15 @@ function refuseKeyboard() {
     );
 }
 
-/** macOS's Accessibility switch: off, and the list opens for the user (the first time, its box). */
+/** Whether Dune Bot may use the mouse and keyboard here. macOS: the Accessibility switch (off: the
+ * list opens for the user, the first time with macOS's box). Linux: X11 only. */
 function needAccess() {
-  if (!isMac || !addon?.pointerGlide) throw new Error("Using the mouse and keyboard for the user isn't available on this system yet. Tell the user what to do instead.");
+  const addon = inputAddon;
+  if (!addon?.pointerGlide) throw new Error("Using the mouse and keyboard for the user isn't available on this system yet. Tell the user what to do instead.");
+  if (wayland || (process.platform === "linux" && !process.env.DISPLAY))
+    throw new Error("This Linux desktop runs Wayland, which doesn't let apps move the pointer or type into other apps. Tell the user what to do instead.");
   if (addon.postEventAccess(false)) return;
+  if (!isMac) throw new Error("Dune Bot couldn't reach this computer's mouse and keyboard (on Linux it needs X11 with the XTest extension). Tell the user what to do instead.");
   addon.postEventAccess(true);
   shell.openExternal(ACCESSIBILITY_PANE);
   throw new Error(
@@ -1237,134 +1255,20 @@ function needAccess() {
   );
 }
 
-const TAKEN =
-  "The user moved the mouse while Dune Bot was using it, so Dune Bot stopped. Don't do it again unless they ask.";
-function check(r, what) {
-  if (r === 2) throw new Error(TAKEN);
-  if (r !== 0) throw new Error(`Dune Bot couldn't ${what}.`);
-}
-
-/** The pointer glides to the point as a hand would; then, Dune Bot's windows checked again (one may
- * have come up meanwhile), the step itself. */
-async function glideTo(x, y, verb) {
-  check(await addon.pointerGlide(x, y, false), "move the pointer there");
-  refuseOwn(x, y, verb);
-}
-
-async function clickAt({ x, y, button, count }) {
-  const right = button === "right";
-  const twice = count === 2 ? 2 : 1;
-  refuseOwn(x, y, "clicks");
-  // Checks: a stand-in that only logs the point. A test run never touches the real screen.
-  if (process.env.DUNEBOT_INPUT_STUB) return `stand-in ${right ? "right " : ""}click ×${twice} at ${Math.round(x)},${Math.round(y)}`;
-  needAccess();
-  await glideTo(x, y, "clicks");
-  check(await addon.pointerPress(x, y, right, twice), "click there");
-  return `${right ? "right " : ""}click ×${twice}`;
-}
-
-async function scrollAt({ x, y, dx, dy, notches }) {
-  refuseOwn(x, y, "scrolls");
-  const n = Math.max(1, Math.min(30, Math.round(notches) || 6));
-  if (process.env.DUNEBOT_INPUT_STUB) return `stand-in scroll ${dx},${dy} ×${n} at ${Math.round(x)},${Math.round(y)}`;
-  needAccess();
-  await glideTo(x, y, "scrolls");
-  check(await addon.scrollAt(x, y, Math.sign(dx) | 0, Math.sign(dy) | 0, n), "scroll there");
-  return `scroll ${dx},${dy} ×${n}`;
-}
-
-async function dragFrom({ x1, y1, x2, y2 }) {
-  refuseOwn(x1, y1, "drags");
-  refuseOwn(x2, y2, "drops onto");
-  if (process.env.DUNEBOT_INPUT_STUB) return `stand-in drag ${Math.round(x1)},${Math.round(y1)} → ${Math.round(x2)},${Math.round(y2)}`;
-  needAccess();
-  await glideTo(x1, y1, "drags");
-  if (!addon.pointerButton(x1, y1, true)) throw new Error("Dune Bot couldn't press the mouse button.");
-  // From here on the button is let go whatever happens: never left held down.
-  try {
-    await wait(between(120, 200));
-    check(await addon.pointerGlide(x2, y2, true), "drag there");
-    refuseOwn(x2, y2, "drops onto");
-    await wait(between(100, 180));
-  } finally {
-    const at = screen.getCursorScreenPoint();
-    addon.pointerButton(at.x, at.y, false);
-  }
-  return "drag";
-}
-
-// macOS virtual key codes (a US layout's keys; the letters follow the keyboard's own places).
-const KEY_CODES = {
-  a: 0, s: 1, d: 2, f: 3, h: 4, g: 5, z: 6, x: 7, c: 8, v: 9, b: 11, q: 12, w: 13, e: 14, r: 15, y: 16, t: 17,
-  1: 18, 2: 19, 3: 20, 4: 21, 6: 22, 5: 23, "=": 24, 9: 25, 7: 26, "-": 27, 8: 28, 0: 29, "]": 30, o: 31, u: 32,
-  "[": 33, i: 34, p: 35, enter: 36, l: 37, j: 38, "'": 39, k: 40, ";": 41, "\\": 42, ",": 43, "/": 44, n: 45, m: 46,
-  ".": 47, tab: 48, space: 49, "`": 50, backspace: 51, escape: 53, f5: 96, f6: 97, f7: 98, f3: 99, f8: 100, f9: 101,
-  f11: 103, f10: 109, f12: 111, home: 115, pageup: 116, forwarddelete: 117, f4: 118, end: 119, f2: 120, pagedown: 121,
-  f1: 122, left: 123, right: 124, down: 125, up: 126,
-};
-const MOD_FLAGS = { shift: 0x20000, ctrl: 0x40000, option: 0x80000, cmd: 0x100000 };
-
-/** One key down and up, its modifiers on its own events only (no modifier key goes down alone). */
-async function tapKey(code, flags) {
-  if (!addon.keyCode(code, flags, true)) throw new Error("Dune Bot couldn't press that key.");
-  await wait(between(40, 80));
-  addon.keyCode(code, flags, false);
-}
-
 // Requests the core gave up on (the turn stopped, or it waited too long): typing stops at the next key.
 const inputCancelled = new Set();
 
-/** Before each key: not stopped, still not Dune Bot's keyboard, and the user hasn't taken the mouse. */
-function stillOurs(start, requestId) {
-  if (inputCancelled.has(requestId)) throw new Error("Stopped: the chat stopped waiting for it.");
-  refuseKeyboard();
-  const now = screen.getCursorScreenPoint();
-  if (Math.hypot(now.x - start.x, now.y - start.y) > 24) throw new Error(TAKEN);
-}
-
-async function typeText({ text, requestId }) {
-  const chars = [...String(text ?? "")];
-  if (!chars.length) throw new Error("Nothing to type.");
-  refuseKeyboard();
-  if (process.env.DUNEBOT_INPUT_STUB) return `stand-in typing, ${chars.length} characters`;
-  needAccess();
-  const start = screen.getCursorScreenPoint();
-  // A person's pace: quicker inside words, a beat after a space or a stop; long text goes faster.
-  const pace = chars.length > 200 ? 0.4 : 1;
-  for (const ch of chars) {
-    stillOurs(start, requestId);
-    if (ch === "\n") await tapKey(KEY_CODES.enter, 0);
-    else if (ch === "\t") await tapKey(KEY_CODES.tab, 0);
-    else {
-      if (!addon.keyText(ch, true)) throw new Error("Dune Bot couldn't type that.");
-      await wait(between(8, 20));
-      addon.keyText(ch, false);
-    }
-    const after = /[.!?,;:\n]/.test(ch) ? between(120, 260) : ch === " " ? between(60, 160) : between(35, 95);
-    await wait(after * pace);
-  }
-  return `typing, ${chars.length} characters`;
-}
-
-async function pressKeys({ key, mods, times, requestId }) {
-  const code = KEY_CODES[key];
-  if (code === undefined) throw new Error(`Dune Bot doesn't know the key "${key}".`);
-  const flags = (Array.isArray(mods) ? mods : []).reduce((f, m) => f | (MOD_FLAGS[m] ?? 0), 0);
-  const n = Math.max(1, Math.min(20, Math.round(times) || 1));
-  const shown = `${(mods ?? []).join("+")}${mods?.length ? "+" : ""}${key}${n > 1 ? ` ×${n}` : ""}`;
-  refuseKeyboard();
-  if (process.env.DUNEBOT_INPUT_STUB) return `stand-in keys ${shown}`;
-  needAccess();
-  const start = screen.getCursorScreenPoint();
-  for (let i = 0; i < n; i++) {
-    stillOurs(start, requestId);
-    await tapKey(code, flags);
-    if (i < n - 1) await wait(between(80, 160));
-  }
-  return `keys ${shown}`;
-}
-
-const INPUTS = { click: clickAt, scroll: scrollAt, drag: dragFrom, type: typeText, keys: pressKeys };
+const input = createInput({
+  addon: () => inputAddon,
+  screen,
+  refuseOwn,
+  refuseKeyboard,
+  needAccess,
+  cancelled: (id) => inputCancelled.has(id),
+  stub: () => process.env.DUNEBOT_INPUT_STUB,
+});
+const nativePoint = (x, y) => input.nativePoint(x, y);
+const INPUTS = { click: input.clickAt, scroll: input.scrollAt, drag: input.dragFrom, type: input.typeText, keys: input.pressKeys };
 
 async function inputForCore(m) {
   try {
@@ -1948,10 +1852,10 @@ async function runSelfcheck() {
     r.coreAnswered = `no: ${e.message}`;
   }
   r.codemax = codemaxBinary() ?? "not bundled (agents are looked for on PATH)";
-  r.addon = isMac ? (addon ? "loaded" : "not loaded") : "not used here";
+  r.addon = (isMac ? addon : inputAddon) ? "loaded" : "not loaded";
   // The core's click needs the addon's (an addon from before them would fail only on first use).
   const inputFns = ["postEventAccess", "pointerGlide", "pointerPress", "pointerButton", "scrollAt", "keyText", "keyCode", "frontmostPid"];
-  r.clicks = isMac ? (inputFns.every((f) => typeof addon?.[f] === "function") ? "found" : `missing ${inputFns.filter((f) => typeof addon?.[f] !== "function").join(", ")}`) : "not on this system yet";
+  r.clicks = inputFns.every((f) => typeof inputAddon?.[f] === "function") ? "found" : `missing ${inputFns.filter((f) => typeof inputAddon?.[f] !== "function").join(", ")}`;
   r.glass = isMac ? (liquidGlass ? "loaded" : "not loaded") : "not used here";
   const icons = [...Object.values(ICONS).map((f) => path.join(here, "assets", f)), ...(WINDOW_ICON.icon ? [WINDOW_ICON.icon] : [])];
   r.trayIcons = icons.every((f) => fs.existsSync(f) && !nativeImage.createFromPath(f).isEmpty()) ? "found" : `missing: ${icons.join(", ")}`;
@@ -1959,7 +1863,7 @@ async function runSelfcheck() {
   r.dataDir = process.env.DUNEBOT_DATA_DIR;
   const temp = (p) => !!p && path.resolve(p).startsWith(fs.realpathSync(os.tmpdir())) || !!p && path.resolve(p).startsWith(os.tmpdir());
   r.tempFolders = temp(r.userData) && temp(r.dataDir);
-  r.ok = r.pages === "found" && r.coreAnswered.startsWith("version") && r.trayIcons === "found" && r.tempFolders && (!isMac || (!!addon && !!liquidGlass && r.clicks === "found"));
+  r.ok = r.pages === "found" && r.coreAnswered.startsWith("version") && r.trayIcons === "found" && r.tempFolders && r.clicks === "found" && (!isMac || (!!addon && !!liquidGlass));
   console.log(`selfcheck ${JSON.stringify(r)}`);
   core?.stdin.end();
   app.exit(r.ok ? 0 : 1);

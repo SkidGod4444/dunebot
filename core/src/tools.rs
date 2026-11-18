@@ -91,14 +91,14 @@ pub fn list() -> Value {
             "inputSchema": { "type": "object", "properties": {} }
         }
     ]);
-    // Using the mouse and keyboard is macOS's only for now (the app does it with Quartz events);
-    // elsewhere these aren't listed.
-    if cfg!(target_os = "macos") {
+    // The mouse and keyboard: the app does it (Quartz on macOS, SendInput on Windows, XTest on Linux
+    // with X11; on Wayland the app says it can't).
+    if cfg!(any(target_os = "macos", target_os = "windows", target_os = "linux")) {
         let list = tools.as_array_mut().expect("a list");
         let px = |which: &str| json!({ "type": "number", "description": format!("Pixels from the {which} of the latest look_at_screen picture") });
         list.push(json!({
             "name": "click",
-            "description": "Click something on the user's screen for them (a tab, a button, a link, a text field before typing): the pointer glides there as a person's hand would, clicks, and stays there. If the user moves the mouse on the way it stops without clicking. Take a picture with look_at_screen first, then give the point in that picture's pixels. It never asks the user (a scheduled chat asks). Use it, never run_command (osascript, cliclick, System Events), to click: those ask the user every time. It never clicks Dune Bot's own bar, card or window. Look at the screen again before the next click: the picture is used up.",
+            "description": "Click something on the user's screen for them (a tab, a button, a link, a text field before typing): the pointer glides there as a person's hand would, clicks, and stays there. If the user moves the mouse on the way it stops without clicking. Take a picture with look_at_screen first, then give the point in that picture's pixels. It never asks the user (a scheduled chat asks). Use it, never run_command (osascript, cliclick, xdotool, PowerShell), to click: those ask the user every time. It never clicks Dune Bot's own bar, card or window. Look at the screen again before the next click: the picture is used up.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -141,7 +141,7 @@ pub fn list() -> Value {
         }));
         list.push(json!({
             "name": "type_text",
-            "description": "Type text on the user's keyboard, at a person's pace, into whatever has the keyboard now. The app the user is in already has it: for \"type here\" just type; click first only to put the text in another field or app. A newline presses Return (which sends or runs in many apps) and a tab presses Tab. It never types into Dune Bot itself (it refuses while Dune Bot is in front: click the place first). It never asks the user (a scheduled chat asks). If the user moves the mouse it stops. Use it, never run_command (osascript, System Events), to type.",
+            "description": "Type text on the user's keyboard, at a person's pace, into whatever has the keyboard now. The app the user is in already has it: for \"type here\" just type; click first only to put the text in another field or app. A newline presses Return (which sends or runs in many apps) and a tab presses Tab. It never types into Dune Bot itself (it refuses while Dune Bot is in front: click the place first). It never asks the user (a scheduled chat asks). If the user moves the mouse it stops. Use it, never run_command (osascript, xdotool, PowerShell SendKeys), to type.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -153,7 +153,7 @@ pub fn list() -> Value {
         }));
         list.push(json!({
             "name": "press_keys",
-            "description": "Press a key or a shortcut on the user's keyboard, in the app that has the keyboard now: \"enter\", \"tab\", \"escape\", \"down\", \"cmd+t\", \"cmd+shift+t\", \"ctrl+a\". Modifiers: cmd, ctrl, option, shift. Keys: a-z, 0-9, enter, tab, escape, space, backspace, delete, up, down, left, right, home, end, pageup, pagedown, f1-f12, and - = [ ] \\ ; ' , . / `. It never presses keys in Dune Bot itself. It never asks the user (a scheduled chat asks).",
+            "description": format!("Press a key or a shortcut on the user's keyboard, in the app that has the keyboard now: \"enter\", \"tab\", \"escape\", \"down\", {}. {} Keys:", SHORTCUT_EXAMPLES, MODIFIERS_NOTE) + " a-z, 0-9, enter, tab, escape, space, backspace, delete, up, down, left, right, home, end, pageup, pagedown, f1-f12, and - = [ ] \\ ; ' , . / `. It never presses keys in Dune Bot itself. It never asks the user (a scheduled chat asks).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -391,16 +391,28 @@ async fn type_text(app: &App, thread: &Thread, args: &Value) -> Result<String, S
     Ok(format!("Typed {n} characters into {what}. Look at the screen to check they landed where you meant."))
 }
 
+#[cfg(target_os = "macos")]
+const SHORTCUT_EXAMPLES: &str = "\"cmd+t\", \"cmd+shift+t\", \"ctrl+a\"";
+#[cfg(target_os = "macos")]
+const MODIFIERS_NOTE: &str = "Modifiers: cmd, ctrl, option, shift.";
+#[cfg(not(target_os = "macos"))]
+const SHORTCUT_EXAMPLES: &str = "\"ctrl+t\", \"ctrl+shift+t\", \"alt+tab\"";
+#[cfg(not(target_os = "macos"))]
+const MODIFIERS_NOTE: &str = "Modifiers: ctrl, alt, shift, win (cmd means ctrl here).";
+
 /// A key or shortcut as the agent wrote it ("cmd+shift+t"), checked and put in order: the
-/// modifiers (cmd, ctrl, option, shift) and one key.
+/// modifiers and one key. macOS: cmd, ctrl, option, shift. Windows and Linux: ctrl, option (Alt),
+/// shift and win (the Windows or Super key); cmd there means ctrl, the key that plays its part.
 pub fn parse_keys(raw: &str) -> Result<(Vec<&'static str>, String), String> {
     let mut mods: Vec<&'static str> = vec![];
     let mut key: Option<String> = None;
     let raw = raw.trim().to_lowercase();
     // "cmd++" would be the plus key; it isn't one of ours, so a plain split is enough.
     for part in raw.split('+').map(str::trim) {
+        let mac = cfg!(target_os = "macos");
         let m = match part {
-            "cmd" | "command" | "⌘" | "meta" | "super" | "win" => Some("cmd"),
+            "cmd" | "command" | "⌘" => Some(if mac { "cmd" } else { "ctrl" }),
+            "meta" | "super" | "win" | "windows" => Some(if mac { "cmd" } else { "win" }),
             "ctrl" | "control" | "⌃" => Some("ctrl"),
             "option" | "opt" | "alt" | "⌥" => Some("option"),
             "shift" | "⇧" => Some("shift"),
@@ -438,7 +450,7 @@ pub fn parse_keys(raw: &str) -> Result<(Vec<&'static str>, String), String> {
     let Some(key) = key else {
         return Err("Give a key, not only modifiers: like \"cmd+t\" or \"enter\".".into());
     };
-    let order = ["ctrl", "option", "shift", "cmd"];
+    let order = ["ctrl", "option", "shift", "cmd", "win"];
     mods.sort_by_key(|m| order.iter().position(|o| o == m));
     Ok((mods, key))
 }
@@ -447,13 +459,24 @@ async fn press_keys(app: &App, thread: &Thread, args: &Value) -> Result<String, 
     let raw = args.get("keys").and_then(Value::as_str).unwrap_or("");
     let (mods, key) = parse_keys(raw)?;
     let times = args.get("times").and_then(Value::as_u64).unwrap_or(1).clamp(1, 20);
-    let sign = |m: &str| match m {
-        "ctrl" => "⌃",
-        "option" => "⌥",
-        "shift" => "⇧",
-        _ => "⌘",
+    let key_shown = if key.len() == 1 { key.to_uppercase() } else { key.clone() };
+    let shown = if cfg!(target_os = "macos") {
+        let sign = |m: &str| match m {
+            "ctrl" => "⌃",
+            "option" => "⌥",
+            "shift" => "⇧",
+            _ => "⌘",
+        };
+        format!("{}{key_shown}", mods.iter().map(|m| sign(m)).collect::<String>())
+    } else {
+        let name = |m: &str| match m {
+            "ctrl" => "Ctrl",
+            "option" => "Alt",
+            "shift" => "Shift",
+            _ => "Win",
+        };
+        mods.iter().map(|m| format!("{}+", name(m))).collect::<String>() + &key_shown
     };
-    let shown = format!("{}{}", mods.iter().map(|m| sign(m)).collect::<String>(), if key.len() == 1 { key.to_uppercase() } else { key.clone() });
     let shown = if times > 1 { format!("{shown} ×{times}") } else { shown };
     let what = what_of(args, "");
     app.gate(&thread.id, Action::Type, &shown, &what).await?;
@@ -888,8 +911,17 @@ mod tests {
 
     #[test]
     fn shortcuts_are_checked_and_put_in_order() {
-        assert_eq!(parse_keys("Shift+CMD+t").unwrap(), (vec!["shift", "cmd"], "t".to_string()));
-        assert_eq!(parse_keys("command+option+escape").unwrap(), (vec!["option", "cmd"], "escape".to_string()));
+        if cfg!(target_os = "macos") {
+            assert_eq!(parse_keys("Shift+CMD+t").unwrap(), (vec!["shift", "cmd"], "t".to_string()));
+            assert_eq!(parse_keys("command+option+escape").unwrap(), (vec!["option", "cmd"], "escape".to_string()));
+            assert_eq!(parse_keys("win+r").unwrap(), (vec!["cmd"], "r".to_string()));
+        } else {
+            // There, cmd plays its part as ctrl, and win is the Windows (Super) key.
+            assert_eq!(parse_keys("Shift+CMD+t").unwrap(), (vec!["ctrl", "shift"], "t".to_string()));
+            assert_eq!(parse_keys("command+alt+escape").unwrap(), (vec!["ctrl", "option"], "escape".to_string()));
+            assert_eq!(parse_keys("win+r").unwrap(), (vec!["win"], "r".to_string()));
+            assert_eq!(parse_keys("ctrl+cmd+c").unwrap(), (vec!["ctrl"], "c".to_string()));
+        }
         assert_eq!(parse_keys(" Return ").unwrap(), (vec![], "enter".to_string()));
         assert_eq!(parse_keys("ctrl+F12").unwrap(), (vec!["ctrl"], "f12".to_string()));
         assert_eq!(parse_keys("cmd+/").unwrap(), (vec!["cmd"], "/".to_string()));

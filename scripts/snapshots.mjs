@@ -134,7 +134,7 @@ for (const theme of ["light", "dark"])
         /input: stand-in scroll 0,-1 ×6 at -?\d+,-?\d+/,
         /input: stand-in drag -?\d+,-?\d+ → -?\d+,-?\d+/,
         /input: stand-in typing, 11 characters/,
-        /input: stand-in keys cmd\+t ×2/,
+        /input: stand-in keys ctrl\+t ×2/,
       ];
       const missing = want.filter((re) => !re.test(log));
       if (missing.length) problems.push(`${name} ${theme}: the app didn't take ${missing.map(String).join(", ")}\n${log.split("\n").filter((l) => /input|screen|turn/.test(l)).slice(-10).join("\n")}`);

@@ -2,7 +2,7 @@
 name = "dunebot-native"
 version = "0.1.0"
 edition = "2024"
-description = "Dunebot on macOS: notification permission, window appearance, location and clicks (the glass comes from electron-liquid-glass)."
+description = "Dunebot's addon. macOS: notification permission, window appearance, location, the mouse and keyboard (the glass comes from electron-liquid-glass). Windows and Linux: the mouse and keyboard."
 
 [lib]
 crate-type = ["cdylib"]
@@ -15,6 +15,9 @@ napi-derive = "3"
 objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSString", "objc2-core-foundation"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libloading = "0.8"
 
 [build-dependencies]
 napi-build = "2"

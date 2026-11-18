@@ -15,7 +15,7 @@
 //! - `locationStart` / `locationPoll` / `locationName` / `locationStop`: where this Mac is, from
 //!   Location Services, and the area's name (the core's `find_location`; see `mod location`).
 //! - `postEventAccess`: whether this app may use the mouse and keyboard for the user (macOS's
-//!   Accessibility list).
+//!   Accessibility list; Windows always; Linux on X11 with XTest).
 //! - `pointerGlide` / `pointerPress` / `pointerButton` / `scrollAt`: the core's click, drag and
 //!   scroll, the pointer gliding as a hand would (`clickPath` shows that path without moving anything).
 //!   Each is one step, so the app checks what's under the pointer between them.
@@ -400,72 +400,18 @@ pub fn click_path(from_x: f64, from_y: f64, to_x: f64, to_y: f64, seed: f64) -> 
 }
 
 /// Clicking for the user (the core's `click` tool): Quartz events, the same a mouse sends.
-#[cfg(target_os = "macos")]
+/// The mouse and keyboard for the core's click, scroll, drag, type_text and press_keys. The pace (a
+/// hand's glide, a finger's press, the wheel's notches) is the same everywhere; `os` posts the events:
+/// Quartz on macOS, SendInput on Windows, XTest on Linux (X11, loaded at run time, so a desktop
+/// without it only loses this). Points are the system's own: points on macOS, physical pixels on
+/// Windows and Linux (the app converts).
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 mod input {
-    use std::ffi::c_void;
-
     #[repr(C)]
     #[derive(Clone, Copy)]
-    pub struct CGPoint {
+    pub struct Point {
         pub x: f64,
         pub y: f64,
-    }
-
-    #[link(name = "CoreGraphics", kind = "framework")]
-    unsafe extern "C" {
-        pub fn CGPreflightPostEventAccess() -> bool;
-        pub fn CGRequestPostEventAccess() -> bool;
-        pub fn CGEventCreate(source: *const c_void) -> *mut c_void;
-        pub fn CGEventGetLocation(event: *const c_void) -> CGPoint;
-        pub fn CGEventCreateMouseEvent(source: *const c_void, kind: u32, at: CGPoint, button: u32) -> *mut c_void;
-        pub fn CGEventSetIntegerValueField(event: *mut c_void, field: u32, value: i64);
-        pub fn CGEventPost(tap: u32, event: *mut c_void);
-        pub fn CGEventCreateKeyboardEvent(source: *const c_void, key: u16, down: bool) -> *mut c_void;
-        pub fn CGEventKeyboardSetUnicodeString(event: *mut c_void, length: usize, chars: *const u16);
-        pub fn CGEventSetFlags(event: *mut c_void, flags: u64);
-        pub fn CGEventCreateScrollWheelEvent2(source: *const c_void, units: u32, count: u32, wheel1: i32, wheel2: i32, wheel3: i32) -> *mut c_void;
-    }
-    #[link(name = "CoreFoundation", kind = "framework")]
-    unsafe extern "C" {
-        pub fn CFRelease(cf: *const c_void);
-    }
-
-    const MOUSE_MOVED: u32 = 5;
-    const LEFT_DRAGGED: u32 = 6;
-    const CLICK_STATE: u32 = 1; // kCGMouseEventClickState
-    const HID_TAP: u32 = 0; // kCGHIDEventTap
-
-    /// One mouse event at `at`, posted as the mouse would. False when it couldn't be made.
-    fn post(kind: u32, at: CGPoint, button: u32, clicks: i64) -> bool {
-        unsafe {
-            let e = CGEventCreateMouseEvent(std::ptr::null(), kind, at, button);
-            if e.is_null() {
-                return false;
-            }
-            if clicks > 0 {
-                CGEventSetIntegerValueField(e, CLICK_STATE, clicks);
-            }
-            CGEventPost(HID_TAP, e);
-            CFRelease(e);
-        }
-        true
-    }
-
-    fn pause(ms: u64) {
-        std::thread::sleep(std::time::Duration::from_millis(ms));
-    }
-
-    /// Where the pointer is now.
-    fn location() -> Option<CGPoint> {
-        unsafe {
-            let e = CGEventCreate(std::ptr::null());
-            if e.is_null() {
-                return None;
-            }
-            let p = CGEventGetLocation(e);
-            CFRelease(e);
-            Some(p)
-        }
     }
 
     pub const DONE: i32 = 0;
@@ -473,32 +419,35 @@ mod input {
     /// The user moved the mouse while Dune Bot moved it: stopped, nothing clicked.
     pub const TAKEN: i32 = 2;
 
+    fn pause(ms: u64) {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+    }
+
     fn seed() -> u64 {
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(7)
     }
 
     /// Whether the pointer is now more than a hand's twitch from `at` (the user took the mouse).
-    fn moved_from(at: CGPoint) -> bool {
+    fn moved_from(at: Point) -> bool {
         use crate::glide::{dist, Pt};
-        location().is_some_and(|now| dist(Pt { x: now.x, y: now.y }, Pt { x: at.x, y: at.y }) > 24.0)
+        os::location().is_some_and(|now| dist(Pt { x: now.x, y: now.y }, Pt { x: at.x, y: at.y }) > 24.0)
     }
 
     /// Glides the pointer to `to` as a hand would (with the left button held: a drag). Stops if the
     /// user moves the mouse on the way.
-    pub fn glide(to: CGPoint, held: bool) -> i32 {
+    pub fn glide(to: Point, held: bool) -> i32 {
         use crate::glide::{dist, path, Pt, Rng, STEP_MS};
-        let Some(from) = location() else { return FAILED };
+        let Some(from) = os::location() else { return FAILED };
         let mut r = Rng(seed());
-        let kind = if held { LEFT_DRAGGED } else { MOUSE_MOVED };
         // The last places Dune Bot put the pointer: anywhere far from all of them is the user's hand
         // (the system reports a posted move a step or two late).
         let mut ours: Vec<Pt> = vec![Pt { x: from.x, y: from.y }];
-        let taken = |ours: &[Pt]| location().is_some_and(|now| ours.iter().all(|q| dist(Pt { x: now.x, y: now.y }, *q) > 24.0));
+        let taken = |ours: &[Pt]| os::location().is_some_and(|now| ours.iter().all(|q| dist(Pt { x: now.x, y: now.y }, *q) > 24.0));
         for p in path(Pt { x: from.x, y: from.y }, Pt { x: to.x, y: to.y }, r.next()) {
             if taken(&ours) {
                 return TAKEN;
             }
-            if !post(kind, CGPoint { x: p.x, y: p.y }, 0, 0) {
+            if !os::move_to(Point { x: p.x, y: p.y }, held) {
                 return FAILED;
             }
             ours.push(p);
@@ -512,19 +461,18 @@ mod input {
 
     /// Rests on `at` a moment, as a person checks what's under the pointer, then clicks `count`
     /// times (2: a double click) at a finger's pace. Nothing if the user moved the mouse meanwhile.
-    pub fn press(at: CGPoint, right: bool, count: i64) -> i32 {
+    pub fn press(at: Point, right: bool, count: i64) -> i32 {
         let mut r = crate::glide::Rng(seed());
-        let (button, down, up) = if right { (1, 3, 4) } else { (0, 1, 2) };
         pause(r.range(150.0, 260.0) as u64);
         if moved_from(at) {
             return TAKEN;
         }
         for n in 1..=count {
-            if !post(down, at, button, n) {
+            if !os::button(at, right, true, n) {
                 return FAILED;
             }
             pause(r.range(60.0, 110.0) as u64);
-            if !post(up, at, button, n) {
+            if !os::button(at, right, false, n) {
                 return FAILED;
             }
             if n < count {
@@ -534,118 +482,586 @@ mod input {
         DONE
     }
 
-    /// The left button down or up at `at`, nothing else (a drag's two ends).
-    pub fn button(at: CGPoint, down: bool) -> bool {
-        post(if down { 1 } else { 2 }, at, 0, 1)
+    /// The left button down or up where the pointer is (a drag's two ends).
+    pub fn button(at: Point, down: bool) -> bool {
+        os::button(at, false, down, 1)
     }
 
-    /// Turns the wheel under the pointer at `at`, `notches` times, each about 50 points
-    /// (`dx`/`dy` -1, 0 or 1: +1 is up or left), in small smooth pieces as a trackpad does. Stops if
-    /// the user moves the mouse.
-    pub fn scroll(at: CGPoint, dx: i32, dy: i32, notches: u32) -> i32 {
+    /// Turns the wheel under the pointer at `at`, `notches` times (`dx`/`dy` -1, 0 or 1: +1 is up or
+    /// left). Stops if the user moves the mouse.
+    pub fn scroll(at: Point, dx: i32, dy: i32, notches: u32) -> i32 {
         let mut r = crate::glide::Rng(seed());
         for _ in 0..notches {
             if moved_from(at) {
                 return TAKEN;
             }
-            for _ in 0..4 {
-                let step = r.range(11.0, 14.0) as i32;
-                let e = unsafe { CGEventCreateScrollWheelEvent2(std::ptr::null(), 0, 2, dy * step, dx * step, 0) };
-                if e.is_null() {
-                    return FAILED;
-                }
-                unsafe {
-                    CGEventPost(HID_TAP, e);
-                    CFRelease(e);
-                }
-                pause(r.range(10.0, 15.0) as u64);
+            if !os::wheel_notch(dx, dy, &mut r) {
+                return FAILED;
             }
             pause(r.range(40.0, 90.0) as u64);
         }
         DONE
     }
 
-    /// One key event that types `text` (a character or two, whatever the keyboard layout), with no
-    /// modifier keys.
-    pub fn key_text(text: &str, down: bool) -> bool {
-        let units: Vec<u16> = text.encode_utf16().collect();
-        if units.is_empty() || units.len() > 20 {
-            return false;
+    pub use os::{access, activate, frontmost_pid, key_code, key_text};
+
+    #[cfg(target_os = "macos")]
+    pub mod os {
+        use super::Point;
+        use std::ffi::c_void;
+
+        #[link(name = "CoreGraphics", kind = "framework")]
+        unsafe extern "C" {
+            pub fn CGPreflightPostEventAccess() -> bool;
+            pub fn CGRequestPostEventAccess() -> bool;
+            fn CGEventCreate(source: *const c_void) -> *mut c_void;
+            fn CGEventGetLocation(event: *const c_void) -> Point;
+            fn CGEventCreateMouseEvent(source: *const c_void, kind: u32, at: Point, button: u32) -> *mut c_void;
+            fn CGEventSetIntegerValueField(event: *mut c_void, field: u32, value: i64);
+            fn CGEventPost(tap: u32, event: *mut c_void);
+            fn CGEventCreateKeyboardEvent(source: *const c_void, key: u16, down: bool) -> *mut c_void;
+            fn CGEventKeyboardSetUnicodeString(event: *mut c_void, length: usize, chars: *const u16);
+            fn CGEventSetFlags(event: *mut c_void, flags: u64);
+            fn CGEventCreateScrollWheelEvent2(source: *const c_void, units: u32, count: u32, wheel1: i32, wheel2: i32, wheel3: i32) -> *mut c_void;
         }
-        unsafe {
-            let e = CGEventCreateKeyboardEvent(std::ptr::null(), 0, down);
+        #[link(name = "CoreFoundation", kind = "framework")]
+        unsafe extern "C" {
+            fn CFRelease(cf: *const c_void);
+        }
+
+        const MOUSE_MOVED: u32 = 5;
+        const LEFT_DRAGGED: u32 = 6;
+        const CLICK_STATE: u32 = 1; // kCGMouseEventClickState
+        const HID_TAP: u32 = 0; // kCGHIDEventTap
+
+        /// Posts an event made by `make` (null: it couldn't be made).
+        fn post(e: *mut c_void) -> bool {
             if e.is_null() {
                 return false;
             }
-            CGEventSetFlags(e, 0);
-            CGEventKeyboardSetUnicodeString(e, units.len(), units.as_ptr());
-            CGEventPost(HID_TAP, e);
-            CFRelease(e);
+            unsafe {
+                CGEventPost(HID_TAP, e);
+                CFRelease(e);
+            }
+            true
         }
-        true
-    }
 
-    /// One key (a macOS virtual key code) down or up, with these modifier flags held. Only the
-    /// key's own event carries them: no modifier key is pressed on its own.
-    pub fn key_code(code: u16, flags: u64, down: bool) -> bool {
-        unsafe {
-            let e = CGEventCreateKeyboardEvent(std::ptr::null(), code, down);
-            if e.is_null() {
+        pub fn access(ask: bool) -> bool {
+            unsafe { if ask { CGRequestPostEventAccess() } else { CGPreflightPostEventAccess() } }
+        }
+
+        pub fn location() -> Option<Point> {
+            unsafe {
+                let e = CGEventCreate(std::ptr::null());
+                if e.is_null() {
+                    return None;
+                }
+                let p = CGEventGetLocation(e);
+                CFRelease(e);
+                Some(p)
+            }
+        }
+
+        pub fn move_to(p: Point, held: bool) -> bool {
+            post(unsafe { CGEventCreateMouseEvent(std::ptr::null(), if held { LEFT_DRAGGED } else { MOUSE_MOVED }, p, 0) })
+        }
+
+        pub fn button(at: Point, right: bool, down: bool, clicks: i64) -> bool {
+            let kind = match (right, down) {
+                (false, true) => 1,
+                (false, false) => 2,
+                (true, true) => 3,
+                (true, false) => 4,
+            };
+            unsafe {
+                let e = CGEventCreateMouseEvent(std::ptr::null(), kind, at, if right { 1 } else { 0 });
+                if !e.is_null() {
+                    CGEventSetIntegerValueField(e, CLICK_STATE, clicks);
+                }
+                post(e)
+            }
+        }
+
+        /// A notch as a trackpad gives it: about 50 points in four smooth pieces.
+        pub fn wheel_notch(dx: i32, dy: i32, r: &mut crate::glide::Rng) -> bool {
+            for _ in 0..4 {
+                let step = r.range(11.0, 14.0) as i32;
+                if !post(unsafe { CGEventCreateScrollWheelEvent2(std::ptr::null(), 0, 2, dy * step, dx * step, 0) }) {
+                    return false;
+                }
+                super::pause(r.range(10.0, 15.0) as u64);
+            }
+            true
+        }
+
+        /// One key event typing `text` (a character or two), with no modifier keys.
+        pub fn key_text(text: &str, down: bool) -> bool {
+            let units: Vec<u16> = text.encode_utf16().collect();
+            if units.is_empty() || units.len() > 20 {
                 return false;
             }
-            CGEventSetFlags(e, flags);
-            CGEventPost(HID_TAP, e);
-            CFRelease(e);
+            unsafe {
+                let e = CGEventCreateKeyboardEvent(std::ptr::null(), 0, down);
+                if e.is_null() {
+                    return false;
+                }
+                CGEventSetFlags(e, 0);
+                CGEventKeyboardSetUnicodeString(e, units.len(), units.as_ptr());
+                post(e)
+            }
         }
-        true
-    }
 
-    /// Brings the app with this process id to the front (Dune Bot gives the keyboard back to the app
-    /// the user was in before they typed in the bar). False when there's no such app.
-    pub fn activate(pid: i32) -> bool {
-        use objc2::msg_send;
-        use objc2::runtime::{AnyClass, AnyObject};
-        unsafe {
-            let Some(cls) = AnyClass::get(c"NSRunningApplication") else { return false };
-            let app: *mut AnyObject = msg_send![cls, runningApplicationWithProcessIdentifier: pid];
-            if app.is_null() {
+        /// One key (a virtual key code) with modifier flags on that event only: no modifier key is
+        /// pressed on its own.
+        pub fn key_code(code: u32, flags: u64, down: bool) -> bool {
+            if code >= 128 {
                 return false;
             }
-            let ok: bool = msg_send![app, activateWithOptions: 0usize];
-            ok
+            unsafe {
+                let e = CGEventCreateKeyboardEvent(std::ptr::null(), code as u16, down);
+                if !e.is_null() {
+                    CGEventSetFlags(e, flags & 0x1E_0000);
+                }
+                post(e)
+            }
+        }
+
+        pub fn frontmost_pid() -> i64 {
+            use objc2::msg_send;
+            use objc2::runtime::{AnyClass, AnyObject};
+            unsafe {
+                let Some(cls) = AnyClass::get(c"NSWorkspace") else { return -1 };
+                let ws: *mut AnyObject = msg_send![cls, sharedWorkspace];
+                if ws.is_null() {
+                    return -1;
+                }
+                let app: *mut AnyObject = msg_send![ws, frontmostApplication];
+                if app.is_null() {
+                    return -1;
+                }
+                let pid: i32 = msg_send![app, processIdentifier];
+                pid as i64
+            }
+        }
+
+        /// Brings the app with this process id to the front (the keyboard goes back to the app the
+        /// user was in before they typed in the bar).
+        pub fn activate(pid: i32) -> bool {
+            use objc2::msg_send;
+            use objc2::runtime::{AnyClass, AnyObject};
+            unsafe {
+                let Some(cls) = AnyClass::get(c"NSRunningApplication") else { return false };
+                let app: *mut AnyObject = msg_send![cls, runningApplicationWithProcessIdentifier: pid];
+                if app.is_null() {
+                    return false;
+                }
+                msg_send![app, activateWithOptions: 0usize]
+            }
         }
     }
 
-    /// The process of the app in front (the one that gets the keyboard), or -1.
-    pub fn frontmost_pid() -> i64 {
-        use objc2::msg_send;
-        use objc2::runtime::{AnyClass, AnyObject};
-        unsafe {
-            let Some(cls) = AnyClass::get(c"NSWorkspace") else { return -1 };
-            let ws: *mut AnyObject = msg_send![cls, sharedWorkspace];
-            if ws.is_null() {
+    #[cfg(target_os = "windows")]
+    pub mod os {
+        use super::Point;
+        use std::ffi::c_void;
+
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        pub struct POINT {
+            pub x: i32,
+            pub y: i32,
+        }
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        struct MOUSEINPUT {
+            dx: i32,
+            dy: i32,
+            mouse_data: i32,
+            flags: u32,
+            time: u32,
+            extra: usize,
+        }
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        struct KEYBDINPUT {
+            vk: u16,
+            scan: u16,
+            flags: u32,
+            time: u32,
+            extra: usize,
+        }
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        union INPUT_U {
+            mi: MOUSEINPUT,
+            ki: KEYBDINPUT,
+        }
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        struct INPUT {
+            kind: u32,
+            u: INPUT_U,
+        }
+
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn SendInput(count: u32, inputs: *const INPUT, size: i32) -> u32;
+            fn GetCursorPos(p: *mut POINT) -> i32;
+            fn GetSystemMetrics(index: i32) -> i32;
+            pub fn WindowFromPoint(p: POINT) -> *mut c_void;
+            pub fn GetAncestor(w: *mut c_void, flags: u32) -> *mut c_void;
+            pub fn GetWindowThreadProcessId(w: *mut c_void, pid: *mut u32) -> u32;
+            fn GetForegroundWindow() -> *mut c_void;
+        }
+
+        const INPUT_MOUSE: u32 = 0;
+        const INPUT_KEYBOARD: u32 = 1;
+        const MOVE: u32 = 0x0001;
+        const LEFT_DOWN: u32 = 0x0002;
+        const LEFT_UP: u32 = 0x0004;
+        const RIGHT_DOWN: u32 = 0x0008;
+        const RIGHT_UP: u32 = 0x0010;
+        const WHEEL: u32 = 0x0800;
+        const HWHEEL: u32 = 0x1000;
+        const VIRTUAL_DESK: u32 = 0x4000;
+        const ABSOLUTE: u32 = 0x8000;
+        const KEY_EXTENDED: u32 = 0x0001;
+        const KEY_UP: u32 = 0x0002;
+        const KEY_UNICODE: u32 = 0x0004;
+
+        fn send(inputs: &[INPUT]) -> bool {
+            unsafe { SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<INPUT>() as i32) == inputs.len() as u32 }
+        }
+        fn mouse(dx: i32, dy: i32, data: i32, flags: u32) -> INPUT {
+            INPUT { kind: INPUT_MOUSE, u: INPUT_U { mi: MOUSEINPUT { dx, dy, mouse_data: data, flags, time: 0, extra: 0 } } }
+        }
+        fn key(vk: u16, scan: u16, flags: u32) -> INPUT {
+            INPUT { kind: INPUT_KEYBOARD, u: INPUT_U { ki: KEYBDINPUT { vk, scan, flags, time: 0, extra: 0 } } }
+        }
+
+        /// Windows asks nothing (it only keeps apps from typing into ones run as administrator).
+        pub fn access(_ask: bool) -> bool {
+            true
+        }
+
+        pub fn location() -> Option<Point> {
+            let mut p = POINT { x: 0, y: 0 };
+            (unsafe { GetCursorPos(&mut p) } != 0).then_some(Point { x: p.x as f64, y: p.y as f64 })
+        }
+
+        /// A move to a point of the whole desktop (all screens), in physical pixels.
+        pub fn move_to(p: Point, _held: bool) -> bool {
+            let (vx, vy, vw, vh) = unsafe { (GetSystemMetrics(76), GetSystemMetrics(77), GetSystemMetrics(78), GetSystemMetrics(79)) };
+            if vw < 2 || vh < 2 {
+                return false;
+            }
+            let nx = ((p.x - vx as f64) * 65535.0 / (vw - 1) as f64).round().clamp(0.0, 65535.0) as i32;
+            let ny = ((p.y - vy as f64) * 65535.0 / (vh - 1) as f64).round().clamp(0.0, 65535.0) as i32;
+            send(&[mouse(nx, ny, 0, MOVE | ABSOLUTE | VIRTUAL_DESK)])
+        }
+
+        /// A button where the pointer is (the glide put it there).
+        pub fn button(_at: Point, right: bool, down: bool, _clicks: i64) -> bool {
+            let flags = match (right, down) {
+                (false, true) => LEFT_DOWN,
+                (false, false) => LEFT_UP,
+                (true, true) => RIGHT_DOWN,
+                (true, false) => RIGHT_UP,
+            };
+            send(&[mouse(0, 0, 0, flags)])
+        }
+
+        /// A notch is one event of 120 units, as a mouse wheel sends it (some apps ignore anything
+        /// smaller). + is up; sideways + is right.
+        pub fn wheel_notch(dx: i32, dy: i32, _r: &mut crate::glide::Rng) -> bool {
+            if dy != 0 { send(&[mouse(0, 0, dy * 120, WHEEL)]) } else { send(&[mouse(0, 0, -dx * 120, HWHEEL)]) }
+        }
+
+        pub fn key_text(text: &str, down: bool) -> bool {
+            let units: Vec<u16> = text.encode_utf16().collect();
+            if units.is_empty() || units.len() > 20 {
+                return false;
+            }
+            let flags = KEY_UNICODE | if down { 0 } else { KEY_UP };
+            let inputs: Vec<INPUT> = units.iter().map(|u| key(0, *u, flags)).collect();
+            send(&inputs)
+        }
+
+        /// One key (a virtual key code; `flags` 1: an extended key, like the arrows). Modifiers are
+        /// pressed as keys of their own by the app.
+        pub fn key_code(code: u32, flags: u64, down: bool) -> bool {
+            if code == 0 || code > 0xFE {
+                return false;
+            }
+            let f = if flags & 1 != 0 { KEY_EXTENDED } else { 0 } | if down { 0 } else { KEY_UP };
+            send(&[key(code as u16, 0, f)])
+        }
+
+        fn pid_of(w: *mut c_void) -> i64 {
+            if w.is_null() {
                 return -1;
             }
-            let app: *mut AnyObject = msg_send![ws, frontmostApplication];
-            if app.is_null() {
-                return -1;
+            let mut pid = 0u32;
+            unsafe { GetWindowThreadProcessId(w, &mut pid) };
+            if pid == 0 { -1 } else { pid as i64 }
+        }
+
+        pub fn frontmost_pid() -> i64 {
+            pid_of(unsafe { GetForegroundWindow() })
+        }
+
+        /// Which process owns the top window at a point of the desktop (physical pixels). Windows
+        /// that let clicks through (the answer card while it does) aren't found.
+        pub fn owner_at(x: f64, y: f64) -> i64 {
+            unsafe {
+                let w = WindowFromPoint(POINT { x: x.round() as i32, y: y.round() as i32 });
+                pid_of(if w.is_null() { w } else { GetAncestor(w, 2) })
             }
-            let pid: i32 = msg_send![app, processIdentifier];
-            pid as i64
+        }
+
+        pub fn activate(_pid: i32) -> bool {
+            false
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub mod os {
+        //! X11 through XTest, loaded when first needed (libX11.so.6 and libXtst.so.6). Wayland
+        //! desktops don't let apps move the pointer or type into other apps: the app says so.
+        use super::Point;
+        use std::ffi::{c_char, c_int, c_uint, c_ulong, c_void};
+        use std::sync::{Mutex, OnceLock};
+
+        type Display = c_void;
+        struct X {
+            _x11: libloading::Library,
+            _xtst: libloading::Library,
+            open: unsafe extern "C" fn(*const c_char) -> *mut Display,
+            root: unsafe extern "C" fn(*mut Display) -> c_ulong,
+            query_pointer: unsafe extern "C" fn(*mut Display, c_ulong, *mut c_ulong, *mut c_ulong, *mut c_int, *mut c_int, *mut c_int, *mut c_int, *mut c_uint) -> c_int,
+            flush: unsafe extern "C" fn(*mut Display) -> c_int,
+            sync: unsafe extern "C" fn(*mut Display, c_int) -> c_int,
+            keysym_to_keycode: unsafe extern "C" fn(*mut Display, c_ulong) -> u8,
+            display_keycodes: unsafe extern "C" fn(*mut Display, *mut c_int, *mut c_int) -> c_int,
+            get_keyboard_mapping: unsafe extern "C" fn(*mut Display, u8, c_int, *mut c_int) -> *mut c_ulong,
+            change_keyboard_mapping: unsafe extern "C" fn(*mut Display, c_int, c_int, *const c_ulong, c_int) -> c_int,
+            free: unsafe extern "C" fn(*mut c_void) -> c_int,
+            intern_atom: unsafe extern "C" fn(*mut Display, *const c_char, c_int) -> c_ulong,
+            get_window_property: unsafe extern "C" fn(*mut Display, c_ulong, c_ulong, i64, i64, c_int, c_ulong, *mut c_ulong, *mut c_int, *mut c_ulong, *mut c_ulong, *mut *mut u8) -> c_int,
+            fake_motion: unsafe extern "C" fn(*mut Display, c_int, c_int, c_int, c_ulong) -> c_int,
+            fake_button: unsafe extern "C" fn(*mut Display, c_uint, c_int, c_ulong) -> c_int,
+            fake_key: unsafe extern "C" fn(*mut Display, c_uint, c_int, c_ulong) -> c_int,
+        }
+        unsafe impl Send for X {}
+        unsafe impl Sync for X {}
+
+        fn load() -> Option<X> {
+            unsafe {
+                let x11 = libloading::Library::new("libX11.so.6").ok()?;
+                let xtst = libloading::Library::new("libXtst.so.6").ok()?;
+                macro_rules! f {
+                    ($lib:expr, $name:literal) => {
+                        *$lib.get($name).ok()?
+                    };
+                }
+                Some(X {
+                    open: f!(x11, b"XOpenDisplay\0"),
+                    root: f!(x11, b"XDefaultRootWindow\0"),
+                    query_pointer: f!(x11, b"XQueryPointer\0"),
+                    flush: f!(x11, b"XFlush\0"),
+                    sync: f!(x11, b"XSync\0"),
+                    keysym_to_keycode: f!(x11, b"XKeysymToKeycode\0"),
+                    display_keycodes: f!(x11, b"XDisplayKeycodes\0"),
+                    get_keyboard_mapping: f!(x11, b"XGetKeyboardMapping\0"),
+                    change_keyboard_mapping: f!(x11, b"XChangeKeyboardMapping\0"),
+                    free: f!(x11, b"XFree\0"),
+                    intern_atom: f!(x11, b"XInternAtom\0"),
+                    get_window_property: f!(x11, b"XGetWindowProperty\0"),
+                    fake_motion: f!(xtst, b"XTestFakeMotionEvent\0"),
+                    fake_button: f!(xtst, b"XTestFakeButtonEvent\0"),
+                    fake_key: f!(xtst, b"XTestFakeKeyEvent\0"),
+                    _x11: x11,
+                    _xtst: xtst,
+                })
+            }
+        }
+
+        /// The libraries and one connection to the X server, used by one caller at a time.
+        struct Conn {
+            x: &'static X,
+            dpy: *mut Display,
+            spare: Option<u8>, // a key code with nothing on it, borrowed to type any character
+        }
+        unsafe impl Send for Conn {}
+
+        fn with<T>(f: impl FnOnce(&mut Conn) -> Option<T>) -> Option<T> {
+            static LIBS: OnceLock<Option<X>> = OnceLock::new();
+            static CONN: Mutex<Option<Conn>> = Mutex::new(None);
+            let x = LIBS.get_or_init(load).as_ref()?;
+            let mut guard = CONN.lock().unwrap_or_else(|e| e.into_inner());
+            if guard.is_none() {
+                let dpy = unsafe { (x.open)(std::ptr::null()) };
+                if dpy.is_null() {
+                    return None;
+                }
+                *guard = Some(Conn { x, dpy, spare: None });
+            }
+            f(guard.as_mut()?)
+        }
+
+        pub fn access(_ask: bool) -> bool {
+            with(|_| Some(())).is_some()
+        }
+
+        pub fn location() -> Option<Point> {
+            with(|c| unsafe {
+                let (mut r, mut ch, mut rx, mut ry, mut wx, mut wy, mut m) = (0, 0, 0, 0, 0, 0, 0);
+                let ok = (c.x.query_pointer)(c.dpy, (c.x.root)(c.dpy), &mut r, &mut ch, &mut rx, &mut ry, &mut wx, &mut wy, &mut m);
+                (ok != 0).then_some(Point { x: rx as f64, y: ry as f64 })
+            })
+        }
+
+        pub fn move_to(p: Point, _held: bool) -> bool {
+            with(|c| unsafe {
+                (c.x.fake_motion)(c.dpy, -1, p.x.round() as c_int, p.y.round() as c_int, 0);
+                (c.x.flush)(c.dpy);
+                Some(())
+            })
+            .is_some()
+        }
+
+        pub fn button(_at: Point, right: bool, down: bool, _clicks: i64) -> bool {
+            with(|c| unsafe {
+                (c.x.fake_button)(c.dpy, if right { 3 } else { 1 }, down as c_int, 0);
+                (c.x.flush)(c.dpy);
+                Some(())
+            })
+            .is_some()
+        }
+
+        /// X has no smooth wheel for other apps: a notch is one click of buttons 4-7.
+        pub fn wheel_notch(dx: i32, dy: i32, _r: &mut crate::glide::Rng) -> bool {
+            let b = match (dx, dy) {
+                (_, 1) => 4,
+                (_, -1) => 5,
+                (1, _) => 6,
+                (-1, _) => 7,
+                _ => return true,
+            };
+            with(|c| unsafe {
+                (c.x.fake_button)(c.dpy, b, 1, 0);
+                (c.x.fake_button)(c.dpy, b, 0, 0);
+                (c.x.flush)(c.dpy);
+                Some(())
+            })
+            .is_some()
+        }
+
+        /// A key code with no symbols on it, to put any character on for a moment.
+        fn spare(c: &mut Conn) -> Option<u8> {
+            if let Some(k) = c.spare {
+                return Some(k);
+            }
+            unsafe {
+                let (mut lo, mut hi, mut per) = (0, 0, 0);
+                (c.x.display_keycodes)(c.dpy, &mut lo, &mut hi);
+                let n = hi - lo + 1;
+                let map = (c.x.get_keyboard_mapping)(c.dpy, lo as u8, n, &mut per);
+                if map.is_null() || per < 1 {
+                    return None;
+                }
+                let syms = std::slice::from_raw_parts(map, (n * per) as usize);
+                let found = (0..n).rev().find(|i| syms[(*i * per) as usize..((*i + 1) * per) as usize].iter().all(|s| *s == 0));
+                (c.x.free)(map as *mut c_void);
+                c.spare = found.map(|i| (lo + i) as u8);
+                c.spare
+            }
+        }
+
+        /// One character: its key symbol put on the spare key (both levels, so no Shift), pressed or
+        /// let go. The symbol stays on the key until the next character (an app reading the release
+        /// late still finds it).
+        pub fn key_text(text: &str, down: bool) -> bool {
+            let mut chars = text.chars();
+            let (Some(ch), None) = (chars.next(), chars.next()) else { return false };
+            let cp = ch as u32;
+            let sym: c_ulong = if (0x20..0x7f).contains(&cp) || (0xa0..0x100).contains(&cp) { cp as c_ulong } else { 0x0100_0000 | cp as c_ulong };
+            with(|c| unsafe {
+                let k = spare(c)?;
+                if down {
+                    let syms = [sym, sym];
+                    (c.x.change_keyboard_mapping)(c.dpy, k as c_int, 2, syms.as_ptr(), 1);
+                    (c.x.sync)(c.dpy, 0);
+                    (c.x.fake_key)(c.dpy, k as c_uint, 1, 0);
+                } else {
+                    (c.x.fake_key)(c.dpy, k as c_uint, 0, 0);
+                }
+                (c.x.flush)(c.dpy);
+                Some(())
+            })
+            .is_some()
+        }
+
+        /// One key by its X key symbol (the app presses modifiers as keys of their own).
+        pub fn key_code(code: u32, _flags: u64, down: bool) -> bool {
+            with(|c| unsafe {
+                let k = (c.x.keysym_to_keycode)(c.dpy, code as c_ulong);
+                if k == 0 {
+                    return None;
+                }
+                (c.x.fake_key)(c.dpy, k as c_uint, down as c_int, 0);
+                (c.x.flush)(c.dpy);
+                Some(())
+            })
+            .is_some()
+        }
+
+        /// One number from a window's property (format 32: a C long each), or None.
+        unsafe fn prop(c: &Conn, w: c_ulong, name: &[u8], kind: c_ulong) -> Option<c_ulong> {
+            unsafe {
+                let atom = (c.x.intern_atom)(c.dpy, name.as_ptr() as *const c_char, 1);
+                if atom == 0 {
+                    return None;
+                }
+                let (mut t, mut fmt, mut n, mut after, mut data) = (0, 0, 0, 0, std::ptr::null_mut());
+                let ok = (c.x.get_window_property)(c.dpy, w, atom, 0, 1, 0, kind, &mut t, &mut fmt, &mut n, &mut after, &mut data);
+                if ok != 0 || data.is_null() {
+                    return None;
+                }
+                let v = (n >= 1 && fmt == 32).then(|| *(data as *const c_ulong));
+                (c.x.free)(data as *mut c_void);
+                v
+            }
+        }
+
+        /// The process of the active window (the window manager's _NET_ACTIVE_WINDOW), or -1.
+        pub fn frontmost_pid() -> i64 {
+            with(|c| unsafe {
+                let w = prop(c, (c.x.root)(c.dpy), b"_NET_ACTIVE_WINDOW\0", 33)?;
+                if w == 0 {
+                    return None;
+                }
+                prop(c, w, b"_NET_WM_PID\0", 6).map(|p| p as i64)
+            })
+            .unwrap_or(-1)
+        }
+
+        pub fn activate(_pid: i32) -> bool {
+            false
         }
     }
 }
 
-/// macOS: whether this app may use the mouse and keyboard for the user (it's on in System Settings ›
-/// Privacy & Security › Accessibility). With `ask`, macOS shows its box the first time (and lists the
-/// app there). Other systems: false (not there yet).
+/// Whether this app may use the mouse and keyboard for the user. macOS: it's on in System Settings ›
+/// Privacy & Security › Accessibility (with `ask`, macOS shows its box the first time and lists the
+/// app there). Windows: always. Linux: an X11 desktop with XTest (never on Wayland). Elsewhere: false.
 #[napi]
 pub fn post_event_access(ask: bool) -> bool {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     {
-        unsafe { if ask { input::CGRequestPostEventAccess() } else { input::CGPreflightPostEventAccess() } }
+        input::access(ask)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = ask;
         false
@@ -734,7 +1150,14 @@ pub fn front_window_owner(x: f64, y: f64, skip: Vec<Buffer>) -> napi::Result<i64
         }
         Ok(unsafe { front::owner_at(x, y, &numbers) })
     }
-    #[cfg(not(target_os = "macos"))]
+    // Windows: the top window there in physical pixels (windows that let clicks through aren't found,
+    // so nothing needs skipping).
+    #[cfg(target_os = "windows")]
+    {
+        let _ = skip;
+        Ok(input::os::owner_at(x, y))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = (x, y, skip);
         Ok(-2)
@@ -755,9 +1178,9 @@ impl napi::Task for PointerTask {
     type JsValue = i32;
 
     fn compute(&mut self) -> napi::Result<i32> {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
         {
-            let at = |x: f64, y: f64| (x.is_finite() && y.is_finite()).then_some(input::CGPoint { x, y });
+            let at = |x: f64, y: f64| (x.is_finite() && y.is_finite()).then_some(input::Point { x, y });
             Ok(match self.0 {
                 Pointer::Glide { x, y, held } => at(x, y).map_or(input::FAILED, |p| input::glide(p, held)),
                 Pointer::Press { x, y, right, count } => at(x, y).map_or(input::FAILED, |p| input::press(p, right, count.clamp(1, 2) as i64)),
@@ -766,7 +1189,7 @@ impl napi::Task for PointerTask {
                 }
             })
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
         {
             Ok(1)
         }
@@ -777,71 +1200,72 @@ impl napi::Task for PointerTask {
     }
 }
 
-/// macOS: glides the pointer to a point on the screen (points from the top left of the main display)
-/// as a person would, with the left button held when `held` (a drag). Resolves 0 when there, 2 when
-/// the user moved the mouse on the way (it stopped), 1 when the events couldn't be made. Other
-/// systems: 1.
+/// Glides the pointer to a point on the screen (macOS: points from the top left of the main display;
+/// Windows and Linux: physical pixels of the desktop) as a person would, with the left button held
+/// when `held` (a drag). Resolves 0 when there, 2 when the user moved the mouse on the way (it
+/// stopped), 1 when the events couldn't be made.
 #[napi]
 pub fn pointer_glide(x: f64, y: f64, held: bool) -> napi::bindgen_prelude::AsyncTask<PointerTask> {
     napi::bindgen_prelude::AsyncTask::new(PointerTask(Pointer::Glide { x, y, held }))
 }
 
-/// macOS: rests on the point a moment, then clicks there (a double click with `count` 2, the right
-/// button with `right`). Resolves 0 when clicked, 2 when the user moved the mouse meanwhile (nothing
-/// clicked), 1 when the events couldn't be made. Other systems: 1.
+/// Rests on the point a moment, then clicks there (a double click with `count` 2, the right button
+/// with `right`). Resolves 0 when clicked, 2 when the user moved the mouse meanwhile (nothing
+/// clicked), 1 when the events couldn't be made.
 #[napi]
 pub fn pointer_press(x: f64, y: f64, right: bool, count: u32) -> napi::bindgen_prelude::AsyncTask<PointerTask> {
     napi::bindgen_prelude::AsyncTask::new(PointerTask(Pointer::Press { x, y, right, count }))
 }
 
-/// macOS: the left button down or up at the point, nothing more (a drag's two ends). False when the
-/// event couldn't be made, and on other systems.
+/// The left button down or up at the point, nothing more (a drag's two ends). False when the event
+/// couldn't be made.
 #[napi]
 pub fn pointer_button(x: f64, y: f64, down: bool) -> bool {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     {
-        x.is_finite() && y.is_finite() && input::button(input::CGPoint { x, y }, down)
+        x.is_finite() && y.is_finite() && input::button(input::Point { x, y }, down)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = (x, y, down);
         false
     }
 }
 
-/// macOS: turns the wheel at the point (the pointer must be there), `notches` times of about 50
-/// points; `dy` 1 scrolls up, -1 down; `dx` 1 left, -1 right. Resolves 0 when done, 2 when the user
-/// moved the mouse (it stopped), 1 when the events couldn't be made. Other systems: 1.
+/// Turns the wheel at the point (the pointer must be there), `notches` times; `dy` 1 scrolls up, -1
+/// down; `dx` 1 left, -1 right. Resolves 0 when done, 2 when the user moved the mouse (it stopped), 1
+/// when the events couldn't be made.
 #[napi]
 pub fn scroll_at(x: f64, y: f64, dx: i32, dy: i32, notches: u32) -> napi::bindgen_prelude::AsyncTask<PointerTask> {
     napi::bindgen_prelude::AsyncTask::new(PointerTask(Pointer::Scroll { x, y, dx, dy, notches }))
 }
 
-/// macOS: one key event typing `text` (one character), down or up, into whatever has the keyboard.
-/// False when it couldn't be made, and on other systems.
+/// One key event typing `text` (one character), down or up, into whatever has the keyboard. False
+/// when it couldn't be made.
 #[napi]
 pub fn key_text(text: String, down: bool) -> bool {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     {
         input::key_text(&text, down)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = (text, down);
         false
     }
 }
 
-/// macOS: one key (its virtual key code) down or up, with modifier flags (shift 0x20000, control
-/// 0x40000, option 0x80000, command 0x100000) on that event only. False when it couldn't be made,
-/// and on other systems.
+/// One key down or up. macOS: a virtual key code, with modifier flags (shift 0x20000, control
+/// 0x40000, option 0x80000, command 0x100000) on that event only. Windows: a virtual key code
+/// (`flags` 1: an extended key). Linux: an X key symbol. On Windows and Linux the app presses
+/// modifiers as keys of their own. False when it couldn't be made.
 #[napi]
 pub fn key_code(code: u32, flags: f64, down: bool) -> bool {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     {
-        code < 128 && flags.is_finite() && flags >= 0.0 && input::key_code(code as u16, flags as u64 & 0x1E_0000, down)
+        flags.is_finite() && flags >= 0.0 && input::key_code(code, flags as u64, down)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = (code, flags, down);
         false
@@ -852,26 +1276,26 @@ pub fn key_code(code: u32, flags: f64, down: bool) -> bool {
 /// other systems.
 #[napi]
 pub fn activate_app(pid: i32) -> bool {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     {
         pid > 0 && pid as u32 != std::process::id() && input::activate(pid)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = pid;
         false
     }
 }
 
-/// macOS: the process id of the app in front (the one the keyboard types into), -1 when none.
-/// Other systems: -2.
+/// The process id of the app in front (the one the keyboard types into), -1 when none or unknown
+/// (Linux: from the window manager). Other systems: -2.
 #[napi]
 pub fn frontmost_pid() -> i64 {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     {
         input::frontmost_pid()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         -2
     }

@@ -526,7 +526,7 @@ function Permissions() {
               )}
               {r.action === "click" && r.mode !== "never" && (
                 <p className="mt-1.5 text-[13px] text-muted">
-                  A click, scroll or drag where an agent saw something on your screen (a tab, a button, a list): the pointer glides there like a hand. Move the mouse to stop it. Never on Dune Bot itself. macOS asks once to let Dune Bot control the computer. Scheduled chats always ask.
+                  A click, scroll or drag where an agent saw something on your screen (a tab, a button, a list): the pointer glides there like a hand. Move the mouse to stop it. Never on Dune Bot itself. {window.dunebot.platform === "darwin" ? "macOS asks once to let Dune Bot control the computer. " : window.dunebot.platform === "linux" ? "Linux: X11 desktops only (Wayland doesn't allow it). " : ""}Scheduled chats always ask.
                 </p>
               )}
               {r.action === "type" && r.mode !== "never" && (

@@ -45,8 +45,8 @@ fs.rmSync(res, { recursive: true, force: true });
 const copy = (from, to = from) => fs.cpSync(path.join(root, from), path.join(stage, to), { recursive: true, dereference: true });
 copy("electron");
 copy("dist/ui");
+copy("native/dunebot_native.node"); // the mouse and keyboard everywhere; more on macOS
 if (isMac) {
-  copy("native/dunebot_native.node");
   for (const m of ["electron-liquid-glass/package.json", "electron-liquid-glass/dist", "electron-liquid-glass/prebuilds", "node-gyp-build"])
     copy(`node_modules/${m}`);
 }

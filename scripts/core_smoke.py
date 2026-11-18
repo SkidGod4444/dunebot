@@ -3,7 +3,7 @@ import json, os, queue, subprocess, sys, tempfile, threading, time
 
 core, data = sys.argv[1], sys.argv[2]
 env = dict(os.environ, DUNEBOT_DATA_DIR=data, DUNEBOT_SCHEDULE_TICK_MS="300")
-p = subprocess.Popen([core], stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, text=True, bufsize=1)
+p = subprocess.Popen([core], stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, text=True, encoding="utf-8", bufsize=1)
 q = queue.Queue()
 threading.Thread(target=lambda: [q.put(json.loads(l)) for l in p.stdout], daemon=True).start()
 seen = []
@@ -282,7 +282,7 @@ send("threads.send", id=t2, text="run echo left-open")
 wait(lambda m: m.get("event") == "approval.request")
 p.stdin.close(); p.wait(timeout=5)
 ok(p.returncode == 0, "core exits when stdin closes")
-p2 = subprocess.Popen([core], stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, text=True, bufsize=1)
+p2 = subprocess.Popen([core], stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, text=True, encoding="utf-8", bufsize=1)
 p = p2
 threading.Thread(target=lambda: [q.put(json.loads(l)) for l in p2.stdout], daemon=True).start()
 wait(lambda m: m.get("event") == "ready")
@@ -381,7 +381,9 @@ ok(ty["meta"]["args"]["text"] == "24 characters", f"the chat keeps how much was 
 row = next(r for r in send("ledger.list")["result"] if r["action"] == "type")
 ok(row["decision"] == "allowed (always)" and "hunter2" not in json.dumps(row) and "24 characters" in json.dumps(row), f"the activity log keeps the length only ({row})")
 req, kp = input_turn("keys Shift+CMD+t 2")
-ok(req.get("kind") == "keys" and req["key"] == "t" and req["mods"] == ["shift", "cmd"] and req["times"] == 2 and "⇧⌘T ×2" in kp["meta"].get("output", ""), f"press_keys sends the shortcut in order ({req})")
+mac = sys.platform == "darwin"
+want_mods, want_shown = (["shift", "cmd"], "⇧⌘T ×2") if mac else (["ctrl", "shift"], "Ctrl+Shift+T ×2")
+ok(req.get("kind") == "keys" and req["key"] == "t" and req["mods"] == want_mods and req["times"] == 2 and want_shown in kp["meta"].get("output", ""), f"press_keys sends the shortcut in order ({req}, {kp['meta'].get('output')})")
 send("settings.set", action="type", mode="ask")
 send("threads.send", id=t4, text="type hello")
 card = wait(lambda m: m.get("event") in ("approval.request", "input.do"))

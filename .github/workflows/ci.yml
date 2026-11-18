@@ -29,12 +29,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: core
+          workspaces: |
+            core
+            native
       - name: Linux packages (sound for the mic, a virtual display for the windows)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev xvfb libgtk-3-0 libnss3 libgbm1 libxss1 libatk-bridge2.0-0
+          sudo apt-get install -y libasound2-dev xvfb libgtk-3-0 libnss3 libgbm1 libxss1 libatk-bridge2.0-0 libx11-6 libxtst6
       - name: Windows, where bindgen finds clang (speech-to-text)
         if: runner.os == 'Windows'
         run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
@@ -51,6 +53,16 @@ jobs:
         run: bunx tsc --noEmit -p . && bunx vite build
       - name: The answer card follows the pointer (never on it, always on the screen, no flapping at an edge)
         run: node scripts/check_follow.mjs
+      - name: Mouse and keyboard steps for each system (a stand-in addon)
+        run: node scripts/check_input.mjs
+      # The real pointer and keyboard of the runner's own screen. Not on the Mac runner: macOS needs
+      # Accessibility switched on by a person, which a CI machine can't do.
+      - name: The mouse and keyboard for real (clicks, typing, shortcuts, scrolling, a drag)
+        if: runner.os != 'macOS'
+        run: |
+          node scripts/native.mjs
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1440x900x24" node scripts/check_input_live.mjs
+          else node scripts/check_input_live.mjs; fi
       - name: Replies render safely (every partial state, the reply tags, attacks in the real windows) and are spoken as plain words
         run: |
           bun scripts/check_reply.tsx

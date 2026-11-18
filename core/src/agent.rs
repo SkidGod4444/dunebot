@@ -222,13 +222,13 @@ fn instructions(thread: &Thread) -> String {
          can answer straight away, just answer. This chat's working folder is {cwd}. Keep replies short and plain.",
         os = std::env::consts::OS,
         cwd = thread.cwd,
-        click = if cfg!(target_os = "macos") {
+        click = if cfg!(any(target_os = "macos", target_os = "windows", target_os = "linux")) {
             " To use the screen for the user, take a picture with look_at_screen, then click, scroll or drag at points in \
              it (each picture is good for one of those: look again before the next), and type with type_text or press keys \
              and shortcuts with press_keys. The app the user is in already has the keyboard: when they say to type \"here\" \
              or in what they're looking at, type straight away; click first only to put the text somewhere else. None of \
              them ask the user. Never \
-             do these through run_command (osascript, cliclick, System Events): that asks the user every time."
+             do these through run_command (osascript, cliclick, xdotool, PowerShell): that asks the user every time."
         } else {
             ""
         }

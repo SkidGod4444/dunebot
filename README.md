@@ -74,8 +74,8 @@ only), Ask, Always or Never.
 | Read a file, look inside a folder, search your past chats | **Always** |
 | Look at your screen | **Always** (macOS asks once for Screen Recording) |
 | Find where you are | **Always** (macOS asks once for Location Services) |
-| Click, scroll and drag on your screen | **Always** (macOS only; macOS asks once for Accessibility) |
-| Type and press keys | **Always** (macOS only; the same Accessibility switch) |
+| Click, scroll and drag on your screen | **Always** (macOS asks once for Accessibility; Linux: X11 only) |
+| Type and press keys | **Always** (the same Accessibility switch on macOS; Linux: X11 only) |
 
 What Auto counts as risky, and the limits nothing can lift, are under [Safety](#safety).
 
@@ -160,10 +160,10 @@ voice local even with keys saved.
   (it never takes them), so an agent can't answer its own approval cards. The first click
   asks macOS for Accessibility (System Settings opens on it). Agents are told to click with it, not
   with osascript, which can drive any app and so still asks under Auto.
-- **Scroll and drag** (`scroll`, `drag`, macOS) work the same way: a point (or two) in the latest
+- **Scroll and drag** (`scroll`, `drag`) work the same way: a point (or two) in the latest
   picture, the pointer gliding there first; a drag holds the left button and always lets go, even
   when stopped. Each picture is good for one mouse action: the next one looks again.
-- **Typing and keys** (`type_text`, `press_keys`, macOS) go to the app that has the keyboard, at a
+- **Typing and keys** (`type_text`, `press_keys`) go to the app that has the keyboard, at a
   person's pace (quicker inside words, a beat after a space or a stop). Shortcuts carry their
   modifiers on the key's own events; no modifier key goes down alone, and the ⌥⌘ chord rests while
   Dune Bot types. Before every key the app checks that neither Dune Bot nor one of its windows has
@@ -171,6 +171,12 @@ voice local even with keys saved.
   stops it. The chat and the activity log keep how many characters were typed, never the text. When
   you close the bar after typing a question, the app you were in gets the keyboard back (as Spotlight
   does), so an agent can type where you were.
+- **On Windows and Linux** the same tools post the system's own input (SendInput; XTest on X11).
+  Shortcuts there use Ctrl, Alt, Shift and Win (an agent's "cmd" means Ctrl), pressed around the key
+  as a hand does and always let go. Windows asks nothing; it won't let any app type into one run as
+  administrator. Linux needs an X11 desktop: Wayland (the default on recent Ubuntu and Fedora) doesn't
+  let apps move the pointer or type into other apps, so there Dune Bot says it can't and tells you
+  what to do instead (on Ubuntu, "Ubuntu on Xorg" at the login screen turns X11 on).
 - `list_folder` counts a whole folder tree (`deep: true`: files, folders, sizes, the largest files)
   without asking, and agents are told to use it instead of a command.
 - Stop ends the running command, not just the agent's turn. Cards left open when Dune Bot quits come
@@ -208,12 +214,12 @@ to have `serve`.
 | `core/` | Rust | Owns everything: chats, approvals, permissions, the activity log, the tool endpoint, starting agents |
 | `electron/` | JS | Starts the core, passes calls and events to the window. No logic. |
 | `ui/` | React + Tailwind | Draws what the core says. Sends only ids and choices. |
-| `native/` | Rust (napi) | macOS only: notification permission, window appearance, the glass's corners, Location Services, Screen Recording access |
+| `native/` | Rust (napi) | The mouse and keyboard (Quartz on macOS, SendInput on Windows, XTest on Linux). macOS also: notification permission, window appearance, the glass's corners, Location Services, Screen Recording access |
 
 Agents run in codemax's `mcp-only` policy: their own file and shell tools are refused, so their only
 way to act is Dune Bot's tools (`run_command`, `read_file`, `write_file`, `list_folder`,
-`search_chats`, `look_at_screen`, `find_location`, and `click`, `scroll`, `drag`, `type_text` and
-`press_keys` on macOS), served on a loopback port with a separate token
+`search_chats`, `look_at_screen`, `find_location`, `click`, `scroll`, `drag`, `type_text` and
+`press_keys`), served on a loopback port with a separate token
 per chat. Agents are told to write one short line saying what they're doing before they use a tool
 (`instructions` in `core/src/agent.rs`), and questions asked from the bar carry a note asking for one
 or two short sentences (`SPOKEN_NOTE`).
@@ -333,7 +339,10 @@ DUNEBOT_DATA_DIR=$(mktemp -d) DUNEBOT_APPROVAL_MIN_MS=0 DUNEBOT_SNAPSHOT=out.png
 ```
 
 `.github/workflows/ci.yml` runs all of this on macOS, Windows and Linux on every push to main, and
-fails if Windows or Linux draw differently from macOS. The agent's file gate is tested for other
+fails if Windows or Linux draw differently from macOS. On the Windows and Linux machines it also
+uses the real mouse and keyboard on a test window of its own (`scripts/check_input_live.mjs`:
+clicks, a double and a right click, typing, Ctrl+A, Backspace, scrolling, a drag); the Mac runner
+can't, since macOS needs a person to switch on Accessibility. The agent's file gate is tested for other
 letter cases of Dune Bot's folder (macOS and Windows disks ignore case) and, on Windows, for
 `\`-style paths.
 

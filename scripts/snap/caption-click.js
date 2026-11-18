@@ -22,7 +22,7 @@
       }
     }
   };
-  const steps = ["look", "click 10 20 the Career tab", "look", "scroll 10 20 down", "look", "drag 5 5 30 40", "type hello\\nworld", "keys cmd+t 2"];
+  const steps = ["look", "click 10 20 the Career tab", "look", "scroll 10 20 down", "look", "drag 5 5 30 40", "type hello\\nworld", "keys ctrl+t 2"];
   for (const [i, s] of steps.entries()) {
     await ask(s);
     await after(i + 1);
