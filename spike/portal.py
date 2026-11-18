@@ -50,12 +50,26 @@ if sys.argv[1] == "rd":
             o["restore_token"] = GLib.Variant("s", old)
         return GLib.Variant("(oa{sv})", (s, o))
     request(RD, "SelectDevices", sel)
+    screen = os.environ.get("WITH_SCREEN") == "1"
+    if screen:
+        request("org.freedesktop.portal.ScreenCast", "SelectSources", lambda t: GLib.Variant("(oa{sv})", (s, {"handle_token": GLib.Variant("s", t), "types": GLib.Variant("u", 1), "multiple": GLib.Variant("b", False), "cursor_mode": GLib.Variant("u", 1)})))
     r = request(RD, "Start", lambda t: GLib.Variant("(osa{sv})", (s, "", {"handle_token": GLib.Variant("s", t)})), wait=45, marker=True)
     res = r.get("results") or {}
     new = res.get("restore_token")
     say("devices granted:", res.get("devices"), "new token:", "none" if not new else ("same as saved" if new == old else "different"))
     if new:
         open(tf, "w").write(new)
+    if r.get("code") == 0 and res.get("streams"):
+        say("streams:", res.get("streams"))
+        node = res["streams"][0][0]
+        v, fds = bus.call_with_unix_fd_list_sync(D, P, "org.freedesktop.portal.ScreenCast", "OpenPipeWireRemote", GLib.Variant("(oa{sv})", (s, {})), GLib.VariantType("(h)"), 0, 5000, None, None)
+        pw = fds.get(0)
+        import subprocess
+        for i in (1, 2):
+            t0 = time.time()
+            out = f"out/frame-{os.getpid()}-{i}.png"
+            p = subprocess.run(["timeout", "15", "gst-launch-1.0", "-q", "pipewiresrc", f"fd={pw}", f"path={node}", "num-buffers=1", "!", "videoconvert", "!", "pngenc", "!", "filesink", f"location={out}"], pass_fds=(pw,), capture_output=True, text=True)
+            say(f"frame {i}: exit {p.returncode} in {time.time() - t0:.2f} s,", (os.path.getsize(out) if os.path.exists(out) else "no file"), p.stderr.strip()[-200:])
     if r.get("code") == 0:
         try:
             v, fds = bus.call_with_unix_fd_list_sync(D, P, RD, "ConnectToEIS", GLib.Variant("(oa{sv})", (s, {})), GLib.VariantType("(h)"), 0, 5000, None, None)
