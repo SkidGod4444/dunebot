@@ -120,6 +120,13 @@ app.whenReady().then(async () => {
       const at = input.nativePoint(b.x, b.y);
       ok(addon.frontWindowOwner(at.x, at.y, []) === process.pid, "Windows: the window under the button is this app's");
       ok(addon.frontmostPid() === process.pid, `Windows: this app is in front (${addon.frontmostPid()} vs ${process.pid})`);
+      // Run-as-administrator check: this ordinary window must never be taken for one (a wrong "yes"
+      // would refuse every click). The runner's own level is printed: an elevated runner can't
+      // show a real refusal (nothing on it is above us).
+      const own = addon.ownIntegrity();
+      console.log(`Windows: Dune Bot runs at integrity 0x${own.toString(16)}${own >= 0x3000 ? " (as administrator)" : ""}`);
+      ok(addon.adminAt(at.x, at.y) === 0, `Windows: the test window isn't taken for an admin one (${addon.adminAt(at.x, at.y)})`);
+      ok(addon.adminFront() === 0, `Windows: the app in front isn't taken for an admin one (${addon.adminFront()})`);
     }
 
     const t = await centre("t");

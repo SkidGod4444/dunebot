@@ -822,6 +822,93 @@ mod input {
         pub fn activate(_pid: i32) -> bool {
             false
         }
+
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut c_void;
+            fn CloseHandle(h: *mut c_void) -> i32;
+            fn GetCurrentProcess() -> *mut c_void;
+            fn GetLastError() -> u32;
+        }
+        #[link(name = "advapi32")]
+        unsafe extern "system" {
+            fn OpenProcessToken(process: *mut c_void, access: u32, token: *mut *mut c_void) -> i32;
+            fn GetTokenInformation(token: *mut c_void, class: u32, info: *mut c_void, len: u32, ret: *mut u32) -> i32;
+            fn GetSidSubAuthorityCount(sid: *mut c_void) -> *mut u8;
+            fn GetSidSubAuthority(sid: *mut c_void, n: u32) -> *mut u32;
+        }
+        const QUERY_LIMITED: u32 = 0x1000;
+        const TOKEN_QUERY: u32 = 0x0008;
+        const TOKEN_INTEGRITY_LEVEL: u32 = 25;
+        const ACCESS_DENIED: u32 = 5;
+
+        /// A process's integrity level (0x2000 an ordinary app, 0x3000 one run as administrator,
+        /// 0x4000 the system). Err(true): Windows refused to show its token (a process above ours, or
+        /// another user's); Err(false): couldn't tell.
+        fn integrity(process: *mut c_void) -> Result<u32, bool> {
+            unsafe {
+                let mut token = std::ptr::null_mut();
+                if OpenProcessToken(process, TOKEN_QUERY, &mut token) == 0 {
+                    return Err(GetLastError() == ACCESS_DENIED);
+                }
+                // TOKEN_MANDATORY_LABEL: a pointer to the label's SID first, the SID itself after it.
+                let mut buf = [0u64; 16];
+                let mut len = 0u32;
+                let ok = GetTokenInformation(token, TOKEN_INTEGRITY_LEVEL, buf.as_mut_ptr() as *mut c_void, 128, &mut len);
+                CloseHandle(token);
+                if ok == 0 {
+                    return Err(false);
+                }
+                let sid = *(buf.as_ptr() as *const *mut c_void);
+                if sid.is_null() {
+                    return Err(false);
+                }
+                let n = *GetSidSubAuthorityCount(sid);
+                if n == 0 {
+                    return Err(false);
+                }
+                Ok(*GetSidSubAuthority(sid, n as u32 - 1))
+            }
+        }
+
+        pub fn own_integrity() -> i64 {
+            integrity(unsafe { GetCurrentProcess() }).map(i64::from).unwrap_or(-1)
+        }
+
+        /// Whether Windows drops input Dune Bot sends to this process (User Interface Privilege
+        /// Isolation: an app run as administrator, above ours; SendInput still says it worked).
+        /// 1 yes, 0 no, -1 can't tell.
+        fn above_us(pid: i64) -> i32 {
+            if pid <= 0 {
+                return -1;
+            }
+            let ours = match integrity(unsafe { GetCurrentProcess() }) {
+                Ok(l) => l,
+                Err(_) => return -1,
+            };
+            unsafe {
+                let h = OpenProcess(QUERY_LIMITED, 0, pid as u32);
+                if h.is_null() {
+                    return -1;
+                }
+                let theirs = integrity(h);
+                CloseHandle(h);
+                match theirs {
+                    Ok(l) => (l > ours) as i32,
+                    // Our own user's ordinary apps always show their token: one that won't is above us.
+                    Err(true) => 1,
+                    Err(false) => -1,
+                }
+            }
+        }
+
+        pub fn admin_at(x: f64, y: f64) -> i32 {
+            above_us(owner_at(x, y))
+        }
+
+        pub fn admin_front() -> i32 {
+            above_us(frontmost_pid())
+        }
     }
 
     #[cfg(target_os = "linux")]
@@ -1483,6 +1570,49 @@ pub fn activate_app(pid: i32) -> bool {
     {
         let _ = pid;
         false
+    }
+}
+
+/// Windows: whether the window at a point (desktop pixels) belongs to an app run as administrator,
+/// which Windows doesn't let Dune Bot click or type into (it drops the input and says nothing).
+/// 1 yes, 0 no, -1 can't tell; other systems -1.
+#[napi]
+pub fn admin_at(x: f64, y: f64) -> i32 {
+    #[cfg(target_os = "windows")]
+    {
+        input::os::admin_at(x, y)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (x, y);
+        -1
+    }
+}
+
+/// Windows: the same for the app in front (the one the keyboard types into).
+#[napi]
+pub fn admin_front() -> i32 {
+    #[cfg(target_os = "windows")]
+    {
+        input::os::admin_front()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        -1
+    }
+}
+
+/// Windows: Dune Bot's own integrity level (0x2000 ordinary, 0x3000 run as administrator), -1
+/// elsewhere or when unknown. For the checks' log.
+#[napi]
+pub fn own_integrity() -> i64 {
+    #[cfg(target_os = "windows")]
+    {
+        input::os::own_integrity()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        -1
     }
 }
 

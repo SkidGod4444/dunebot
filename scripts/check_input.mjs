@@ -9,7 +9,7 @@ const ok = (cond, what) => {
   if (!cond) failed++;
 };
 
-function rig(platform, { cursor = { x: 0, y: 0 }, cancelled = () => false } = {}) {
+function rig(platform, { cursor = { x: 0, y: 0 }, cancelled = () => false, admin = () => 0, adminFront = () => 0 } = {}) {
   const calls = [];
   const addon = {
     postEventAccess: () => true,
@@ -19,6 +19,8 @@ function rig(platform, { cursor = { x: 0, y: 0 }, cancelled = () => false } = {}
     scrollAt: async (x, y, dx, dy, n) => (calls.push(["scroll", x, y, dx, dy, n]), 0),
     keyText: (t, down) => (calls.push(["text", t, down]), true),
     keyCode: (code, flags, down) => (calls.push(["key", code, flags, down]), true),
+    adminAt: (x, y) => admin(x, y),
+    adminFront: () => adminFront(),
   };
   const screen = {
     getCursorScreenPoint: () => cursor,
@@ -46,6 +48,36 @@ for (const [platform, want] of [["darwin", [100, 50]], ["win32", [150, 75]], ["l
   const g = calls.find((c) => c[0] === "glide");
   const p = calls.find((c) => c[0] === "press");
   ok(g[1] === want[0] && g[2] === want[1] && p[1] === want[0] && p[2] === want[1], `${platform}: a click lands at ${want} (${JSON.stringify(calls)})`);
+}
+
+// Windows: an app run as administrator (Windows would drop the input and say nothing) is refused
+// before the pointer moves; "can't tell" (-1) goes ahead; other systems never ask.
+{
+  const { input, calls } = rig("win32", { admin: (x) => (x >= 300 ? 1 : 0) });
+  const err = await input.clickAt({ x: 250, y: 50 }).then(() => null, (e) => e.message);
+  ok(/administrator/.test(err ?? "") && !calls.length, `win32: a click on an admin window is refused, nothing moved (${err}; ${calls.length} calls)`);
+  const drop = await input.dragFrom({ x1: 10, y1: 10, x2: 250, y2: 10 }).then(() => null, (e) => e.message);
+  ok(/administrator/.test(drop ?? "") && !calls.length, `win32: a drag onto an admin window is refused (${drop})`);
+  await input.clickAt({ x: 100, y: 50 });
+  ok(calls.some((c) => c[0] === "press"), "win32: an ordinary window is clicked");
+}
+{
+  const { input, calls } = rig("win32", { admin: () => -1, adminFront: () => -1 });
+  await input.clickAt({ x: 100, y: 50 });
+  await input.typeText({ text: "ok" });
+  ok(calls.some((c) => c[0] === "press") && calls.some((c) => c[0] === "text"), "win32: can't tell goes ahead");
+}
+{
+  const { input, calls } = rig("win32", { adminFront: () => 1 });
+  const err = await input.typeText({ text: "secret" }).then(() => null, (e) => e.message);
+  const keyErr = await input.pressKeys({ key: "t", mods: ["ctrl"], times: 1 }).then(() => null, (e) => e.message);
+  ok(/administrator/.test(err ?? "") && /administrator/.test(keyErr ?? "") && !calls.length, `win32: typing and keys into an admin app are refused (${err})`);
+}
+{
+  const { input, calls } = rig("darwin", { admin: () => 1, adminFront: () => 1 });
+  await input.clickAt({ x: 100, y: 50 });
+  await input.typeText({ text: "ok" });
+  ok(calls.some((c) => c[0] === "press") && calls.some((c) => c[0] === "text"), "darwin: the Windows check never runs");
 }
 
 // Shortcuts.
