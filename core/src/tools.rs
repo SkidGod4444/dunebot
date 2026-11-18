@@ -404,12 +404,16 @@ const MODIFIERS_NOTE: &str = "Modifiers: ctrl, alt, shift, win (cmd means ctrl h
 /// modifiers and one key. macOS: cmd, ctrl, option, shift. Windows and Linux: ctrl, option (Alt),
 /// shift and win (the Windows or Super key); cmd there means ctrl, the key that plays its part.
 pub fn parse_keys(raw: &str) -> Result<(Vec<&'static str>, String), String> {
+    parse_keys_on(raw, cfg!(target_os = "macos"))
+}
+
+/// `parse_keys` as it reads on macOS (`mac`) or on Windows and Linux, so both are tested everywhere.
+fn parse_keys_on(raw: &str, mac: bool) -> Result<(Vec<&'static str>, String), String> {
     let mut mods: Vec<&'static str> = vec![];
     let mut key: Option<String> = None;
     let raw = raw.trim().to_lowercase();
     // "cmd++" would be the plus key; it isn't one of ours, so a plain split is enough.
     for part in raw.split('+').map(str::trim) {
-        let mac = cfg!(target_os = "macos");
         let m = match part {
             "cmd" | "command" | "⌘" => Some(if mac { "cmd" } else { "ctrl" }),
             "meta" | "super" | "win" | "windows" => Some(if mac { "cmd" } else { "win" }),
@@ -911,22 +915,24 @@ mod tests {
 
     #[test]
     fn shortcuts_are_checked_and_put_in_order() {
-        if cfg!(target_os = "macos") {
-            assert_eq!(parse_keys("Shift+CMD+t").unwrap(), (vec!["shift", "cmd"], "t".to_string()));
-            assert_eq!(parse_keys("command+option+escape").unwrap(), (vec!["option", "cmd"], "escape".to_string()));
-            assert_eq!(parse_keys("win+r").unwrap(), (vec!["cmd"], "r".to_string()));
-        } else {
-            // There, cmd plays its part as ctrl, and win is the Windows (Super) key.
-            assert_eq!(parse_keys("Shift+CMD+t").unwrap(), (vec!["ctrl", "shift"], "t".to_string()));
-            assert_eq!(parse_keys("command+alt+escape").unwrap(), (vec!["ctrl", "option"], "escape".to_string()));
-            assert_eq!(parse_keys("win+r").unwrap(), (vec!["win"], "r".to_string()));
-            assert_eq!(parse_keys("ctrl+cmd+c").unwrap(), (vec!["ctrl"], "c".to_string()));
-        }
-        assert_eq!(parse_keys(" Return ").unwrap(), (vec![], "enter".to_string()));
-        assert_eq!(parse_keys("ctrl+F12").unwrap(), (vec!["ctrl"], "f12".to_string()));
-        assert_eq!(parse_keys("cmd+/").unwrap(), (vec!["cmd"], "/".to_string()));
-        for bad in ["", "cmd", "cmd+shift", "cmd+t+w", "hyper+t", "f13", "cmd++", "ab"] {
-            assert!(parse_keys(bad).is_err(), "{bad} should be refused");
+        let mac = |raw| parse_keys_on(raw, true);
+        let pc = |raw| parse_keys_on(raw, false);
+        assert_eq!(mac("Shift+CMD+t").unwrap(), (vec!["shift", "cmd"], "t".to_string()));
+        assert_eq!(mac("command+option+escape").unwrap(), (vec!["option", "cmd"], "escape".to_string()));
+        assert_eq!(mac("win+r").unwrap(), (vec!["cmd"], "r".to_string()));
+        assert_eq!(mac("cmd+/").unwrap(), (vec!["cmd"], "/".to_string()));
+        // Windows and Linux: cmd plays its part as ctrl, and win is the Windows (Super) key.
+        assert_eq!(pc("Shift+CMD+t").unwrap(), (vec!["ctrl", "shift"], "t".to_string()));
+        assert_eq!(pc("command+alt+escape").unwrap(), (vec!["ctrl", "option"], "escape".to_string()));
+        assert_eq!(pc("win+r").unwrap(), (vec!["win"], "r".to_string()));
+        assert_eq!(pc("ctrl+cmd+c").unwrap(), (vec!["ctrl"], "c".to_string()));
+        assert_eq!(pc("cmd+/").unwrap(), (vec!["ctrl"], "/".to_string()));
+        for on in [true, false] {
+            assert_eq!(parse_keys_on(" Return ", on).unwrap(), (vec![], "enter".to_string()));
+            assert_eq!(parse_keys_on("ctrl+F12", on).unwrap(), (vec!["ctrl"], "f12".to_string()));
+            for bad in ["", "cmd", "cmd+shift", "cmd+t+w", "hyper+t", "f13", "cmd++", "ab"] {
+                assert!(parse_keys_on(bad, on).is_err(), "{bad} should be refused");
+            }
         }
     }
 
