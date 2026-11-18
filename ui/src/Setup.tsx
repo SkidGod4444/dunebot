@@ -43,7 +43,7 @@ function Row(props: {
       <div className="flex shrink-0 items-center gap-2">
         <span
           className={`flex items-center gap-1 text-[12.5px] font-medium ${
-            tone === "ok" ? "text-[#2f9e62]" : tone === "off" || tone === "warn" ? "text-[#c98a2b]" : "text-muted"
+            tone === "ok" ? "text-ink" : tone === "off" || tone === "warn" ? "text-ink underline decoration-ink/40 underline-offset-2" : "text-muted"
           }`}
         >
           {tone === "ok" && <Check size={14} />}
@@ -309,11 +309,11 @@ export function Setup() {
         />
       </div>
 
-      {problem && <p className="mt-3 text-[12.5px] font-medium text-[#c98a2b]">{problem}</p>}
+      {problem && <p className="mt-3 text-[12.5px] font-medium text-ink">{problem}</p>}
 
       <p className="mt-4 text-[12px] leading-snug text-muted">
         {mac
-          ? `Dune Bot never asks for Full Disk Access, Accessibility or Input Monitoring. ${keys} is read from the modifier keys only, never what you type.`
+          ? `Dune Bot never asks for Full Disk Access or Input Monitoring, and asks for Accessibility only the first time an agent clicks for you. ${keys} is read from the modifier keys only, never what you type.`
           : "You can change any of these later from the tray menu: Set up Dune Bot."}
       </p>
 

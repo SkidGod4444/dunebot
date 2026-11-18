@@ -1,5 +1,5 @@
 <!-- Dune Bot's icon on Apple's macOS grid (an 824 squircle at 100,100 on 1024, with its shadow): a white
-     kitten on a black tile with an orange glow, the spark at the top right. scripts/icon.mjs draws every icon
+     kitten on a black tile, the spark at the top right. scripts/icon.mjs draws every icon
      file from this and dunebot-small.svg. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
 <defs>

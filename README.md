@@ -151,7 +151,9 @@ voice local even with keys saved.
   and the logs get none. Windows and Linux: not yet (the agent asks you instead).
 - **Clicking for you** (`click`, macOS) is one click, double click or right click at a point in the
   chat's latest picture of the screen (`look_at_screen`, at most 3 minutes old); the app turns it
-  into a point on the screen, clicks with Quartz events and puts the pointer back. It never clicks
+  into a point on the screen and moves the pointer there as a hand would (a gentle curve, slow to
+  start and stop, 0.5 to 1.4 s), rests a moment, then presses and lets go at a finger's pace; the
+  pointer stays there. Moving the mouse on the way stops it without a click. It never clicks
   Dune Bot itself: the app asks macOS which window is frontmost at that point and refuses its own bar,
   card, windows and menu bar icon, so an agent can't answer its own approval cards. The first click
   asks macOS for Accessibility (System Settings opens on it). Agents are told to click with it, not

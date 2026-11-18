@@ -326,7 +326,7 @@ function Answer({ m }: { m: Message }) {
   const live = streaming || text.length < m.text.length;
   if (m.meta.status === "error")
     return (
-      <div className="flex gap-2 text-[14px] leading-[1.45] text-[#e0735e]">
+      <div className="flex gap-2 text-[14px] leading-[1.45] text-ink">
         <AlertCircle size={16} className="mt-0.5 shrink-0" />
         <span className="min-w-0 break-words">{m.text || "Something went wrong."}</span>
       </div>
@@ -359,5 +359,5 @@ function warmVoice() {
 
 Speaker.onStats = (s) =>
   window.dunebot.note?.(
-    `speech: ${s.queued} queued, ${s.started} started, ${s.ended} ended, ${s.timedOut} timed out, errors ${s.errors.join(" ") || "none"}, ${s.voices} voices; sarvam read ${s.sarvam}, ${s.fallbacks} to the system voice; streamed ${s.streamed}, first sound ${s.firstSoundMs < 0 ? "-" : `${s.firstSoundMs} ms`}`,
+    `speech: ${s.queued} queued, ${s.started} started, ${s.ended} ended, ${s.timedOut} timed out, errors ${s.errors.join(" ") || "none"}, ${s.voices} voices; sarvam read ${s.sarvam}, ${s.fallbacks} to the system voice; streamed ${s.streamed}, first sound ${s.firstSoundMs < 0 ? "-" : `${s.firstSoundMs} ms`}, ran dry ${s.dry}`,
   );

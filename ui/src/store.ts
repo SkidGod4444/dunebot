@@ -296,15 +296,16 @@ export async function setMode(action: string, mode: string) {
   set({ modes: r.modes });
 }
 
-export const AGENT_LOOK: Record<string, { color: string; short: string }> = {
-  claude: { color: "#d9774f", short: "Cl" },
-  codex: { color: "#3f8f6b", short: "Cx" },
-  cursor: { color: "#4b5563", short: "Cu" },
-  opencode: { color: "#6d5ae6", short: "Oc" },
-  grok: { color: "#2f6fde", short: "Gk" },
-  antigravity: { color: "#c2577f", short: "Ag" },
-  copilot: { color: "#7a8696", short: "Co" },
-  echo: { color: "#b5a27c", short: "Ec" },
+/** Each agent's two letters on its badge (badges are grey: the app is black and white only). */
+export const AGENT_LOOK: Record<string, { short: string }> = {
+  claude: { short: "Cl" },
+  codex: { short: "Cx" },
+  cursor: { short: "Cu" },
+  opencode: { short: "Oc" },
+  grok: { short: "Gk" },
+  antigravity: { short: "Ag" },
+  copilot: { short: "Co" },
+  echo: { short: "Ec" },
 };
 
 export function agentName(id: string) {

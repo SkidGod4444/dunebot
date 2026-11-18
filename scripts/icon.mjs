@@ -53,7 +53,8 @@ const trayHead = (busy) => {
   );
 };
 // Windows and Linux trays have no template images: they show the app's icon itself (its small
-// drawing, which reads on light and dark taskbars). Busy adds the accent's pink dot at the top right.
+// drawing, which reads on light and dark taskbars). Busy adds a white dot at the top right (the app
+// is black and white only).
 const trayTile = (busy) => {
   const tile = square(32).replace(/^<!--.*?-->\s*/s, "");
   if (!busy) return tile;
@@ -62,7 +63,7 @@ const trayTile = (busy) => {
   return (
     '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">' +
     inner +
-    '<circle cx="26.2" cy="5.8" r="5.4" fill="#ff8fa3" stroke="#060607" stroke-width="1.8"/></svg>'
+    '<circle cx="26.2" cy="5.8" r="5.4" fill="#ffffff" stroke="#060607" stroke-width="1.8"/></svg>'
   );
 };
 

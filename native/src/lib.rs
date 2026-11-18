@@ -15,7 +15,8 @@
 //! - `locationStart` / `locationPoll` / `locationName` / `locationStop`: where this Mac is, from
 //!   Location Services, and the area's name (the core's `find_location`; see `mod location`).
 //! - `postEventAccess` / `click`: whether this app may click for the user (macOS's Accessibility
-//!   list), and one click or a double click at a point on the screen (the core's `click`).
+//!   list), and a click or a double click at a point on the screen, the pointer gliding there as a
+//!   hand would (the core's `click`; `clickPath` shows that path without moving anything).
 //! - `frontWindowOwner`: which process owns the frontmost window at a point (so a click never lands
 //!   on Dune Bot itself, while one of its windows behind another app's doesn't count).
 
@@ -319,6 +320,81 @@ pub fn request_screen_access() -> bool {
     }
 }
 
+/// The way a person moves a mouse to a point: a gentle curve to one side, slow to start and to stop
+/// (minimum-jerk easing), longer for longer moves, with a little tremor on the way. Pure: the same
+/// seed gives the same path.
+pub mod glide {
+    /// One step of the path every this many milliseconds (about 120 a second).
+    pub const STEP_MS: u64 = 8;
+
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Pt {
+        pub x: f64,
+        pub y: f64,
+    }
+
+    /// Xorshift: enough to vary each move a little.
+    pub struct Rng(pub u64);
+    impl Rng {
+        pub fn next(&mut self) -> u64 {
+            let mut x = self.0.max(1);
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.0 = x;
+            x
+        }
+        pub fn range(&mut self, a: f64, b: f64) -> f64 {
+            a + (b - a) * ((self.next() >> 11) as f64 / (1u64 << 53) as f64)
+        }
+    }
+
+    pub fn dist(a: Pt, b: Pt) -> f64 {
+        ((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt()
+    }
+
+    /// The points after `from`, one per step, ending exactly on `to`.
+    pub fn path(from: Pt, to: Pt, seed: u64) -> Vec<Pt> {
+        let mut r = Rng(seed);
+        let (dx, dy) = (to.x - from.x, to.y - from.y);
+        let d = (dx * dx + dy * dy).sqrt();
+        if !d.is_finite() || d < 2.0 {
+            return vec![to];
+        }
+        // Unhurried: about 0.55 s for a short move, up to 1.4 s across a big screen.
+        let ms = (450.0 + 0.55 * d).clamp(550.0, 1400.0) * r.range(0.92, 1.08);
+        let steps = ((ms / STEP_MS as f64).round() as usize).max(2);
+        // The bow: the curve's middle sits a little off the straight line, to a random side.
+        let side = if r.next() & 1 == 0 { 1.0 } else { -1.0 };
+        let bow = (d * r.range(0.06, 0.16)).min(90.0) * side;
+        let c = Pt { x: from.x + dx * 0.5 - dy / d * bow, y: from.y + dy * 0.5 + dx / d * bow };
+        let mut out = Vec::with_capacity(steps);
+        for i in 1..=steps {
+            let t = i as f64 / steps as f64;
+            let e = t * t * t * (10.0 - 15.0 * t + 6.0 * t * t);
+            let u = 1.0 - e;
+            let mut p = Pt { x: u * u * from.x + 2.0 * u * e * c.x + e * e * to.x, y: u * u * from.y + 2.0 * u * e * c.y + e * e * to.y };
+            if i < steps {
+                p.x += r.range(-0.35, 0.35);
+                p.y += r.range(-0.35, 0.35);
+            } else {
+                p = to;
+            }
+            out.push(p);
+        }
+        out
+    }
+}
+
+/// The path a click would take, as [x0, y0, x1, y1, …] one step apart (for checks: nothing moves).
+#[napi]
+pub fn click_path(from_x: f64, from_y: f64, to_x: f64, to_y: f64, seed: f64) -> Vec<f64> {
+    glide::path(glide::Pt { x: from_x, y: from_y }, glide::Pt { x: to_x, y: to_y }, seed as u64)
+        .into_iter()
+        .flat_map(|p| [p.x, p.y])
+        .collect()
+}
+
 /// Clicking for the user (the core's `click` tool): Quartz events, the same a mouse sends.
 #[cfg(target_os = "macos")]
 mod input {
@@ -340,8 +416,6 @@ mod input {
         pub fn CGEventCreateMouseEvent(source: *const c_void, kind: u32, at: CGPoint, button: u32) -> *mut c_void;
         pub fn CGEventSetIntegerValueField(event: *mut c_void, field: u32, value: i64);
         pub fn CGEventPost(tap: u32, event: *mut c_void);
-        pub fn CGWarpMouseCursorPosition(at: CGPoint) -> i32;
-        pub fn CGAssociateMouseAndMouseCursorPosition(connected: u32) -> i32;
     }
     #[link(name = "CoreFoundation", kind = "framework")]
     unsafe extern "C" {
@@ -372,42 +446,68 @@ mod input {
         std::thread::sleep(std::time::Duration::from_millis(ms));
     }
 
-    /// Moves to `at`, clicks `count` times (2: a double click), then puts the pointer back where it was.
-    pub fn click(at: CGPoint, right: bool, count: i64) -> bool {
-        let was = unsafe {
+    /// Where the pointer is now.
+    fn location() -> Option<CGPoint> {
+        unsafe {
             let e = CGEventCreate(std::ptr::null());
             if e.is_null() {
-                None
-            } else {
-                let p = CGEventGetLocation(e);
-                CFRelease(e);
-                Some(p)
+                return None;
             }
-        };
+            let p = CGEventGetLocation(e);
+            CFRelease(e);
+            Some(p)
+        }
+    }
+
+    pub const DONE: i32 = 0;
+    pub const FAILED: i32 = 1;
+    /// The user moved the mouse while Dune Bot moved it: stopped, nothing clicked.
+    pub const TAKEN: i32 = 2;
+
+    /// Glides the pointer to `to` as a hand would, rests on it a moment, then clicks `count` times
+    /// (2: a double click) at a finger's pace. The pointer stays there, as a person's would. If the
+    /// user moves the mouse on the way, it stops without clicking.
+    pub fn click(to: CGPoint, right: bool, count: i64) -> i32 {
+        use crate::glide::{dist, path, Pt, Rng, STEP_MS};
+        let Some(from) = location() else { return FAILED };
+        let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(7);
+        let mut r = Rng(seed);
         let (button, down, up) = if right { (1, 3, 4) } else { (0, 1, 2) };
-        if !post(MOUSE_MOVED, at, button, 0) {
-            return false;
+        // The last places Dune Bot put the pointer: anywhere far from all of them is the user's hand
+        // (the system reports a posted move a step or two late).
+        let mut ours: Vec<Pt> = vec![Pt { x: from.x, y: from.y }];
+        let taken = |ours: &[Pt]| location().is_some_and(|now| ours.iter().all(|q| dist(Pt { x: now.x, y: now.y }, *q) > 24.0));
+        for p in path(Pt { x: from.x, y: from.y }, Pt { x: to.x, y: to.y }, r.next()) {
+            if taken(&ours) {
+                return TAKEN;
+            }
+            if !post(MOUSE_MOVED, CGPoint { x: p.x, y: p.y }, button, 0) {
+                return FAILED;
+            }
+            ours.push(p);
+            if ours.len() > 8 {
+                ours.remove(0);
+            }
+            pause(STEP_MS);
         }
-        pause(40);
+        // A moment on the target before pressing, as a person checks what's under the pointer.
+        pause(r.range(150.0, 260.0) as u64);
+        if taken(&ours) {
+            return TAKEN;
+        }
         for n in 1..=count {
-            if !post(down, at, button, n) {
-                return false;
+            if !post(down, to, button, n) {
+                return FAILED;
             }
-            pause(15);
-            if !post(up, at, button, n) {
-                return false;
+            pause(r.range(60.0, 110.0) as u64);
+            if !post(up, to, button, n) {
+                return FAILED;
             }
-            pause(40);
-        }
-        if let Some(p) = was {
-            pause(60);
-            unsafe {
-                CGWarpMouseCursorPosition(p);
-                // A warp holds the real mouse still for a moment unless it's let go at once.
-                CGAssociateMouseAndMouseCursorPosition(1);
+            if n < count {
+                pause(r.range(80.0, 130.0) as u64);
             }
         }
-        true
+        DONE
     }
 }
 
@@ -525,31 +625,32 @@ pub struct ClickTask {
 }
 
 impl napi::Task for ClickTask {
-    type Output = bool;
-    type JsValue = bool;
+    type Output = i32;
+    type JsValue = i32;
 
-    fn compute(&mut self) -> napi::Result<bool> {
+    fn compute(&mut self) -> napi::Result<i32> {
         #[cfg(target_os = "macos")]
         {
             if !self.x.is_finite() || !self.y.is_finite() {
-                return Ok(false);
+                return Ok(input::FAILED);
             }
             Ok(input::click(input::CGPoint { x: self.x, y: self.y }, self.right, self.count.clamp(1, 2) as i64))
         }
         #[cfg(not(target_os = "macos"))]
         {
-            Ok(false)
+            Ok(1)
         }
     }
 
-    fn resolve(&mut self, _env: napi::Env, output: bool) -> napi::Result<bool> {
+    fn resolve(&mut self, _env: napi::Env, output: i32) -> napi::Result<i32> {
         Ok(output)
     }
 }
 
-/// macOS: one click (or a double click, `count` 2) at a point on the screen, in points from the top
-/// left of the main display, with the right button when `right`; the pointer goes back where it was.
-/// Resolves false when the events couldn't be made. Other systems: false.
+/// macOS: glides the pointer to a point on the screen (points from the top left of the main display)
+/// as a person would and clicks there (a double click with `count` 2, the right button with
+/// `right`); the pointer stays there. Resolves 0 when clicked, 2 when the user moved the mouse on the
+/// way (nothing clicked), 1 when the events couldn't be made. Other systems: 1.
 #[napi]
 pub fn click(x: f64, y: f64, right: bool, count: u32) -> napi::bindgen_prelude::AsyncTask<ClickTask> {
     napi::bindgen_prelude::AsyncTask::new(ClickTask { x, y, right, count })

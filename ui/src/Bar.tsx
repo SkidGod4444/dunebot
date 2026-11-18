@@ -1,17 +1,18 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, Maximize2, Mic, Plus, Square } from "lucide-react";
 import { AGENT_LOOK, agentName, barChatLive, call, get, keysLabel, openThread, sendFromBar, set, toast as showToast, useStore, type Agent } from "./store";
-import { Typing } from "./parts";
+import { Mascot, Typing } from "./parts";
 import { afterTurn, cardDone, hold, READ_WAIT_MS, readWaitOver, type Held, type Step } from "./held";
 
 const mac = window.dunebot.platform === "darwin";
 
 /** Dune Bot's spark, small, for the bar. */
-function Spark({ busy }: { busy?: boolean }) {
+/** Dune Bot's own logo at the bar's start; it pulses while the chat works. */
+function Logo({ busy }: { busy?: boolean }) {
   return (
-    <svg width="22" height="22" viewBox="0 0 40 40" aria-hidden className={busy ? "animate-pulse" : ""}>
-      <path d="M20 3c1.6 8.4 7.6 14.4 17 17-9.4 2.6-15.4 8.6-17 17-1.6-8.4-7.6-14.4-17-17C12.4 17.4 18.4 11.4 20 3z" fill="var(--color-brand)" />
-    </svg>
+    <span className={`block overflow-hidden rounded-[6px] ${busy ? "animate-pulse" : ""}`}>
+      <Mascot size={22} />
+    </span>
   );
 }
 
@@ -226,7 +227,7 @@ export function Bar() {
 
   const installed = agents.filter((a) => a.installed);
   const keys = useStore((s) => keysLabel(s.prefs));
-  const look = AGENT_LOOK[agent] ?? { color: "#9a9a9a", short: agent.slice(0, 2) };
+  const look = AGENT_LOOK[agent] ?? { short: agent.slice(0, 2) };
   const hint = listening
       ? "release to send · esc cancel"
       : mac
@@ -242,7 +243,7 @@ export function Bar() {
       >
         <div className="drag flex items-end gap-2.5 px-3.5 py-3">
           <span className="mb-[7px] shrink-0">
-            <Spark busy={busy} />
+            <Logo busy={busy} />
           </span>
           <div className="min-w-0 flex-1">
             {listening || transcribing ? (
@@ -289,14 +290,14 @@ export function Bar() {
                 onPointerUp={talkEnd}
                 onPointerCancel={talkEnd}
                 className={`grid size-8 place-items-center rounded-full transition-colors ${
-                  listening ? "bg-brand text-[#1d1418]" : "text-muted hover:bg-bubble hover:text-ink"
+                  listening ? "bg-ink text-white" : "text-muted hover:bg-bubble hover:text-ink"
                 }`}
               >
                 <Mic size={17} />
               </button>
             )}
             <label title="Agent for new chats" className="relative flex h-8 items-center gap-1.5 rounded-full border border-line pr-2.5 pl-1 text-[12.5px] font-medium hover:border-muted/50">
-              <span className="grid size-6 place-items-center rounded-full font-pixel text-[11px] text-[#fff]" style={{ background: look.color }}>
+              <span className="grid size-6 place-items-center rounded-full bg-[#3a3a3c] font-pixel text-[11px] text-[#fff]">
                 {look.short}
               </span>
               {agentName(agent)}
@@ -324,11 +325,11 @@ export function Bar() {
         {showFooter && (
         <div className="flex items-center gap-3 border-t border-line px-4 py-2 text-[11.5px] text-muted">
           {toast ? (
-            <span className="font-medium text-[#b9761a]">{toast}</span>
+            <span className="font-medium text-ink">{toast}</span>
           ) : voice.state === "downloading" ? (
             <span className="truncate">Getting voice ready (one-time 190 MB download)… {voice.progress ?? 0}%</span>
           ) : voice.state === "error" && voice.message ? (
-            <span className="truncate font-medium text-[#b9761a]">{voice.message}</span>
+            <span className="truncate font-medium text-ink">{voice.message}</span>
           ) : null}
           <span className="ml-auto shrink-0">{hint}</span>
         </div>

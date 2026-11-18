@@ -58,6 +58,8 @@ export type SpeechStats = {
   sarvam: number; fallbacks: number;
   /** Sentences read by the streaming voice; ms from the first sentence to its first sound (-1: none). */
   streamed: number; firstSoundMs: number;
+  /** Times the streamed sound ran out and waited for more (between sentences, or the network was late). */
+  dry: number;
 };
 
 /** A streaming voice (Sarvam or Deepgram over a WebSocket, through the core). Tests replace it. */
@@ -87,6 +89,10 @@ let warm: { at: number; id: Promise<string | null> } | null = null;
 const WARM_MS = 25_000;
 /** No sound this long after the first sentence: the stream isn't working, fetch sentences whole. */
 const NO_SOUND_MS = 3000;
+/** Seconds of sound held back before the stream's first piece plays, and after it runs dry, so
+ * pieces that arrive a little late still play joined (a late one otherwise leaves a gap). */
+const LEAD_S = 0.15;
+const REFILL_S = 0.12;
 /** Quiet this long after the last sound, with everything sent and played: the reply has been read. */
 const QUIET_MS = 1200;
 
@@ -111,7 +117,15 @@ export class Speaker {
   /** The streaming voice (null: sentences are fetched whole). */
   static stream: VoiceStream | null = coreStream;
   /** Tests replace it: where streamed audio plays. */
-  static makeContext = () => new AudioContext();
+  /** At the voice's own rate when it can: one resampling for the whole answer, not one per piece
+   * (separately resampled pieces click where they join, which sounds like the voice breaking). */
+  static makeContext = (rate?: number) => {
+    try {
+      return new AudioContext(rate ? { sampleRate: rate } : undefined);
+    } catch {
+      return new AudioContext();
+    }
+  };
   /** Opens a streaming voice now, so the next reply's first sentence doesn't wait for the connection. */
   static prewarm() {
     if (!Speaker.sarvam || !Speaker.stream) return;
@@ -129,7 +143,7 @@ export class Speaker {
   }
   /** Tests replace it: plays an MP3 (a blob URL) and settles when it has finished. */
   static makeAudio = (url: string) => new Audio(url);
-  private stats: SpeechStats = { queued: 0, started: 0, ended: 0, timedOut: 0, errors: [], voices: 0, sarvam: 0, fallbacks: 0, streamed: 0, firstSoundMs: -1 };
+  private stats: SpeechStats = { queued: 0, started: 0, ended: 0, timedOut: 0, errors: [], voices: 0, sarvam: 0, fallbacks: 0, streamed: 0, firstSoundMs: -1, dry: 0 };
   private useSarvam = Speaker.sarvam;
   // The streaming voice for this reply (see the top of this file).
   private streaming = Speaker.sarvam && !!Speaker.stream;
@@ -255,7 +269,7 @@ export class Speaker {
     }
     if (!this.ctx) {
       try {
-        this.ctx = Speaker.makeContext();
+        this.ctx = Speaker.makeContext(rate);
         this.gain = this.ctx.createGain();
         this.gain.gain.value = Speaker.volume;
         this.gain.connect(this.ctx.destination);
@@ -276,7 +290,15 @@ export class Speaker {
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
     src.connect(this.gain!);
-    const at = Math.max(this.ctx.currentTime + 0.03, this.nextAt);
+    // Pieces play back to back. When nothing is left to play (the first piece, or the stream fell
+    // behind), this one starts a little later, so the next pieces are here in time and join it
+    // instead of each one waiting on the network.
+    const now = this.ctx.currentTime;
+    let at = this.nextAt;
+    if (at < now + 0.02) {
+      if (this.nextAt > 0) this.stats.dry++;
+      at = now + (this.nextAt > 0 ? REFILL_S : LEAD_S);
+    }
     src.start(at);
     this.nextAt = at + buf.duration;
     this.sources.add(src);

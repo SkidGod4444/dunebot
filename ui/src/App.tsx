@@ -17,7 +17,7 @@ export function App() {
       <Sidebar />
       <main className="relative flex min-w-0 flex-1 flex-col bg-white">
         {coreDown && (
-          <div className="bg-[#c4553f]/12 px-4 py-2 text-center text-[13px] text-[#d0604a]">Dune Bot's core stopped. Restart the app to continue.</div>
+          <div className="bg-ink/10 px-4 py-2 text-center text-[13px] font-medium text-ink">Dune Bot's core stopped. Restart the app to continue.</div>
         )}
         {view === "chat" && <ThreadView />}
         {view === "new" && <NewChat />}
@@ -133,7 +133,7 @@ function ChatRow({ t, active, busy, waiting }: { t: Thread; active: boolean; bus
           <span className="truncate text-[14.5px] font-semibold">{t.title}</span>
           <span className="ml-auto shrink-0 text-[12px] text-muted">{when(t.updatedAt)}</span>
         </span>
-        <span className={`block truncate text-[13px] ${waiting ? "font-medium text-[#b9761a]" : "text-muted"}`}>
+        <span className={`block truncate text-[13px] ${waiting ? "font-medium text-ink" : "text-muted"}`}>
           {waiting ? "Needs your OK" : busy ? "Working…" : plainPreview(t.preview) || agentName(t.agent)}
         </span>
       </span>
@@ -242,7 +242,7 @@ function ThreadView() {
           <button
             title="Delete chat"
             onClick={() => call("threads.delete", { id })}
-            className="grid size-8 place-items-center rounded-lg text-muted hover:bg-black/5 hover:text-[#c4553f]"
+            className="grid size-8 place-items-center rounded-lg text-muted hover:bg-black/5 hover:text-ink"
           >
             <Trash2 size={17} />
           </button>
@@ -415,7 +415,7 @@ function NewChat() {
             </div>
           )}
           {problem && (
-            <p className="mt-2 text-[12.5px] text-[#b9761a]">
+            <p className="mt-2 text-[12.5px] text-ink">
               {problem}{" "}
               <button className="underline" onClick={loadAgents}>
                 Check again
@@ -526,7 +526,7 @@ function Permissions() {
               )}
               {r.action === "click" && r.mode !== "never" && (
                 <p className="mt-1.5 text-[13px] text-muted">
-                  A click where an agent saw something on your screen (a tab, a button), as your mouse would; the pointer goes back where it was. Never on Dune Bot itself. macOS asks once to let Dune Bot control the computer. Scheduled chats always ask.
+                  A click where an agent saw something on your screen (a tab, a button): the pointer glides there like a hand and clicks. Move the mouse to stop it. Never on Dune Bot itself. macOS asks once to let Dune Bot control the computer. Scheduled chats always ask.
                 </p>
               )}
               {r.action === "look-screen" && r.mode !== "never" && (
@@ -551,12 +551,12 @@ function Permissions() {
             <ul className="mt-2 grid gap-1 text-[14px] sm:grid-cols-2">
               {PROTECTED.map((p) => (
                 <li key={p} className="flex items-center gap-2">
-                  <ShieldCheck size={14} className="shrink-0 text-[#2f9e62]" />
+                  <ShieldCheck size={14} className="shrink-0 text-ink" />
                   {p}
                 </li>
               ))}
             </ul>
-            <p className="mt-3 text-[13px] text-[#b9761a]">A command you allow runs with your full access and can reach these. Read command cards before you allow them.</p>
+            <p className="mt-3 text-[13px] text-ink">A command you allow runs with your full access and can reach these. Read command cards before you allow them.</p>
           </div>
         </div>
       </div>
@@ -677,8 +677,8 @@ function KeyRow({ title, hint, api, placeholder, onStatus }: { title: string; hi
         </span>
         {st?.saved && (
           <>
-            <span className="text-[13px] text-[#2f9e62]">Saved, locked by your keychain</span>
-            <button onClick={() => run(api.remove)} disabled={saving} className="h-8 rounded-full px-3 text-[13px] font-semibold text-[#c4453c] hover:bg-black/[.05]">
+            <span className="text-[13px] text-ink">Saved, locked by your keychain</span>
+            <button onClick={() => run(api.remove)} disabled={saving} className="h-8 rounded-full px-3 text-[13px] font-semibold text-ink hover:bg-black/[.05]">
               Remove
             </button>
           </>
@@ -707,9 +707,9 @@ function KeyRow({ title, hint, api, placeholder, onStatus }: { title: string; hi
         </form>
       )}
       {st && !st.saved && !st.canSave && (
-        <p className="mt-1.5 text-[13px] text-[#b9761a]">This computer has no keychain to lock a key with, so Dune Bot won't keep one.</p>
+        <p className="mt-1.5 text-[13px] text-ink">This computer has no keychain to lock a key with, so Dune Bot won't keep one.</p>
       )}
-      {problem && <p className="mt-1.5 text-[13px] text-[#c4453c]">{problem}</p>}
+      {problem && <p className="mt-1.5 text-[13px] font-medium text-ink">{problem}</p>}
     </div>
   );
 }
@@ -855,7 +855,7 @@ function Schedules() {
                   aria-checked={s.enabled}
                   title={s.enabled ? "On" : "Off"}
                   onClick={() => act(call("schedules.set", { id: s.id, enabled: !s.enabled }))}
-                  className={`mt-0.5 flex h-6 w-10 shrink-0 items-center rounded-full p-0.5 transition-colors ${s.enabled ? "bg-[#2f9e62]" : "bg-black/15"}`}
+                  className={`mt-0.5 flex h-6 w-10 shrink-0 items-center rounded-full p-0.5 transition-colors ${s.enabled ? "bg-ink" : "bg-black/15"}`}
                 >
                   <span className={`size-5 rounded-full bg-white shadow transition-transform ${s.enabled ? "translate-x-4" : ""}`} />
                 </button>
@@ -948,7 +948,7 @@ function Fixes() {
                     aria-checked={f.enabled}
                     title={f.enabled ? "On: agents read it" : "Off: agents don't see it"}
                     onClick={() => act(call("fixes.set", { id: f.id, enabled: !f.enabled }))}
-                    className={`mt-0.5 flex h-6 w-10 shrink-0 items-center rounded-full p-0.5 transition-colors ${f.enabled ? "bg-[#2f9e62]" : "bg-black/15"}`}
+                    className={`mt-0.5 flex h-6 w-10 shrink-0 items-center rounded-full p-0.5 transition-colors ${f.enabled ? "bg-ink" : "bg-black/15"}`}
                   >
                     <span className={`size-5 rounded-full bg-white shadow transition-transform ${f.enabled ? "translate-x-4" : ""}`} />
                   </button>
@@ -975,7 +975,7 @@ function Activity() {
     call<LedgerRow[]>("ledger.list").then(setRows);
   }, []);
   const tone = (d: string) =>
-    d.startsWith("declined") || d.startsWith("blocked") || d === "no answer" ? "bg-[#c4553f]/12 text-[#d0604a]" : d.startsWith("approved") || d.startsWith("allowed") ? "bg-[#2f9e62]/12 text-[#2f9e62]" : "bg-black/[.05] text-ink/70";
+    d.startsWith("declined") || d.startsWith("blocked") || d === "no answer" ? "bg-ink text-white" : d.startsWith("approved") || d.startsWith("allowed") ? "bg-ink/10 text-ink" : "bg-black/[.05] text-ink/70";
   return (
     <>
       <div className="drag h-[56px] shrink-0" />

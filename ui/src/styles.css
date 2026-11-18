@@ -41,8 +41,8 @@
   --dm-line: #ebebeb;
   --dm-side: #f7f7f7;
   --dm-bubble: #f2f2f2;
-  --dm-amber-card: #fff8ec;
-  --dm-amber-line: #f2dcb0;
+  --dm-ask-card: #f4f4f5;
+  --dm-ask-line: #d4d4d8;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -53,8 +53,8 @@
     --dm-line: rgba(255, 255, 255, 0.1);
     --dm-side: #232325;
     --dm-bubble: #2c2c2e;
-    --dm-amber-card: #2d2616;
-    --dm-amber-line: #5c4a22;
+    --dm-ask-card: #262628;
+    --dm-ask-line: rgba(255, 255, 255, 0.32);
   }
 }
 /* Floating windows on glass (or the system blur): the page paints its own solid fill over the glass
@@ -67,8 +67,8 @@ html.floating[data-material="glass"], html.floating[data-material="vibrancy"] {
   --dm-surface: rgba(255, 255, 255, 0.45);
   --dm-fill: #f5f5f7;
   --dm-muted: color-mix(in srgb, var(--dm-ink) 58%, transparent);
-  --dm-amber-card: rgba(240, 163, 58, 0.14);
-  --dm-amber-line: rgba(240, 163, 58, 0.38);
+  --dm-ask-card: rgba(120, 120, 128, 0.16);
+  --dm-ask-line: rgba(120, 120, 128, 0.4);
 }
 html.floating[data-material="glass"] .bg-white, html.floating[data-material="vibrancy"] .bg-white,
 html.floating[data-material="glass"] .bg-side, html.floating[data-material="vibrancy"] .bg-side {
@@ -83,8 +83,8 @@ html.floating[data-material="none"] {
   --dm-surface: rgba(255, 255, 255, 0.45);
   --dm-glass: #f5f5f7;
   --dm-muted: color-mix(in srgb, var(--dm-ink) 58%, transparent);
-  --dm-amber-card: rgba(240, 163, 58, 0.14);
-  --dm-amber-line: rgba(240, 163, 58, 0.38);
+  --dm-ask-card: rgba(120, 120, 128, 0.16);
+  --dm-ask-line: rgba(120, 120, 128, 0.4);
 }
 html.floating[data-material="none"] .bg-white, html.floating[data-material="none"] .bg-side {
   background-color: var(--dm-surface);
@@ -131,10 +131,10 @@ html:not([data-os="darwin"]) .dm-top {
   --color-line: var(--dm-line);
   --color-side: var(--dm-side);
   --color-bubble: var(--dm-bubble);
-  /* The accent: the pink of the kitten's nose in the app's icon. */
-  --color-brand: #ff8fa3;
-  --color-amber-card: var(--dm-amber-card);
-  --color-amber-line: var(--dm-amber-line);
+  /* The accent: black and white only (the user's choice, 2026-11-18): the theme's own ink. */
+  --color-brand: var(--dm-ink);
+  --color-ask-card: var(--dm-ask-card);
+  --color-ask-line: var(--dm-ask-line);
   /* shadcn names that Streamdown (AI Elements' reply renderer) draws with. `muted` stays the app's. */
   --color-border: var(--dm-line);
   --color-background: var(--dm-paper);

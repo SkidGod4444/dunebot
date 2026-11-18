@@ -13,7 +13,7 @@ export function TeachFix({ failure, detail, threadId, inset }: { failure: string
   const pad = inset ? "px-3.5" : "px-1";
   if (state === "saved")
     return (
-      <p className={`flex items-center gap-1.5 py-2 text-[12.5px] text-[#2f9e62] ${pad}`}>
+      <p className={`flex items-center gap-1.5 py-2 text-[12.5px] text-ink ${pad}`}>
         <Check size={13} /> Fix saved. Agents read it from now on.
       </p>
     );
@@ -69,13 +69,13 @@ export function Mascot({ size = 40 }: { size?: number }) {
 }
 
 export function AgentAvatar({ id, size = 36, dot }: { id: string; size?: number; dot?: "busy" | "waiting" }) {
-  const look = AGENT_LOOK[id] ?? { color: "#9a9a9a", short: id.slice(0, 2) };
+  const look = AGENT_LOOK[id] ?? { short: id.slice(0, 2) };
   return (
-    <span className="relative inline-grid shrink-0 place-items-center text-[#fff]" style={{ width: size, height: size, borderRadius: size * 0.3, background: look.color }}>
+    <span className="relative inline-grid shrink-0 place-items-center bg-[#3a3a3c] text-[#fff]" style={{ width: size, height: size, borderRadius: size * 0.3 }}>
       <span className="font-pixel leading-none" style={{ fontSize: size * 0.46 }}>{look.short}</span>
       {dot && (
         <span
-          className={`absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-2 border-side ${dot === "waiting" ? "bg-[#f0a33a]" : "bg-[#3bb273] animate-pulse"}`}
+          className={`absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-2 border-side ${dot === "waiting" ? "bg-ink" : "bg-ink/60 animate-pulse"}`}
         />
       )}
     </span>
@@ -99,7 +99,7 @@ export function AssistantBubble({ m }: { m: Message }) {
   return (
     <div
       data-live={live ? "" : undefined}
-      className={`md max-w-[85%] self-start rounded-[22px] px-4 py-2.5 text-[15px] leading-[1.5] select-text ${failed ? "bg-[#c4553f]/12 text-[#d0604a]" : "bg-bubble"}`}
+      className={`md max-w-[85%] self-start rounded-[22px] px-4 py-2.5 text-[15px] leading-[1.5] select-text ${failed ? "border border-ink/25 text-ink" : "bg-bubble"}`}
     >
       {text ? <Reply text={text} streaming={live} /> : <TypingLine />}
     </div>
@@ -206,9 +206,9 @@ export function ApprovalCard({ m, agent, bar, keys }: { m: Message; agent: strin
   }, [keys, status, approvalId]);
   if (status !== "pending") {
     const done: Record<string, [typeof Check, string, string]> = {
-      "approved-once": [ShieldCheck, "Allowed once", "text-[#2f9e62]"],
-      "approved-chat": [ShieldCheck, "Allowed for the rest of this chat", "text-[#2f9e62]"],
-      denied: [ShieldX, "Not allowed", "text-[#c4553f]"],
+      "approved-once": [ShieldCheck, "Allowed once", "text-ink"],
+      "approved-chat": [ShieldCheck, "Allowed for the rest of this chat", "text-ink"],
+      denied: [ShieldX, "Not allowed", "text-ink"],
       expired: [ShieldX, "No answer, so it wasn't done", "text-muted"],
     };
     const [Icon, label, tone] = done[status] ?? done.expired;
@@ -222,16 +222,16 @@ export function ApprovalCard({ m, agent, bar, keys }: { m: Message; agent: strin
     );
   }
   return (
-    <div className={`w-full self-start rounded-[20px] border border-amber-line bg-amber-card p-4 ${bar ? "" : "max-w-[85%]"}`}>
+    <div className={`w-full self-start rounded-[20px] border border-ask-line bg-ask-card p-4 ${bar ? "" : "max-w-[85%]"}`}>
       <div className="flex items-center gap-2 text-[15px] font-semibold">
-        <ShieldAlert size={17} className="text-[#d08a1f]" />
+        <ShieldAlert size={17} className="text-ink" />
         {agentName(agent)} wants to {ASK[action] ?? "do this"}
       </div>
       <pre className="mt-3 max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-xl border border-line bg-white px-3 py-2.5 font-mono text-[12.5px] leading-[1.5] select-text">
         {target}
       </pre>
       {detail && <p className="mt-2 truncate text-[13px] text-muted" title={detail}>{tidyDetail(detail)}</p>}
-      {why && <p className="mt-1 text-[13px] text-[#b9761a]">Asking because {why}.</p>}
+      {why && <p className="mt-1 text-[13px] text-ink">Asking because {why}.</p>}
       <div className="mt-3.5 flex flex-wrap items-center gap-2">
         <button onClick={() => allow("once")} className="h-9 rounded-full bg-ink px-4 text-[14px] font-semibold text-white hover:bg-black">
           Allow once{keys && <kbd className="ml-2 font-sans text-[12px] font-normal text-white/60">{mod}↩</kbd>}

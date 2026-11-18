@@ -96,7 +96,7 @@ pub fn list() -> Value {
         tools.as_array_mut().expect("a list").push(json!(
             {
                 "name": "click",
-                "description": "Click something on the user's screen for them (a tab, a button, a link), as their mouse would; the pointer goes back where it was. Take a picture with look_at_screen first, then give the point in that picture's pixels. It never asks the user (a scheduled chat asks). Use it, never run_command (osascript, cliclick, System Events), to click: those ask the user every time. It never clicks Dune Bot's own bar, card or window. Look at the screen again afterwards to check what it did before the next step.",
+                "description": "Click something on the user's screen for them (a tab, a button, a link): the pointer glides there as a person's hand would, clicks, and stays there. If the user moves the mouse on the way it stops without clicking. Take a picture with look_at_screen first, then give the point in that picture's pixels. It never asks the user (a scheduled chat asks). Use it, never run_command (osascript, cliclick, System Events), to click: those ask the user every time. It never clicks Dune Bot's own bar, card or window. Look at the screen again afterwards to check what it did before the next step.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {

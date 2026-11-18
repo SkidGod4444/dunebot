@@ -1183,7 +1183,13 @@ async function clickAt({ x, y, button, count }) {
       "Dune Bot can't click yet: macOS needs Dune Bot turned on in System Settings → Privacy & Security → Accessibility (open on the user's screen now). Ask the user to turn it on, then try the click again.",
     );
   }
-  if (!(await addon.click(x, y, right, twice))) throw new Error("Dune Bot couldn't click there.");
+  // The pointer glides there as a hand would and stays; moving the mouse on the way stops it.
+  const r = await addon.click(x, y, right, twice);
+  if (r === 2)
+    throw new Error(
+      "The user moved the mouse while Dune Bot was moving it there, so Dune Bot stopped without clicking. Don't click again unless they ask.",
+    );
+  if (r !== 0) throw new Error("Dune Bot couldn't click there.");
   return `${right ? "right " : ""}click ×${twice}`;
 }
 
