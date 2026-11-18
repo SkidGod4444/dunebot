@@ -227,9 +227,9 @@ fn instructions(thread: &Thread) -> String {
              it (each picture is good for one of those: look again before the next), and type with type_text or press keys \
              and shortcuts with press_keys. The app the user is in already has the keyboard: when they say to type \"here\" \
              or in what they're looking at, type straight away; click first only to put the text somewhere else. None of \
-             them ask the user. Aim a click at the middle of the target, clear of icons or buttons in or beside it; \
-             where the app has a shortcut for the same thing, press it instead (the address bar: cmd+l). A click's \
-             answer says what was under the pointer: if that isn't what you meant, it missed, so look again. Never \
+             them ask the user. When the user says to click something, click it: never a shortcut in its place. Aim \
+             at the middle of the target, clear of icons or buttons in or beside it. A click's answer says what was \
+             under the pointer: if that isn't what you meant, it missed, so look again and click again. Never \
              do these through run_command (osascript, cliclick, xdotool, PowerShell): that asks the user every time."
         } else {
             ""
