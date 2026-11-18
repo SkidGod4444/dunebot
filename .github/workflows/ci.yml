@@ -27,8 +27,14 @@ jobs:
         with:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
+      # Built C++ (whisper.cpp) remembers the compiler's full path, which changes with the runner image:
+      # a cache from an older image fails to build, so each image keeps its own.
+      - name: Runner image, for the build cache
+        shell: bash
+        run: echo "RUNNER_IMAGE=${ImageOS:-unknown}-${ImageVersion:-unknown}" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
         with:
+          key: ${{ env.RUNNER_IMAGE }}
           workspaces: |
             core
             native
