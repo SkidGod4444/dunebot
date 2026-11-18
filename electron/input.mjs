@@ -43,6 +43,24 @@ export function createInput(h) {
     }
   }
 
+  // Windows drops input sent to an app run as administrator and still reports success, so those
+  // are refused up front rather than claimed done. "Can't tell" goes ahead.
+  const ADMIN =
+    "That window belongs to an app running as administrator, and Windows doesn't let other apps click or type into it. Ask the user to do this step themselves.";
+  function refuse(x, y, verb) {
+    h.refuseOwn(x, y, verb);
+    const f = platform === "win32" ? h.addon()?.adminAt : null;
+    if (typeof f !== "function") return;
+    const at = nativePoint(x, y);
+    if (f(at.x, at.y) === 1) throw new Error(ADMIN);
+  }
+  function refuseKeys() {
+    h.refuseKeyboard();
+    const f = platform === "win32" ? h.addon()?.adminFront : null;
+    if (typeof f === "function" && f() === 1)
+      throw new Error("The app in front runs as administrator, and Windows doesn't let other apps type into it. Ask the user to type this themselves.");
+  }
+
   const TAKEN =
     "The user moved the mouse while Dune Bot was using it, so Dune Bot stopped. Don't do it again unless they ask.";
   function check(r, what) {
@@ -55,13 +73,13 @@ export function createInput(h) {
   async function glideTo(x, y, verb) {
     const at = nativePoint(x, y);
     check(await h.addon().pointerGlide(at.x, at.y, false), "move the pointer there");
-    h.refuseOwn(x, y, verb);
+    refuse(x, y, verb);
   }
 
   async function clickAt({ x, y, button, count }) {
     const right = button === "right";
     const twice = count === 2 ? 2 : 1;
-    h.refuseOwn(x, y, "clicks");
+    refuse(x, y, "clicks");
     // Checks: a stand-in that only logs the point. A test run never touches the real screen.
     if (h.stub()) return `stand-in ${right ? "right " : ""}click ×${twice} at ${Math.round(x)},${Math.round(y)}`;
     h.needAccess();
@@ -74,7 +92,7 @@ export function createInput(h) {
   }
 
   async function scrollAt({ x, y, dx, dy, notches }) {
-    h.refuseOwn(x, y, "scrolls");
+    refuse(x, y, "scrolls");
     const n = Math.max(1, Math.min(30, Math.round(notches) || 6));
     if (h.stub()) return `stand-in scroll ${dx},${dy} ×${n} at ${Math.round(x)},${Math.round(y)}`;
     h.needAccess();
@@ -85,8 +103,8 @@ export function createInput(h) {
   }
 
   async function dragFrom({ x1, y1, x2, y2 }) {
-    h.refuseOwn(x1, y1, "drags");
-    h.refuseOwn(x2, y2, "drops onto");
+    refuse(x1, y1, "drags");
+    refuse(x2, y2, "drops onto");
     if (h.stub()) return `stand-in drag ${Math.round(x1)},${Math.round(y1)} → ${Math.round(x2)},${Math.round(y2)}`;
     h.needAccess();
     await glideTo(x1, y1, "drags");
@@ -97,7 +115,7 @@ export function createInput(h) {
       await wait(between(120, 200));
       const to = nativePoint(x2, y2);
       check(await h.addon().pointerGlide(to.x, to.y, true), "drag there");
-      h.refuseOwn(x2, y2, "drops onto");
+      refuse(x2, y2, "drops onto");
       await wait(between(100, 180));
     } finally {
       const now = h.screen.getCursorScreenPoint();
@@ -181,7 +199,7 @@ export function createInput(h) {
   /** Before each key: not stopped, still not Dune Bot's keyboard, and the user hasn't taken the mouse. */
   function stillOurs(start, requestId) {
     if (h.cancelled(requestId)) throw new Error("Stopped: the chat stopped waiting for it.");
-    h.refuseKeyboard();
+    refuseKeys();
     const now = h.screen.getCursorScreenPoint();
     if (Math.hypot(now.x - start.x, now.y - start.y) > 24) throw new Error(TAKEN);
   }
@@ -189,7 +207,7 @@ export function createInput(h) {
   async function typeText({ text, requestId }) {
     const chars = [...String(text ?? "")];
     if (!chars.length) throw new Error("Nothing to type.");
-    h.refuseKeyboard();
+    refuseKeys();
     if (h.stub()) return `stand-in typing, ${chars.length} characters`;
     h.needAccess();
     const start = h.screen.getCursorScreenPoint();
@@ -216,7 +234,7 @@ export function createInput(h) {
     const held = (Array.isArray(mods) ? mods : []).filter((m) => ["ctrl", "option", "shift", "cmd", "win"].includes(m));
     const n = Math.max(1, Math.min(20, Math.round(times) || 1));
     const shown = `${(mods ?? []).join("+")}${mods?.length ? "+" : ""}${key}${n > 1 ? ` ×${n}` : ""}`;
-    h.refuseKeyboard();
+    refuseKeys();
     if (h.stub()) return `stand-in keys ${shown}`;
     h.needAccess();
     const start = h.screen.getCursorScreenPoint();

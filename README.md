@@ -173,8 +173,9 @@ voice local even with keys saved.
   does), so an agent can type where you were.
 - **On Windows and Linux** the same tools post the system's own input (SendInput; XTest on X11).
   Shortcuts there use Ctrl, Alt, Shift and Win (an agent's "cmd" means Ctrl), pressed around the key
-  as a hand does and always let go. Windows asks nothing; it won't let any app type into one run as
-  administrator. Linux needs an X11 desktop: Wayland (the default on recent Ubuntu and Fedora) doesn't
+  as a hand does and always let go. Windows asks nothing, but it silently drops clicks and keys sent
+  to an app run as administrator (Task Manager, installers, an admin terminal), so Dune Bot checks
+  first and says it can't rather than claiming it did. Linux needs an X11 desktop: Wayland (the default on recent Ubuntu and Fedora) doesn't
   let apps move the pointer or type into other apps, so there Dune Bot says it can't and tells you
   what to do instead (on Ubuntu, "Ubuntu on Xorg" at the login screen turns X11 on).
 - `list_folder` counts a whole folder tree (`deep: true`: files, folders, sizes, the largest files)
