@@ -890,7 +890,7 @@ mod input {
         struct Conn {
             x: &'static X,
             dpy: *mut Display,
-            spare: Option<u8>, // a key code with nothing on it, borrowed to type any character
+            spare: Option<(u8, u8)>, // two key codes with nothing on them: one borrowed to type any character, one to nudge apps
             held: Option<(u8, bool)>, // the key key_text pressed, and whether Shift went down with it
         }
         unsafe impl Send for Conn {}
@@ -958,8 +958,9 @@ mod input {
             .is_some()
         }
 
-        /// A key code with no symbols on it, to put any character on for a moment.
-        fn spare(c: &mut Conn) -> Option<u8> {
+        /// Two key codes with no symbols on them: one to put any character on, one left empty (a press
+        /// of it types nothing, and makes an app read the changed map before the real press).
+        fn spare(c: &mut Conn) -> Option<(u8, u8)> {
             if let Some(k) = c.spare {
                 return Some(k);
             }
@@ -972,9 +973,10 @@ mod input {
                     return None;
                 }
                 let syms = std::slice::from_raw_parts(map, (n * per) as usize);
-                let found = (0..n).rev().find(|i| syms[(*i * per) as usize..((*i + 1) * per) as usize].iter().all(|s| *s == 0));
+                let mut empty = (0..n).rev().filter(|i| syms[(*i * per) as usize..((*i + 1) * per) as usize].iter().all(|s| *s == 0));
+                let found = empty.next().zip(empty.next());
                 (c.x.free)(map as *mut c_void);
-                c.spare = found.map(|i| (lo + i) as u8);
+                c.spare = found.map(|(a, b)| ((lo + a) as u8, (lo + b) as u8));
                 c.spare
             }
         }
@@ -1004,8 +1006,8 @@ mod input {
 
         /// One character, pressed or let go. One the keyboard has goes on its own key (with Shift
         /// when it's the shifted one), so nothing changes. Any other is put on the spare key, both
-        /// levels (no Shift), then a moment's wait before the press: apps reload the keyboard's map
-        /// a few milliseconds after it changes, and a press before that reads the old symbol.
+        /// levels (no Shift). Apps reload the keyboard's map only when the next key event comes (a
+        /// press right after the change reads the old symbol), so the empty key is tapped first.
         pub fn key_text(text: &str, down: bool) -> bool {
             let mut chars = text.chars();
             let (Some(ch), None) = (chars.next(), chars.next()) else { return false };
@@ -1026,11 +1028,15 @@ mod input {
                 let (k, shift) = match place_of(c, sym) {
                     Some(place) => place,
                     None => {
-                        let k = spare(c)?;
+                        let (k, nudge) = spare(c)?;
                         let syms = [sym, sym];
                         (c.x.change_keyboard_mapping)(c.dpy, k as c_int, 2, syms.as_ptr(), 1);
                         (c.x.sync)(c.dpy, 0);
-                        super::pause(60);
+                        super::pause(30);
+                        (c.x.fake_key)(c.dpy, nudge as c_uint, 1, 0);
+                        (c.x.fake_key)(c.dpy, nudge as c_uint, 0, 0);
+                        (c.x.sync)(c.dpy, 0);
+                        super::pause(30);
                         (k, false)
                     }
                 };
