@@ -1313,17 +1313,21 @@ mod ax {
                 return String::new();
             }
             let (me, labelled) = describe(el.0 as *mut c_void);
-            if labelled || me.is_empty() {
+            if labelled {
                 return me;
             }
-            // An unlabelled part (an image, a group): say what it's in.
-            match copy(el.0 as *mut c_void, c"AXParent") {
-                Some(parent) => {
-                    let (up, up_labelled) = describe(parent.0 as *mut c_void);
-                    if up_labelled { format!("{me} in {up}") } else { me }
+            // An unnamed part (an image, a group): say which named part it's in, up to four levels up.
+            // Nothing named: nothing said (a bare "group" would only mislead).
+            let mut at = el;
+            for _ in 0..4 {
+                let Some(parent) = copy(at.0 as *mut c_void, c"AXParent") else { break };
+                let (up, up_labelled) = describe(parent.0 as *mut c_void);
+                if up_labelled {
+                    return if me.is_empty() { up } else { format!("{me} in {up}") };
                 }
-                None => me,
+                at = parent;
             }
+            String::new()
         }
     }
 }
