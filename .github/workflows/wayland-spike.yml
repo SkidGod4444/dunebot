@@ -12,13 +12,25 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
+      - uses: actions/cache@v4
+        with:
+          path: ~/apt-debs
+          key: wayland-spike-debs-v1
       - name: GNOME, the portal, PipeWire
-        timeout-minutes: 12
+        timeout-minutes: 14
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
-            gnome-shell mutter xdg-desktop-portal xdg-desktop-portal-gnome pipewire wireplumber python3-gi gir1.2-glib-2.0 \
-            dbus dbus-daemon libglib2.0-bin libnss3 libasound2t64 libgbm1 libgl1-mesa-dri libegl-mesa0 fonts-dejavu-core
+          printf 'http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\nhttp://archive.ubuntu.com/ubuntu/\tpriority:2\n' | sudo tee /etc/apt/apt-mirrors.txt
+          mkdir -p ~/apt-debs/partial
+          sudo apt-get update -o Acquire::Retries=3
+          for try in 1 2 3; do
+            timeout 240 sudo apt-get install -y --no-install-recommends -o Acquire::Retries=3 -o Acquire::http::Timeout=20 \
+              -o Dir::Cache::archives="$HOME/apt-debs" \
+              gnome-shell mutter xdg-desktop-portal xdg-desktop-portal-gnome pipewire wireplumber python3-gi gir1.2-glib-2.0 \
+              dbus dbus-daemon libglib2.0-bin libnss3 libasound2t64 libgbm1 libgl1-mesa-dri libegl-mesa0 fonts-dejavu-core && break
+            echo "install try $try stalled or failed"
+          done
+          sudo chmod -R a+r ~/apt-debs
+          dpkg -l gnome-shell | tail -1
       - name: Electron
         run: mkdir -p /tmp/el && cd /tmp/el && bun add electron@45.3.2 >/dev/null && node node_modules/electron/install.js && ls node_modules/electron/dist | head -3
       - name: Spike
