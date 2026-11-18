@@ -30,3 +30,19 @@ Portals: RemoteDesktop v2, ScreenCast v5, Screenshot v2, InputCapture v1, **Glob
 ## Not tested
 Real Rust code (helper with libei + PipeWire), HiDPI/fractional scale, two monitors, a real (not
 headless) session, GNOME 47-49 (Ubuntu 25.10, Fedora 43), KDE, setIgnoreMouseEvents on Wayland.
+
+## Round 7
+- **Share with the control switch off**: devices 0, screen granted, and that answer is remembered
+  (restore: devices 0, no box). Asking again = start without the token: the box comes back; with
+  the switch on, devices 3. => detect devices != 3, forget the token, ask again with a line
+  saying to turn on "Allow Remote Interaction".
+- **GNOME custom shortcut added live** (service already running), two combos, then one changed
+  live: all fired. => the stop key and the bar key on GNOME Wayland go through GNOME's own
+  keyboard shortcuts running `dunebot --stop` / `--bar`.
+- **Card** (alwaysOnTop, not focusable, frameless): GNOME ignores always-on-top. A libei click on
+  the app under it raised the app ABOVE the card. Click-through (setIgnoreMouseEvents) works: the
+  click went to the window below at the right spot. Electron reports its own focus correctly.
+  => the card's Stop button is not a stop on GNOME Wayland (it can be covered); the key is.
+- **Frames are fresh**: the overview opened between two frames, md5 changed.
+- **Scale**: this virtual monitor offers only scale 1.0. HiDPI goes in the build's CI (a
+  2560x1600 virtual monitor).
