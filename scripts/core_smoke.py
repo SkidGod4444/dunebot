@@ -356,6 +356,13 @@ send("input.result", requestId=ask["requestId"])
 wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == t4)
 done = [m for m in send("threads.get", id=t4)["result"]["messages"] if m["role"] == "tool"][-1]
 ok(done["meta"]["status"] == "done" and "the Career tab" in done["meta"].get("output", ""), "click reports what it clicked")
+# A turn that crashes still ends (an error, not "still working" for good), and the chat takes the next message.
+send("threads.send", id=t4, text="crash")
+ended = wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == t4)
+ok(ended is not None and ended.get("status") == "error", f"a crashed turn ends with an error ({ended and ended.get('status')})")
+again = send("threads.send", id=t4, text="hello after the crash")
+ok("result" in again, f"the chat takes a message after a crash ({again.get('error')})")
+wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == t4)
 # The app says what was under the pointer (macOS accessibility): the agent hears it, as screen content.
 look()
 send("threads.send", id=t4, text="click 100 50 the address bar")
