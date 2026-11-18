@@ -120,7 +120,11 @@ for (const theme of ["light", "dark"])
     }
     if (name === "caption-voice-ask") {
       // A new chat's first answer: read aloud (a "speech:" line with sentences streamed).
-      if (!/speech: .*streamed [1-9]/.test(log)) problems.push(`${name} ${theme}: a new chat's first answer wasn't read aloud\n${log.split("\n").filter((l) => /speech|caption|turn/.test(l)).slice(-6).join("\n")}`);
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      if (!/speech: .*streamed [1-9]/.test(log)) problems.push(`${name} ${theme}: a new chat's first answer wasn't read aloud (${JSON.stringify(res)})\n${log.split("\n").filter((l) => /speech|caption|turn/.test(l)).slice(-6).join("\n")}`);
       else note += " read aloud";
     }
     if (name === "caption-click") {

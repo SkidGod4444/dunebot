@@ -34,9 +34,19 @@
   dm.Speaker.prewarm(); // the voice warms up while what you said is written down
   // The bar's side (its own page): a new chat, the question sent, then the card shown for it. The
   // test agent's `pause` waits a second before its first words, as a real agent thinks first.
+  // The reading is over when the speaker reports (its "speech:" line): wait for that, not a fixed
+  // time (CI's Windows machines run the packaged app's first view slowly).
+  let read = null;
+  const report = dm.Speaker.onStats;
+  dm.Speaker.onStats = (s) => ((read = s), report?.(s));
   const t = await call("threads.create", { agent: "echo", cwd: "~" });
+  const sent = Date.now();
   await call("threads.send", { id: t.id, text: "pause Hey buddy, how are you?", spoken: true });
+  const sendMs = Date.now() - sent;
   dm.caption({ threadId: t.id, side: "above", align: "left", speak: true });
-  await sleep(6000);
-  return { roles: (dm.get().messages[t.id] ?? []).map((m) => m.role) };
+  const end = Date.now() + 20000;
+  while (!read && Date.now() < end) await sleep(100);
+  await sleep(300);
+  // What the card held, for when it isn't read: the roles, and whether the answer came before the card.
+  return { roles: (dm.get().messages[t.id] ?? []).map((m) => m.role), sendMs, read: !!read, readMs: Date.now() - sent };
 })();
