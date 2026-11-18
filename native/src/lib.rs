@@ -891,6 +891,7 @@ mod input {
             x: &'static X,
             dpy: *mut Display,
             spare: Option<u8>, // a key code with nothing on it, borrowed to type any character
+            held: Option<(u8, bool)>, // the key key_text pressed, and whether Shift went down with it
         }
         unsafe impl Send for Conn {}
 
@@ -904,7 +905,7 @@ mod input {
                 if dpy.is_null() {
                     return None;
                 }
-                *guard = Some(Conn { x, dpy, spare: None });
+                *guard = Some(Conn { x, dpy, spare: None, held: None });
             }
             f(guard.as_mut()?)
         }
@@ -978,25 +979,71 @@ mod input {
             }
         }
 
-        /// One character: its key symbol put on the spare key (both levels, so no Shift), pressed or
-        /// let go. The symbol stays on the key until the next character (an app reading the release
-        /// late still finds it).
+        /// Where a symbol already is on the keyboard: its key, and whether Shift is needed for it.
+        fn place_of(c: &Conn, sym: c_ulong) -> Option<(u8, bool)> {
+            unsafe {
+                let k = (c.x.keysym_to_keycode)(c.dpy, sym);
+                if k == 0 {
+                    return None;
+                }
+                let mut per = 0;
+                let map = (c.x.get_keyboard_mapping)(c.dpy, k, 1, &mut per);
+                if map.is_null() {
+                    return None;
+                }
+                let syms = std::slice::from_raw_parts(map, per.max(0) as usize);
+                let place = match syms.iter().position(|s| *s == sym) {
+                    Some(0) => Some((k, false)),
+                    Some(1) => Some((k, true)),
+                    _ => None, // another group or level (AltGr): the spare key types it instead
+                };
+                (c.x.free)(map as *mut c_void);
+                place
+            }
+        }
+
+        /// One character, pressed or let go. One the keyboard has goes on its own key (with Shift
+        /// when it's the shifted one), so nothing changes. Any other is put on the spare key, both
+        /// levels (no Shift), then a moment's wait before the press: apps reload the keyboard's map
+        /// a few milliseconds after it changes, and a press before that reads the old symbol.
         pub fn key_text(text: &str, down: bool) -> bool {
             let mut chars = text.chars();
             let (Some(ch), None) = (chars.next(), chars.next()) else { return false };
             let cp = ch as u32;
             let sym: c_ulong = if (0x20..0x7f).contains(&cp) || (0xa0..0x100).contains(&cp) { cp as c_ulong } else { 0x0100_0000 | cp as c_ulong };
             with(|c| unsafe {
-                let k = spare(c)?;
-                if down {
-                    let syms = [sym, sym];
-                    (c.x.change_keyboard_mapping)(c.dpy, k as c_int, 2, syms.as_ptr(), 1);
-                    (c.x.sync)(c.dpy, 0);
-                    (c.x.fake_key)(c.dpy, k as c_uint, 1, 0);
-                } else {
-                    (c.x.fake_key)(c.dpy, k as c_uint, 0, 0);
+                if !down {
+                    if let Some((k, shift)) = c.held.take() {
+                        (c.x.fake_key)(c.dpy, k as c_uint, 0, 0);
+                        if shift {
+                            let s = (c.x.keysym_to_keycode)(c.dpy, 0xffe1);
+                            (c.x.fake_key)(c.dpy, s as c_uint, 0, 0);
+                        }
+                        (c.x.flush)(c.dpy);
+                    }
+                    return Some(());
                 }
+                let (k, shift) = match place_of(c, sym) {
+                    Some(place) => place,
+                    None => {
+                        let k = spare(c)?;
+                        let syms = [sym, sym];
+                        (c.x.change_keyboard_mapping)(c.dpy, k as c_int, 2, syms.as_ptr(), 1);
+                        (c.x.sync)(c.dpy, 0);
+                        super::pause(60);
+                        (k, false)
+                    }
+                };
+                if shift {
+                    let s = (c.x.keysym_to_keycode)(c.dpy, 0xffe1);
+                    if s == 0 {
+                        return None;
+                    }
+                    (c.x.fake_key)(c.dpy, s as c_uint, 1, 0);
+                }
+                (c.x.fake_key)(c.dpy, k as c_uint, 1, 0);
                 (c.x.flush)(c.dpy);
+                c.held = Some((k, shift));
                 Some(())
             })
             .is_some()
