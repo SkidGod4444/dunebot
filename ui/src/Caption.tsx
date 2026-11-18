@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Maximize2, Volume2, VolumeX, X } from "lucide-react";
 import { agentName, call, get, keysLabel, openThread, set, useStore, type Message } from "./store";
 import { ApprovalCard } from "./parts";
-import { Reply, TypingLine } from "./reply";
+import { Reply, Typing, TypingLine } from "./reply";
+import { stepLine } from "./steps";
 import { useSmoothText } from "./smooth";
 import { noteStream } from "./parts";
 import { useStickToBottom } from "./stick";
@@ -12,9 +13,10 @@ import { Speaker } from "./speak";
  * The answer beside the pointer (HeyClicky-style): no chat, just what Dune Bot is doing now and its
  * answer, read aloud. The window is see-through, click-through and a fixed size; the card sits in the
  * corner nearest the pointer and grows away from it, so the window itself never moves while a reply
- * arrives. It carries everything a turn can need from you: listening, working (thinking dots: the
- * agent's steps aren't shown, 2026-11-17), the answer, an error, and approval cards (clickable: the
- * card takes the mouse while the pointer is on it).
+ * arrives. It carries everything a turn can need from you: listening, working (thinking dots, and
+ * beside them one plain line for the step the agent is on, so a quiet voice doesn't look stopped:
+ * 2026-11-18; never a card per step), the answer, an error, and approval cards (clickable: the card
+ * takes the mouse while the pointer is on it).
  */
 export type CaptionShow = { threadId: string | null; side: "below" | "above"; align: "left" | "right"; speak: boolean };
 
@@ -58,6 +60,13 @@ export function Caption() {
   const shown = exchange(list);
   const approval = shown.find((m) => m.role === "approval" && m.meta.status === "pending");
   const reply = [...shown].reverse().find((m) => m.role === "assistant");
+  // The step since the agent's last words (running, or just done): the line beside the dots.
+  let step: Message | undefined;
+  for (let i = shown.length - 1; i >= 0 && shown[i].role !== "assistant"; i--)
+    if (shown[i].role === "tool") {
+      step = shown[i];
+      break;
+    }
   const listening = voice.state === "listening";
   const transcribing = voice.state === "transcribing";
   const speaker = useRef<Speaker | null>(null);
@@ -274,16 +283,10 @@ export function Caption() {
               {reply && !asked && (reply.text || reply.meta.status === "streaming") ? (
                 <Answer m={reply} />
               ) : (busy || asked) && !approval ? (
-                <div className="text-[15px] leading-[1.5]">
-                  <TypingLine />
-                </div>
+                <Working step={busy ? step : undefined} />
               ) : null}
-              {/* A line like "On it." with work after it: the dots again, not the step itself. */}
-              {reply && !asked && reply.text && busy && !approval && !replyIsLast && (
-                <div className="text-[15px] leading-[1.5]">
-                  <TypingLine />
-                </div>
-              )}
+              {/* A line like "On it." with work after it: the dots again, and the step beside them. */}
+              {reply && !asked && reply.text && busy && !approval && !replyIsLast && <Working step={step} />}
               {approval && <ApprovalCard m={approval} agent={thread?.agent ?? "claude"} bar />}
               {next && (
                 <p className="flex min-w-0 items-baseline gap-1.5 text-[12.5px] leading-[1.45] text-muted">
@@ -332,6 +335,21 @@ function Answer({ m }: { m: Message }) {
       </div>
     );
   return <div className="md text-[15px] leading-[1.5] select-text">{text ? <Reply text={text} streaming={live} /> : <TypingLine />}</div>;
+}
+
+/** The working dots, with the step the agent is on beside them when there is one. */
+function Working({ step }: { step?: Message }) {
+  const line = stepLine(step, window.dunebot.platform);
+  return (
+    <div className="flex h-[1.5em] min-w-0 items-center gap-2 text-[15px] leading-[1.5]">
+      <Typing />
+      {line && (
+        <span data-step className="min-w-0 truncate text-[13.5px] text-muted">
+          {line}
+        </span>
+      )}
+    </div>
+  );
 }
 
 /** Live microphone level as five bars. */

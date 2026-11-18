@@ -1,5 +1,6 @@
 // The first line ("On it.") is read aloud at once, while the step still runs, and the answer after
-// it, in order by one voice (the stand-in stream from caption-stream.js, volume 0).
+// it, in order by one voice (the stand-in stream from caption-stream.js, volume 0). While the
+// command runs, the card shows "Running a command" beside the dots; with the answer, it's gone.
 (async () => {
   const dm = window.__dm;
   const call = window.dunebot.call;
@@ -40,8 +41,14 @@
   let end = Date.now() + 4000;
   while (Date.now() < end && !dm.get().busy[t.id]) await sleep(20);
   end = Date.now() + 15000;
-  while (Date.now() < end && dm.get().busy[t.id]) await sleep(100);
+  // While the command runs, the card says so beside the dots (the voice is quiet then).
+  let step = null;
+  while (Date.now() < end && dm.get().busy[t.id]) {
+    step ??= document.querySelector("[data-step]")?.textContent ?? null;
+    await sleep(100);
+  }
   await sleep(2000); // the answer's reading ends
-  const ok = said.length === 2 && said[0].words === "On it." && said[0].working && said[1].words === "Done." && !said[1].working;
-  return { ok, said };
+  const after = document.querySelector("[data-step]")?.textContent ?? null;
+  const ok = said.length === 2 && said[0].words === "On it." && said[0].working && said[1].words === "Done." && !said[1].working && step === "Running a command" && after === null;
+  return { ok, said, step, after };
 })();
