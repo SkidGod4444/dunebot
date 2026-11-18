@@ -14,7 +14,7 @@ const tool = (name: string, status: string, args: Record<string, unknown> = {}) 
 eq("click running", stepLine(tool("click", "running", { what: "the address bar" }), "darwin"), "Clicking the address bar");
 eq("click done", stepLine(tool("click", "done", { what: "the address bar" }), "darwin"), "Clicked the address bar");
 eq("right click", stepLine(tool("click", "running", { what: "the file", button: "right" }), "win32"), "Right-clicking the file");
-eq("double click", stepLine(tool("click", "done", { what: "the file", count: 2 }), "linux"), "Double-clicked the file");
+eq("double click", stepLine(tool("click", "done", { what: "the file", double: true }), "linux"), "Double-clicked the file");
 eq("click failed", stepLine(tool("click", "failed", { what: "the address bar" }), "darwin"), "Couldn't click");
 eq("look", stepLine(tool("look_at_screen", "running"), "darwin"), "Looking at your screen");
 eq("drag", stepLine(tool("drag", "running", { what: "the PDF to the Desktop" }), "darwin"), "Dragging the PDF to the Desktop");

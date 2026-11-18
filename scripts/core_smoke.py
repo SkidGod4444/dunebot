@@ -356,6 +356,15 @@ send("input.result", requestId=ask["requestId"])
 wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == t4)
 done = [m for m in send("threads.get", id=t4)["result"]["messages"] if m["role"] == "tool"][-1]
 ok(done["meta"]["status"] == "done" and "the Career tab" in done["meta"].get("output", ""), "click reports what it clicked")
+# The app says what was under the pointer (macOS accessibility): the agent hears it, as screen content.
+look()
+send("threads.send", id=t4, text="click 100 50 the address bar")
+ask = wait(lambda m: m.get("event") == "input.do")
+send("input.result", requestId=ask["requestId"], note="button \u201cShow site information\u201d\n\u0007")
+wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == t4)
+under = [m for m in send("threads.get", id=t4)["result"]["messages"] if m["role"] == "tool"][-1]["meta"].get("output", "")
+ok("as the screen labels it: button \u201cShow site information\u201d." in under and "the click missed" in under and "\u0007" not in under,
+   f"a click says what was under the pointer ({under[:200]!r})")
 ok(any(r["action"] == "click" and r["decision"] == "allowed (always)" and r["target"] == "the Career tab" for r in send("ledger.list")["result"]), "click is in the activity log")
 used = echo_turn("click 100 50 the same tab again")
 ok("Look at the screen first" in used["meta"].get("output", ""), "a picture is good for one click: the next one looks again")
