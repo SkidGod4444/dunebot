@@ -159,7 +159,7 @@ for (const theme of ["light", "dark"])
         res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
       } catch {}
       if (!res?.ok) problems.push(`${name} ${theme}: first line ${JSON.stringify(res)}\n${log.split("\n").filter((l) => /speech|card |turn/.test(l)).slice(-8).join("\n")}`);
-      else note += " first line read while working, then the answer";
+      else note += " first line read while working (the card said what it was doing), then the answer";
     }
     if (name === "bar-held") {
       // Said mid-answer: held, the card done with that answer, then asked by itself.
