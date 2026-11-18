@@ -7,7 +7,7 @@ app.whenReady().then(async () => {
   await w.loadURL("data:text/html,<title>probe</title><body style='background:%23ffd' onmousemove='document.title=\"probe\"'>probe</body>");
   w.setTitle("probe");
   log("WINDOW bounds", JSON.stringify(w.getBounds()));
-  for (let i = 0; i < 22; i++) {
+  for (let i = 0; i < 2; i++) {
     log("cursor", JSON.stringify(screen.getCursorScreenPoint()));
     await new Promise((r) => setTimeout(r, 500));
   }

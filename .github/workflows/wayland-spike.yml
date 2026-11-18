@@ -15,7 +15,8 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/apt-debs
-          key: wayland-spike-debs-v1
+          key: wayland-spike-debs-v2
+          restore-keys: wayland-spike-debs-
       - name: GNOME, the portal, PipeWire
         timeout-minutes: 14
         run: |
@@ -26,7 +27,8 @@ jobs:
             timeout 240 sudo apt-get install -y --no-install-recommends -o Acquire::Retries=3 -o Acquire::http::Timeout=20 \
               -o Dir::Cache::archives="$HOME/apt-debs" \
               gnome-shell mutter xdg-desktop-portal xdg-desktop-portal-gnome pipewire wireplumber python3-gi gir1.2-glib-2.0 \
-              dbus dbus-daemon libglib2.0-bin libnss3 libasound2t64 libgbm1 libgl1-mesa-dri libegl-mesa0 fonts-dejavu-core && break
+              dbus dbus-daemon libglib2.0-bin libnss3 libasound2t64 libgbm1 libgl1-mesa-dri libegl-mesa0 fonts-dejavu-core \
+              libei1 libxkbcommon0 gnome-settings-daemon xwayland dconf-cli && break
             echo "install try $try stalled or failed"
           done
           sudo chmod -R a+r ~/apt-debs

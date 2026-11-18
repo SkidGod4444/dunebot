@@ -60,9 +60,22 @@ if sys.argv[1] == "rd":
         try:
             v, fds = bus.call_with_unix_fd_list_sync(D, P, RD, "ConnectToEIS", GLib.Variant("(oa{sv})", (s, {})), GLib.VariantType("(h)"), 0, 5000, None, None)
             say("ConnectToEIS -> fd handle", v.unpack(), "fds", fds.get_length() if fds else 0)
+            if len(sys.argv) > 3:
+                sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+                import eis
+                steps = [l.split() for l in open(sys.argv[3]).read().splitlines() if l.strip()]
+                steps = [(s[0], *(int(x) for x in s[1:])) if s[0] == "click" else (s[0], " ".join(s[1:])) if s[0] == "type" else (s[0], float(s[1])) for s in steps]
+                eis.drive(fds.get(0), steps)
         except Exception as e:
             say("ConnectToEIS failed:", e)
     bus.call_sync(D, s, "org.freedesktop.portal.Session", "Close", None, None, 0, 5000, None)
+elif sys.argv[1] == "versions":
+    for i in (RD, "org.freedesktop.portal.ScreenCast", "org.freedesktop.portal.Screenshot", "org.freedesktop.portal.GlobalShortcuts", "org.freedesktop.portal.InputCapture"):
+        try:
+            v = bus.call_sync(D, P, "org.freedesktop.DBus.Properties", "Get", GLib.Variant("(ss)", (i, "version")), None, 0, 5000, None).unpack()[0]
+        except Exception as e:
+            v = "absent (" + str(e).split(":")[-1].strip()[:60] + ")"
+        say(i.split(".")[-1], "version", v)
 elif sys.argv[1] == "shot":
     r = request("org.freedesktop.portal.Screenshot", "Screenshot",
                 lambda t: GLib.Variant("(sa{sv})", ("", {"handle_token": GLib.Variant("s", t), "interactive": GLib.Variant("b", False)})), wait=40, marker=True)
