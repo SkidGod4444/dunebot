@@ -20,7 +20,7 @@ jobs:
             gnome-shell mutter xdg-desktop-portal xdg-desktop-portal-gnome pipewire wireplumber python3-gi gir1.2-glib-2.0 \
             dbus dbus-daemon libglib2.0-bin libnss3 libasound2t64 libgbm1 libgl1-mesa-dri libegl-mesa0 fonts-dejavu-core
       - name: Electron
-        run: mkdir -p /tmp/el && cd /tmp/el && bun add electron@45.3.2 >/dev/null && ls node_modules/electron/dist | head -3
+        run: mkdir -p /tmp/el && cd /tmp/el && bun add electron@45.3.2 >/dev/null && node node_modules/electron/install.js && ls node_modules/electron/dist | head -3
       - name: Spike
         run: bash spike/run.sh
       - uses: actions/upload-artifact@v4
