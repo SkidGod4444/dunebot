@@ -66,10 +66,14 @@ if sys.argv[1] == "rd":
         pw = fds.get(0)
         import subprocess
         for i in (1, 2):
+            if i == 2 and os.environ.get("BETWEEN_FRAMES"):
+                subprocess.run(["bash", "-c", os.environ["BETWEEN_FRAMES"]], capture_output=True)
             t0 = time.time()
             out = f"out/frame-{os.getpid()}-{i}.png"
             p = subprocess.run(["timeout", "15", "gst-launch-1.0", "-q", "pipewiresrc", f"fd={pw}", f"path={node}", "num-buffers=1", "!", "videoconvert", "!", "pngenc", "!", "filesink", f"location={out}"], pass_fds=(pw,), capture_output=True, text=True)
-            say(f"frame {i}: exit {p.returncode} in {time.time() - t0:.2f} s,", (os.path.getsize(out) if os.path.exists(out) else "no file"), p.stderr.strip()[-200:])
+            import hashlib
+            h = hashlib.md5(open(out, "rb").read()).hexdigest()[:10] if os.path.exists(out) else "-"
+            say(f"frame {i}: exit {p.returncode} in {time.time() - t0:.2f} s,", (os.path.getsize(out) if os.path.exists(out) else "no file"), "md5", h, p.stderr.strip()[-200:])
     if r.get("code") == 0:
         try:
             v, fds = bus.call_with_unix_fd_list_sync(D, P, RD, "ConnectToEIS", GLib.Variant("(oa{sv})", (s, {})), GLib.VariantType("(h)"), 0, 5000, None, None)
