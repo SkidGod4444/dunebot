@@ -138,7 +138,11 @@ for (const theme of ["light", "dark"])
         /input: stand-in keys ctrl\+t ×2/,
       ];
       const missing = want.filter((re) => !re.test(log));
-      if (missing.length) problems.push(`${name} ${theme}: the app didn't take ${missing.map(String).join(", ")}\n${log.split("\n").filter((l) => /input|screen|turn/.test(l)).slice(-10).join("\n")}`);
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      if (missing.length) problems.push(`${name} ${theme}: the app didn't take ${missing.map(String).join(", ")}; steps ${JSON.stringify(res)}\n${log.split("\n").filter((l) => /input|screen|turn/.test(l)).slice(-10).join("\n")}`);
       else note += " clicked, scrolled, dragged, typed and pressed keys (stand-ins)";
     }
     if (name === "caption-held-read") {
@@ -212,10 +216,13 @@ for (const theme of ["light", "dark"])
         note += ` window buttons from x ${fx + fw}`;
       }
     }
-    // A check failed: the core's own complaints too (a crash prints "panicked"), whatever the check looked for.
+    // A check failed: the core's own complaints (a crash prints "panicked"), and the end of the log
+    // as it was, whatever the check looked for.
     if (problems.length > problemsBefore) {
-      const said = log.split("\n").filter((l) => /panicked|dunebot-core:/.test(l)).slice(-8);
+      const lines = log.split("\n");
+      const said = lines.filter((l) => /panicked|dunebot-core:/.test(l)).slice(-8);
       if (said.length) problems[problems.length - 1] += `\n  core said:\n  ${said.join("\n  ")}`;
+      problems[problems.length - 1] += `\n  log's last lines:\n  ${lines.filter((l) => l.trim()).slice(-20).join("\n  ")}`;
     }
     console.log(`ok  ${path.basename(file)}${note}`);
   }
