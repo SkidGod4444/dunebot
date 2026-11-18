@@ -19,7 +19,9 @@ impl Out {
             let mut stdout = tokio::io::stdout();
             while let Some(mut line) = rx.recv().await {
                 line.push('\n');
-                if stdout.write_all(line.as_bytes()).await.is_err() {
+                if let Err(e) = stdout.write_all(line.as_bytes()).await {
+                    // Every later event and answer would be lost without a word: say so once.
+                    eprintln!("dunebot-core: can't write to the app any more ({e}); events stop here");
                     break;
                 }
                 let _ = stdout.flush().await;
