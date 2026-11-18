@@ -1,0 +1,27 @@
+# Throwaway: what a GNOME Wayland session lets an app do (screenshots, the remote-control portal).
+name: wayland-spike
+on:
+  push:
+    branches: [wayland-spike]
+jobs:
+  spike:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: GNOME, the portal, PipeWire
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gnome-shell mutter xdg-desktop-portal xdg-desktop-portal-gnome pipewire wireplumber python3-gi gir1.2-glib-2.0 dbus-daemon libnss3 libasound2t64 libgbm1
+      - name: Electron
+        run: mkdir -p /tmp/el && cd /tmp/el && bun add electron@45.3.2 >/dev/null && ls node_modules/electron/dist | head -3
+      - name: Spike
+        run: bash spike/run.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wayland-spike
+          path: out/
