@@ -424,17 +424,29 @@ pub async fn send(app: Arc<App>, thread_id: &str, text: &str, spoken: bool) -> a
     let app2 = app.clone();
     tokio::spawn(async move {
         let mut turn = Turn { app: app2.clone(), thread_id: thread.id.clone(), current: None, text: String::new(), all: String::new() };
-        let (status, error) = if thread.agent == ECHO {
-            echo_turn(&app2, &thread, &text, &mut turn).await
-        } else {
-            codemax_turn(&app2, &thread, &text, spoken, &mut turn).await
+        // A crash inside the turn must still end it: otherwise the chat stays "still working" for
+        // good and refuses every later message. The crash itself is printed by Rust ("panicked at").
+        let ran = std::panic::AssertUnwindSafe(async {
+            if thread.agent == ECHO {
+                echo_turn(&app2, &thread, &text, &mut turn).await
+            } else {
+                codemax_turn(&app2, &thread, &text, spoken, &mut turn).await
+            }
+        });
+        let (status, error) = match futures_util::FutureExt::catch_unwind(ran).await {
+            Ok(r) => r,
+            Err(_) => {
+                eprintln!("dunebot-core: a turn crashed; ended it with an error");
+                ("error", Some("Dune Bot hit an internal error on this message. Try again.".to_string()))
+            }
         };
-        let cancelled = app2.cancelled.lock().unwrap().remove(&thread.id);
+        // After a crash a lock may be poisoned; the chat must still be freed.
+        let cancelled = app2.cancelled.lock().unwrap_or_else(|e| e.into_inner()).remove(&thread.id);
         let status = if cancelled { "cancelled" } else { status };
         turn.finish(status, error.clone());
         crate::history::save(&app2, &thread.id);
-        app2.busy.lock().unwrap().remove(&thread.id);
-        app2.last_used.lock().unwrap().insert(thread.id.clone(), std::time::Instant::now());
+        app2.busy.lock().unwrap_or_else(|e| e.into_inner()).remove(&thread.id);
+        app2.last_used.lock().unwrap_or_else(|e| e.into_inner()).insert(thread.id.clone(), std::time::Instant::now());
         app2.out.event("turn.ended", json!({ "threadId": thread.id, "status": status, "error": error }));
     });
     Ok(json!({ "message": msg }))
@@ -613,6 +625,11 @@ async fn echo_turn(app: &Arc<App>, thread: &Thread, text: &str, turn: &mut Turn)
             tokio::time::sleep(Duration::from_millis(1000)).await;
             say(turn, &format!("Echo: {rest}")).await;
             return ("done", None);
+        }
+        "crash" => {
+            // A turn that crashes part way (scripts/core_smoke.py: it must still end, and the chat work after).
+            say(turn, "About to crash.").await;
+            panic!("the test agent crashed on purpose");
         }
         "fixes" => {
             // What a real agent would be given with this message.

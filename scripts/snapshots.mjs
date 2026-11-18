@@ -90,6 +90,7 @@ for (const theme of ["light", "dark"])
     if (process.platform === "linux") args.push("--no-sandbox"); // containers and CI have no setuid sandbox
     const r = spawnSync(packaged ?? process.execPath, args, { cwd: root, env, encoding: "utf8", timeout: 90_000 });
     const log = `${r.stdout ?? ""}${r.stderr ?? ""}`;
+    const problemsBefore = problems.length;
     if (!fs.existsSync(file)) {
       problems.push(`${name} ${theme}: no picture (exit ${r.status ?? r.signal})\n${log.slice(-1500)}`);
       continue;
@@ -210,6 +211,11 @@ for (const theme of ["light", "dark"])
           problems.push(`chat ${theme}: "${b.text}" sits under the window buttons (ends at ${b.x + b.w}, free up to ${fx + fw})`);
         note += ` window buttons from x ${fx + fw}`;
       }
+    }
+    // A check failed: the core's own complaints too (a crash prints "panicked"), whatever the check looked for.
+    if (problems.length > problemsBefore) {
+      const said = log.split("\n").filter((l) => /panicked|dunebot-core:/.test(l)).slice(-8);
+      if (said.length) problems[problems.length - 1] += `\n  core said:\n  ${said.join("\n  ")}`;
     }
     console.log(`ok  ${path.basename(file)}${note}`);
   }
