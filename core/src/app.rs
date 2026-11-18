@@ -74,7 +74,7 @@ pub struct App {
     captures: Mutex<HashMap<String, oneshot::Sender<Result<Value, String>>>>,
     locations: Mutex<HashMap<String, oneshot::Sender<Value>>>,
     /// Clicks asked of the app (it holds macOS's Accessibility permission), by request id.
-    inputs: Mutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
+    inputs: Mutex<HashMap<String, oneshot::Sender<Result<String, String>>>>,
     /// Each chat's latest picture of the screen: where it lies on the screen, so a click can be given
     /// as a point in it.
     pub shots: Mutex<HashMap<String, crate::tools::Shot>>,
@@ -158,7 +158,8 @@ impl App {
 
     /// Asks the app to use the mouse or keyboard for an agent (`req` has `kind`: click, scroll,
     /// drag, type or keys; points are in the app's screen points). Waits up to `secs`.
-    pub async fn input(&self, mut req: Value, secs: u64) -> Result<(), String> {
+    /// Asks the app to use the mouse or keyboard; answers its note (what a click landed on), or "".
+    pub async fn input(&self, mut req: Value, secs: u64) -> Result<String, String> {
         /// However the wait ends (answered, timed out, or the turn stopped and dropped it), the chord
         /// comes back; unless answered, the app is told to stop (it checks before every key).
         struct Pending<'a> {
@@ -198,7 +199,8 @@ impl App {
         let tx = self.inputs.lock().unwrap().remove(id).ok_or_else(|| anyhow!("no such input request"))?;
         let r = match p.get("error").and_then(Value::as_str) {
             Some(e) => Err(e.chars().take(300).collect()),
-            None => Ok(()),
+            // What the click landed on, as the screen labels it: one line, short.
+            None => Ok(p.get("note").and_then(Value::as_str).unwrap_or("").chars().filter(|c| !c.is_control()).take(160).collect::<String>().trim().to_string()),
         };
         let _ = tx.send(r);
         Ok(json!({ "ok": true }))

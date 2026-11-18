@@ -31,6 +31,18 @@ export function createInput(h) {
     return { x, y };
   }
 
+  /** What's at the point, as the system's accessibility labels it (macOS; "" elsewhere, or when it
+   * doesn't answer quickly). It never holds the click up for long and never stops it. */
+  async function elementAt(at) {
+    const f = h.addon()?.elementAt;
+    if (typeof f !== "function") return "";
+    try {
+      return String((await Promise.race([f(at.x, at.y), wait(600).then(() => "")])) ?? "").slice(0, 160);
+    } catch {
+      return "";
+    }
+  }
+
   const TAKEN =
     "The user moved the mouse while Dune Bot was using it, so Dune Bot stopped. Don't do it again unless they ask.";
   function check(r, what) {
@@ -55,8 +67,10 @@ export function createInput(h) {
     h.needAccess();
     await glideTo(x, y, "clicks");
     const at = nativePoint(x, y);
+    const under = await elementAt(at);
     check(await h.addon().pointerPress(at.x, at.y, right, twice), "click there");
-    return `${right ? "right " : ""}click ×${twice}`;
+    // The log keeps where (numbers only); the agent also gets what was there.
+    return { log: `${right ? "right " : ""}click ×${twice} at ${Math.round(x)},${Math.round(y)}`, note: under };
   }
 
   async function scrollAt({ x, y, dx, dy, notches }) {

@@ -1296,8 +1296,10 @@ async function inputForCore(m) {
         applyCaptionMouse();
       }
     }
-    log(`input: ${done}`);
-    await call("input.result", { requestId: m.requestId });
+    // A step answers a line for the log, or that and a note for the agent (what a click landed on).
+    const said = typeof done === "string" ? { log: done, note: "" } : done;
+    log(`input: ${said.log}`);
+    await call("input.result", { requestId: m.requestId, ...(said.note ? { note: said.note } : {}) });
   } catch (err) {
     log(`input: ${m.kind}: ${err.message}`);
     call("input.result", { requestId: m.requestId, error: err.message }).catch(() => {});

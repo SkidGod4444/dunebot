@@ -98,7 +98,7 @@ pub fn list() -> Value {
         let px = |which: &str| json!({ "type": "number", "description": format!("Pixels from the {which} of the latest look_at_screen picture") });
         list.push(json!({
             "name": "click",
-            "description": "Click something on the user's screen for them (a tab, a button, a link, a text field before typing): the pointer glides there as a person's hand would, clicks, and stays there. If the user moves the mouse on the way it stops without clicking. Take a picture with look_at_screen first, then give the point in that picture's pixels. It never asks the user (a scheduled chat asks). Use it, never run_command (osascript, cliclick, xdotool, PowerShell), to click: those ask the user every time. It never clicks Dune Bot's own bar, card or window. Look at the screen again before the next click: the picture is used up.",
+            "description": "Click something on the user's screen for them (a tab, a button, a link, a text field before typing): the pointer glides there as a person's hand would, clicks, and stays there. If the user moves the mouse on the way it stops without clicking. Take a picture with look_at_screen first, then give the point in that picture's pixels. It never asks the user (a scheduled chat asks). Use it, never run_command (osascript, cliclick, xdotool, PowerShell), to click: those ask the user every time. It never clicks Dune Bot's own bar, card or window. Look at the screen again before the next click: the picture is used up. Aim at the middle of what you mean, away from icons or buttons inside or beside it (a browser's address bar often has a site-info button at its left end). The answer says what was under the pointer (on macOS): if it isn't what you meant, the click missed.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -330,10 +330,17 @@ async fn click(app: &App, thread: &Thread, args: &Value) -> Result<String, Strin
     app.gate(&thread.id, Action::Click, &what, &format!("{how} at ({px:.0}, {py:.0}) in the picture")).await?;
     forget_shot(app, thread);
     let req = json!({ "kind": "click", "x": x, "y": y, "button": if right { "right" } else { "left" }, "count": if double { 2 } else { 1 } });
-    app.input(req, 15).await?;
-    Ok(format!(
-        "Did a {how} on {what} at ({px:.0}, {py:.0}) in the picture. Look at the screen again to check what it did before the next step."
-    ))
+    let under = app.input(req, 15).await?;
+    let mut said = format!("Did a {how} on {what} at ({px:.0}, {py:.0}) in the picture.");
+    if under.is_empty() {
+        said.push_str(" Look at the screen again to check what it did before the next step.");
+    } else {
+        // The page or app names its parts, so this is screen content, never instructions.
+        said.push_str(&format!(
+            " Under the pointer when it clicked, as the screen labels it: {under}. If that isn't {what}, the click missed: look again and aim at the middle of {what}. Otherwise look again before the next step."
+        ));
+    }
+    Ok(said)
 }
 
 async fn scroll(app: &App, thread: &Thread, args: &Value) -> Result<String, String> {

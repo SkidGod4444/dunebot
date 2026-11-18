@@ -1217,6 +1217,148 @@ pub fn front_window_owner(x: f64, y: f64, skip: Vec<Buffer>) -> napi::Result<i64
     }
 }
 
+/// What a click is about to land on, as the system's accessibility tree labels it (macOS): "button
+/// “Send”", "text field “Address and Search”". A label only, never what a field holds (a password
+/// field is just "password field"). Empty when unknown, or when it's Dune Bot's own.
+#[cfg(target_os = "macos")]
+mod ax {
+    use std::ffi::{c_char, c_void};
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    unsafe extern "C" {
+        fn AXUIElementCreateSystemWide() -> *mut c_void;
+        fn AXUIElementCopyElementAtPosition(app: *mut c_void, x: f32, y: f32, element: *mut *mut c_void) -> i32;
+        fn AXUIElementCopyAttributeValue(element: *mut c_void, attribute: *const c_void, value: *mut *const c_void) -> i32;
+        fn AXUIElementSetMessagingTimeout(element: *mut c_void, seconds: f32) -> i32;
+        fn AXUIElementGetPid(element: *mut c_void, pid: *mut i32) -> i32;
+    }
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        fn CFRelease(cf: *const c_void);
+        fn CFGetTypeID(cf: *const c_void) -> usize;
+        fn CFStringGetTypeID() -> usize;
+        fn CFStringCreateWithCString(alloc: *const c_void, s: *const c_char, encoding: u32) -> *const c_void;
+        fn CFStringGetCString(s: *const c_void, buf: *mut c_char, size: isize, encoding: u32) -> bool;
+    }
+    const UTF8: u32 = 0x0800_0100;
+
+    /// A copied attribute (released when dropped).
+    struct Owned(*const c_void);
+    impl Drop for Owned {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe { CFRelease(self.0) };
+            }
+        }
+    }
+
+    fn copy(el: *mut c_void, name: &std::ffi::CStr) -> Option<Owned> {
+        unsafe {
+            let key = Owned(CFStringCreateWithCString(std::ptr::null(), name.as_ptr(), UTF8));
+            if key.0.is_null() {
+                return None;
+            }
+            let mut v: *const c_void = std::ptr::null();
+            (AXUIElementCopyAttributeValue(el, key.0, &mut v) == 0 && !v.is_null()).then_some(Owned(v))
+        }
+    }
+
+    /// A string attribute, tidied: one line, at most 80 characters.
+    fn text(el: *mut c_void, name: &std::ffi::CStr) -> Option<String> {
+        let v = copy(el, name)?;
+        unsafe {
+            if CFGetTypeID(v.0) != CFStringGetTypeID() {
+                return None;
+            }
+            let mut buf = vec![0 as c_char; 1024];
+            if !CFStringGetCString(v.0, buf.as_mut_ptr(), buf.len() as isize, UTF8) {
+                return None;
+            }
+            let s = std::ffi::CStr::from_ptr(buf.as_ptr()).to_string_lossy();
+            let s: String = s.split_whitespace().collect::<Vec<_>>().join(" ").chars().filter(|c| !c.is_control()).take(80).collect();
+            (!s.is_empty()).then_some(s)
+        }
+    }
+
+    /// "button “Send”", or just "button" when it has no label.
+    fn describe(el: *mut c_void) -> (String, bool) {
+        let role = text(el, c"AXRole").unwrap_or_default();
+        if role == "AXSecureTextField" {
+            return ("password field".into(), true);
+        }
+        let kind = text(el, c"AXRoleDescription").unwrap_or_else(|| role.trim_start_matches("AX").to_lowercase());
+        let label = text(el, c"AXTitle")
+            .or_else(|| text(el, c"AXDescription"))
+            .or_else(|| if role == "AXStaticText" { text(el, c"AXValue") } else { None });
+        match label {
+            Some(l) => (format!("{kind} “{l}”"), true),
+            None => (kind, false),
+        }
+    }
+
+    pub fn element_at(x: f64, y: f64) -> String {
+        unsafe {
+            let sys = Owned(AXUIElementCreateSystemWide() as *const c_void);
+            if sys.0.is_null() {
+                return String::new();
+            }
+            AXUIElementSetMessagingTimeout(sys.0 as *mut c_void, 0.3);
+            let mut el: *mut c_void = std::ptr::null_mut();
+            if AXUIElementCopyElementAtPosition(sys.0 as *mut c_void, x as f32, y as f32, &mut el) != 0 || el.is_null() {
+                return String::new();
+            }
+            let el = Owned(el as *const c_void);
+            let mut pid = 0;
+            if AXUIElementGetPid(el.0 as *mut c_void, &mut pid) == 0 && pid as u32 == std::process::id() {
+                return String::new();
+            }
+            let (me, labelled) = describe(el.0 as *mut c_void);
+            if labelled || me.is_empty() {
+                return me;
+            }
+            // An unlabelled part (an image, a group): say what it's in.
+            match copy(el.0 as *mut c_void, c"AXParent") {
+                Some(parent) => {
+                    let (up, up_labelled) = describe(parent.0 as *mut c_void);
+                    if up_labelled { format!("{me} in {up}") } else { me }
+                }
+                None => me,
+            }
+        }
+    }
+}
+
+pub struct ElementTask(f64, f64);
+
+impl napi::Task for ElementTask {
+    type Output = String;
+    type JsValue = String;
+
+    fn compute(&mut self) -> napi::Result<String> {
+        #[cfg(target_os = "macos")]
+        {
+            Ok(if self.0.is_finite() && self.1.is_finite() { ax::element_at(self.0, self.1) } else { String::new() })
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (self.0, self.1);
+            Ok(String::new())
+        }
+    }
+
+    fn resolve(&mut self, _env: napi::Env, output: String) -> napi::Result<String> {
+        Ok(output)
+    }
+}
+
+/// What's at a point of the screen (macOS points), as the accessibility tree labels it: "button
+/// “Send”". A label only, never a field's contents. Resolves "" when unknown, when it's Dune Bot's
+/// own, and on other systems.
+#[napi]
+pub fn element_at(x: f64, y: f64) -> napi::bindgen_prelude::AsyncTask<ElementTask> {
+    napi::bindgen_prelude::AsyncTask::new(ElementTask(x, y))
+}
+
 /// One step of the mouse, off Electron's main thread (it waits between the mouse's events).
 pub enum Pointer {
     Glide { x: f64, y: f64, held: bool },

@@ -50,7 +50,7 @@ export function stepLine(m: Message | undefined, platform: string): string | nul
   const args = m.meta.args ?? {};
   let verb = w[status];
   if (tool === "click" && args.button === "right") verb = status === "now" ? "Right-clicking" : "Right-clicked";
-  else if (tool === "click" && Number(args.count) === 2) verb = status === "now" ? "Double-clicking" : "Double-clicked";
+  else if (tool === "click" && (args.double === true || Number(args.count) === 2)) verb = status === "now" ? "Double-clicking" : "Double-clicked";
   if (tool === "press_keys" && typeof args.keys === "string" && args.keys.trim()) return `${verb} ${keysShown(args.keys, platform)}`;
   const what = typeof args.what === "string" ? args.what.trim().replace(/\s+/g, " ").slice(0, 80) : "";
   if (["click", "scroll", "drag", "type_text"].includes(tool)) return what ? `${verb} ${what}` : tool === "type_text" ? (status === "now" ? "Typing" : "Typed") : verb;
