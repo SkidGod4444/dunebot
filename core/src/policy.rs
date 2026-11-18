@@ -12,12 +12,15 @@ pub enum Action {
     LookScreen,
     /// Where the computer is, from the system's location services.
     FindLocation,
-    /// A click on the screen for the user (the app does it; macOS asks once for Accessibility).
+    /// A click, scroll or drag on the screen for the user (the app does it; macOS asks once for
+    /// Accessibility).
     Click,
+    /// Typing or a key or shortcut, into whatever app has the keyboard (never Dune Bot itself).
+    Type,
 }
 
 impl Action {
-    pub const ALL: [Action; 8] = [
+    pub const ALL: [Action; 9] = [
         Action::RunCommand,
         Action::WriteFile,
         Action::ReadFile,
@@ -25,6 +28,7 @@ impl Action {
         Action::SearchChats,
         Action::LookScreen,
         Action::Click,
+        Action::Type,
         Action::FindLocation,
     ];
 
@@ -38,6 +42,7 @@ impl Action {
             Action::LookScreen => "look-screen",
             Action::FindLocation => "find-location",
             Action::Click => "click",
+            Action::Type => "type",
         }
     }
 
@@ -50,7 +55,8 @@ impl Action {
             Action::SearchChats => "Search your past chats",
             Action::LookScreen => "Look at your screen",
             Action::FindLocation => "Find where you are",
-            Action::Click => "Click on your screen",
+            Action::Click => "Click, scroll and drag on your screen",
+            Action::Type => "Type and press keys",
         }
     }
 
@@ -66,6 +72,9 @@ impl Action {
             // The user chose clicks without asking, through Dune Bot's own tool (2026-11-18); osascript,
             // which can do far more than click, still asks under Auto.
             Action::Click => Mode::Always,
+            // And typing and shortcuts without asking too (2026-11-18), though they can do whatever a
+            // person at the keyboard can.
+            Action::Type => Mode::Always,
         }
     }
 

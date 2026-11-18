@@ -42,10 +42,10 @@ const SHOTS = [
   ["caption-held-read", "caption", { DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-held-read.js") }],
   // The first question of a new chat, spoken from the bar, is read aloud.
   ["caption-voice-ask", "caption", { DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-voice-ask.js") }],
-  // The test agent clicks a point in a picture of the screen; the app logs it (stand-ins, no real click).
+  // The test agent clicks, scrolls, drags, types and presses keys; the app logs it (stand-ins, no real input).
   ["caption-click", "caption", {
     DUNEBOT_SCREEN_STUB: path.join(root, "electron", "assets", "icon.png"),
-    DUNEBOT_CLICK_STUB: "1",
+    DUNEBOT_INPUT_STUB: "1",
     DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-click.js"),
   }],
   ["bar-held", "bar", { DUNEBOT_SNAPSHOT_HELD: "1", DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bar-held.js") }],
@@ -129,8 +129,16 @@ for (const theme of ["light", "dark"])
     }
     if (name === "caption-click") {
       // The picture is 512 px of the display under the pointer: (10, 20) in it is a point on that display.
-      if (!/click: stand-in click ×1 at -?\d+,-?\d+/.test(log)) problems.push(`${name} ${theme}: the app didn't take the click\n${log.split("\n").filter((l) => /click|screen|turn/.test(l)).slice(-6).join("\n")}`);
-      else note += " clicked (stand-in)";
+      const want = [
+        /input: stand-in click ×1 at -?\d+,-?\d+/,
+        /input: stand-in scroll 0,-1 ×6 at -?\d+,-?\d+/,
+        /input: stand-in drag -?\d+,-?\d+ → -?\d+,-?\d+/,
+        /input: stand-in typing, 11 characters/,
+        /input: stand-in keys cmd\+t ×2/,
+      ];
+      const missing = want.filter((re) => !re.test(log));
+      if (missing.length) problems.push(`${name} ${theme}: the app didn't take ${missing.map(String).join(", ")}\n${log.split("\n").filter((l) => /input|screen|turn/.test(l)).slice(-10).join("\n")}`);
+      else note += " clicked, scrolled, dragged, typed and pressed keys (stand-ins)";
     }
     if (name === "caption-held-read") {
       // The held question goes only after the answer has been read: "speech:" (reading over) first.

@@ -93,6 +93,31 @@ pub struct Sample {
     pub since_mouse: u64,
 }
 
+static INPUTS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static INPUT_ENDED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn clock() -> u64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_millis() as u64 + 1
+}
+
+/// While Dune Bot clicks, types or presses keys for an agent (and a moment after), the chord
+/// doesn't fire: keys it posts never open the bar or start listening.
+pub fn input_started() {
+    INPUTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn input_ended() {
+    INPUT_ENDED.store(clock(), std::sync::atomic::Ordering::SeqCst);
+    INPUTS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn input_busy() -> bool {
+    use std::sync::atomic::Ordering::SeqCst;
+    let ended = INPUT_ENDED.load(SeqCst);
+    INPUTS.load(SeqCst) > 0 || (ended > 0 && clock().saturating_sub(ended) < 400)
+}
+
 /// One poll. Fires only on release (tap, end of a hold) or once a hold passes HOLD_MS.
 pub fn step(state: State, s: Sample, chord: Chord) -> (State, Option<Fire>) {
     let m = s.flags & MODS;
@@ -170,6 +195,14 @@ pub fn watch(on_fire: impl Fn(Fire) + Send + 'static) -> bool {
             let mut state = State::default();
             loop {
                 let now = start.elapsed().as_millis() as u64;
+                // While Dune Bot types, nothing new starts: whatever is held is part of its keys, so it
+                // waits for all of it to go. A hold to talk that was already going runs its course
+                // (its end or cancel still fires).
+                if input_busy() && !matches!(state, State::Down { holding: true, .. }) {
+                    state = State::Spoiled;
+                    std::thread::sleep(std::time::Duration::from_millis(30));
+                    continue;
+                }
                 let (next, fire) = step(state, mac::sample(now), chosen().2);
                 state = next;
                 if let Some(f) = fire {

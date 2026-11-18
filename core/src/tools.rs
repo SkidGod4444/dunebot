@@ -91,25 +91,79 @@ pub fn list() -> Value {
             "inputSchema": { "type": "object", "properties": {} }
         }
     ]);
-    // Clicking is macOS's only for now (the app does it with Quartz events); elsewhere it isn't listed.
+    // Using the mouse and keyboard is macOS's only for now (the app does it with Quartz events);
+    // elsewhere these aren't listed.
     if cfg!(target_os = "macos") {
-        tools.as_array_mut().expect("a list").push(json!(
-            {
-                "name": "click",
-                "description": "Click something on the user's screen for them (a tab, a button, a link): the pointer glides there as a person's hand would, clicks, and stays there. If the user moves the mouse on the way it stops without clicking. Take a picture with look_at_screen first, then give the point in that picture's pixels. It never asks the user (a scheduled chat asks). Use it, never run_command (osascript, cliclick, System Events), to click: those ask the user every time. It never clicks Dune Bot's own bar, card or window. Look at the screen again afterwards to check what it did before the next step.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "x": { "type": "number", "description": "Pixels from the left of the latest look_at_screen picture" },
-                        "y": { "type": "number", "description": "Pixels from the top of the latest look_at_screen picture" },
-                        "what": { "type": "string", "description": "What you're clicking, in a few words (\"the Career page design tab\")" },
-                        "button": { "type": "string", "enum": ["left", "right"], "description": "Default left" },
-                        "double": { "type": "boolean", "description": "A double click (default false)" }
-                    },
-                    "required": ["x", "y", "what"]
-                }
+        let list = tools.as_array_mut().expect("a list");
+        let px = |which: &str| json!({ "type": "number", "description": format!("Pixels from the {which} of the latest look_at_screen picture") });
+        list.push(json!({
+            "name": "click",
+            "description": "Click something on the user's screen for them (a tab, a button, a link, a text field before typing): the pointer glides there as a person's hand would, clicks, and stays there. If the user moves the mouse on the way it stops without clicking. Take a picture with look_at_screen first, then give the point in that picture's pixels. It never asks the user (a scheduled chat asks). Use it, never run_command (osascript, cliclick, System Events), to click: those ask the user every time. It never clicks Dune Bot's own bar, card or window. Look at the screen again before the next click: the picture is used up.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "x": px("left"),
+                    "y": px("top"),
+                    "what": { "type": "string", "description": "What you're clicking, in a few words (\"the Career page design tab\")" },
+                    "button": { "type": "string", "enum": ["left", "right"], "description": "Default left" },
+                    "double": { "type": "boolean", "description": "A double click (default false)" }
+                },
+                "required": ["x", "y", "what"]
             }
-        ));
+        }));
+        list.push(json!({
+            "name": "scroll",
+            "description": "Scroll what's under a point on the user's screen (a page, a list), as a person turns the mouse wheel: the pointer glides there first. Take a picture with look_at_screen first and give the point in its pixels. It never asks the user (a scheduled chat asks). Look again afterwards: the picture is used up.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "x": px("left"),
+                    "y": px("top"),
+                    "direction": { "type": "string", "enum": ["down", "up", "left", "right"] },
+                    "amount": { "type": "integer", "minimum": 1, "maximum": 30, "description": "Wheel notches, about 50 points each (default 6, about a third of a screen)" },
+                    "what": { "type": "string", "description": "What you're scrolling, in a few words" }
+                },
+                "required": ["x", "y", "direction", "what"]
+            }
+        }));
+        list.push(json!({
+            "name": "drag",
+            "description": "Drag something on the user's screen from one point to another with the left button held (a file onto a folder, a slider, a window's edge), as a person would. Both points are in the pixels of the latest look_at_screen picture. If the user moves the mouse on the way it lets go and stops. It never asks the user (a scheduled chat asks). Look again afterwards: the picture is used up.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "from_x": px("left"), "from_y": px("top"),
+                    "to_x": px("left"), "to_y": px("top"),
+                    "what": { "type": "string", "description": "What you're dragging where, in a few words" }
+                },
+                "required": ["from_x", "from_y", "to_x", "to_y", "what"]
+            }
+        }));
+        list.push(json!({
+            "name": "type_text",
+            "description": "Type text on the user's keyboard, at a person's pace, into whatever has the keyboard now. The app the user is in already has it: for \"type here\" just type; click first only to put the text in another field or app. A newline presses Return (which sends or runs in many apps) and a tab presses Tab. It never types into Dune Bot itself (it refuses while Dune Bot is in front: click the place first). It never asks the user (a scheduled chat asks). If the user moves the mouse it stops. Use it, never run_command (osascript, System Events), to type.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "What to type (up to 2000 characters)" },
+                    "what": { "type": "string", "description": "Where it goes, in a few words (\"the search field\")" }
+                },
+                "required": ["text", "what"]
+            }
+        }));
+        list.push(json!({
+            "name": "press_keys",
+            "description": "Press a key or a shortcut on the user's keyboard, in the app that has the keyboard now: \"enter\", \"tab\", \"escape\", \"down\", \"cmd+t\", \"cmd+shift+t\", \"ctrl+a\". Modifiers: cmd, ctrl, option, shift. Keys: a-z, 0-9, enter, tab, escape, space, backspace, delete, up, down, left, right, home, end, pageup, pagedown, f1-f12, and - = [ ] \\ ; ' , . / `. It never presses keys in Dune Bot itself. It never asks the user (a scheduled chat asks).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "keys": { "type": "string", "description": "One key or shortcut, with + between (\"cmd+t\")" },
+                    "times": { "type": "integer", "minimum": 1, "maximum": 20, "description": "Press it this many times (default 1)" },
+                    "what": { "type": "string", "description": "What it's for, in a few words (\"open a new tab\")" }
+                },
+                "required": ["keys", "what"]
+            }
+        }));
     }
     tools
 }
@@ -130,6 +184,10 @@ pub async fn call(app: &App, thread: &Thread, name: &str, args: &Value) -> (Stri
         "search_chats" => search_chats(app, thread, args).await,
         "find_location" => find_location(app, thread).await,
         "click" => click(app, thread, args).await,
+        "scroll" => scroll(app, thread, args).await,
+        "drag" => drag(app, thread, args).await,
+        "type_text" => type_text(app, thread, args).await,
+        "press_keys" => press_keys(app, thread, args).await,
         _ => Err(format!("Dune Bot has no tool named \"{name}\".")),
     };
     match r {
@@ -212,24 +270,57 @@ impl Shot {
     }
 }
 
+/// What the chat's records keep of a tool's input: typed text is kept as its length only (it can
+/// be a password the user dictated).
+pub fn recorded_args(name: &str, args: &Value) -> Value {
+    let mut kept = args.clone();
+    if name == "type_text" {
+        let n = args.get("text").and_then(Value::as_str).map_or(0, |t| t.chars().count());
+        kept["text"] = json!(format!("{n} characters"));
+    }
+    kept
+}
+
+/// "what" from the agent, tidied for cards and the ledger.
+fn what_of(args: &Value, otherwise: &str) -> String {
+    let w: String = args.get("what").and_then(Value::as_str).unwrap_or("").chars().filter(|c| !c.is_control()).take(80).collect();
+    if w.trim().is_empty() { otherwise.to_string() } else { w.trim().to_string() }
+}
+
+/// The chat's latest picture, if it's fresh. The action uses it up once allowed (`forget_shot`): the
+/// screen changes, so the next one looks again.
+fn take_shot(app: &App, thread: &Thread, verb: &str) -> Result<Shot, String> {
+    let shot = app.shots.lock().unwrap().get(&thread.id).copied();
+    let Some(shot) = shot else {
+        return Err(format!("Look at the screen first (look_at_screen), then {verb} by that picture's pixels. Each picture is good for one action."));
+    };
+    if shot.at.elapsed() > SHOT_FRESH {
+        return Err(format!("The latest picture of the screen is a few minutes old. Look at the screen again, then {verb} by the new picture."));
+    }
+    Ok(shot)
+}
+
+fn picture_point(args: &Value, kx: &str, ky: &str) -> Result<(f64, f64), String> {
+    let num = |k: &str| args.get(k).and_then(Value::as_f64);
+    match (num(kx), num(ky)) {
+        (Some(x), Some(y)) => Ok((x, y)),
+        _ => Err(format!("\"{kx}\" and \"{ky}\" are required: a point in the latest look_at_screen picture, in its pixels.")),
+    }
+}
+
+/// After the mouse or keyboard has been used, the picture is out of date.
+fn forget_shot(app: &App, thread: &Thread) {
+    app.shots.lock().unwrap().remove(&thread.id);
+}
+
 /// One click for the user, at a point in the chat's latest picture of the screen. The app does it
 /// (it holds macOS's Accessibility permission) and never on Dune Bot's own windows.
 async fn click(app: &App, thread: &Thread, args: &Value) -> Result<String, String> {
-    let num = |k: &str| args.get(k).and_then(Value::as_f64);
-    let (Some(px), Some(py)) = (num("x"), num("y")) else {
-        return Err("\"x\" and \"y\" are required: a point in the latest look_at_screen picture, in its pixels.".into());
-    };
-    let what: String = args.get("what").and_then(Value::as_str).unwrap_or("").chars().filter(|c| !c.is_control()).take(80).collect();
-    let what = if what.trim().is_empty() { "a point".to_string() } else { what.trim().to_string() };
+    let (px, py) = picture_point(args, "x", "y")?;
+    let what = what_of(args, "a point");
     let right = args.get("button").and_then(Value::as_str) == Some("right");
     let double = args.get("double").and_then(Value::as_bool).unwrap_or(false);
-    let shot = app.shots.lock().unwrap().get(&thread.id).copied();
-    let Some(shot) = shot else {
-        return Err("Look at the screen first (look_at_screen), then give the point in that picture's pixels.".into());
-    };
-    if shot.at.elapsed() > SHOT_FRESH {
-        return Err("The latest picture of the screen is a few minutes old. Look at the screen again, then click by the new picture.".into());
-    }
+    let shot = take_shot(app, thread, "click")?;
     let (x, y) = shot.point(px, py)?;
     let how = match (right, double) {
         (true, _) => "right click",
@@ -237,10 +328,138 @@ async fn click(app: &App, thread: &Thread, args: &Value) -> Result<String, Strin
         _ => "click",
     };
     app.gate(&thread.id, Action::Click, &what, &format!("{how} at ({px:.0}, {py:.0}) in the picture")).await?;
-    app.click(x, y, right, if double { 2 } else { 1 }).await?;
+    forget_shot(app, thread);
+    let req = json!({ "kind": "click", "x": x, "y": y, "button": if right { "right" } else { "left" }, "count": if double { 2 } else { 1 } });
+    app.input(req, 15).await?;
     Ok(format!(
         "Did a {how} on {what} at ({px:.0}, {py:.0}) in the picture. Look at the screen again to check what it did before the next step."
     ))
+}
+
+async fn scroll(app: &App, thread: &Thread, args: &Value) -> Result<String, String> {
+    let (px, py) = picture_point(args, "x", "y")?;
+    let what = what_of(args, "the page");
+    let direction = args.get("direction").and_then(Value::as_str).unwrap_or("");
+    let (dx, dy) = match direction {
+        "down" => (0, -1),
+        "up" => (0, 1),
+        "left" => (1, 0),
+        "right" => (-1, 0),
+        _ => return Err("\"direction\" is required: down, up, left or right.".into()),
+    };
+    let notches = args.get("amount").and_then(Value::as_u64).unwrap_or(6).clamp(1, 30);
+    let shot = take_shot(app, thread, "scroll")?;
+    let (x, y) = shot.point(px, py)?;
+    app.gate(&thread.id, Action::Click, &what, &format!("scroll {direction} {notches} at ({px:.0}, {py:.0}) in the picture")).await?;
+    forget_shot(app, thread);
+    app.input(json!({ "kind": "scroll", "x": x, "y": y, "dx": dx, "dy": dy, "notches": notches }), 20).await?;
+    Ok(format!("Scrolled {what} {direction} by {notches}. Look at the screen again to see where it is now."))
+}
+
+async fn drag(app: &App, thread: &Thread, args: &Value) -> Result<String, String> {
+    let (fx, fy) = picture_point(args, "from_x", "from_y")?;
+    let (tx, ty) = picture_point(args, "to_x", "to_y")?;
+    let what = what_of(args, "a drag");
+    let shot = take_shot(app, thread, "drag")?;
+    let (x1, y1) = shot.point(fx, fy)?;
+    let (x2, y2) = shot.point(tx, ty)?;
+    app.gate(&thread.id, Action::Click, &what, &format!("drag from ({fx:.0}, {fy:.0}) to ({tx:.0}, {ty:.0}) in the picture")).await?;
+    forget_shot(app, thread);
+    app.input(json!({ "kind": "drag", "x1": x1, "y1": y1, "x2": x2, "y2": y2 }), 20).await?;
+    Ok(format!("Dragged {what}. Look at the screen again to check it landed."))
+}
+
+const MAX_TYPE: usize = 2000;
+
+async fn type_text(app: &App, thread: &Thread, args: &Value) -> Result<String, String> {
+    let text = args.get("text").and_then(Value::as_str).unwrap_or("");
+    let text: String = text.chars().filter(|c| *c == '\n' || *c == '\t' || !c.is_control()).collect();
+    let n = text.chars().count();
+    if n == 0 {
+        return Err("\"text\" is required: what to type.".into());
+    }
+    if n > MAX_TYPE {
+        return Err(format!("That's {n} characters; type_text takes up to {MAX_TYPE} at a time. Type it in parts."));
+    }
+    let what = what_of(args, "where the keyboard is");
+    // The ledger keeps how much, never what (it can be a password the user dictated).
+    let lines = text.matches('\n').count();
+    let detail = if lines > 0 { format!("{n} characters, pressing Return {lines}×") } else { format!("{n} characters") };
+    app.gate(&thread.id, Action::Type, &what, &detail).await?;
+    forget_shot(app, thread);
+    app.input(json!({ "kind": "type", "text": text }), 20 + n as u64 / 4).await?;
+    Ok(format!("Typed {n} characters into {what}. Look at the screen to check they landed where you meant."))
+}
+
+/// A key or shortcut as the agent wrote it ("cmd+shift+t"), checked and put in order: the
+/// modifiers (cmd, ctrl, option, shift) and one key.
+pub fn parse_keys(raw: &str) -> Result<(Vec<&'static str>, String), String> {
+    let mut mods: Vec<&'static str> = vec![];
+    let mut key: Option<String> = None;
+    let raw = raw.trim().to_lowercase();
+    // "cmd++" would be the plus key; it isn't one of ours, so a plain split is enough.
+    for part in raw.split('+').map(str::trim) {
+        let m = match part {
+            "cmd" | "command" | "⌘" | "meta" | "super" | "win" => Some("cmd"),
+            "ctrl" | "control" | "⌃" => Some("ctrl"),
+            "option" | "opt" | "alt" | "⌥" => Some("option"),
+            "shift" | "⇧" => Some("shift"),
+            _ => None,
+        };
+        if let Some(m) = m {
+            if !mods.contains(&m) {
+                mods.push(m);
+            }
+            continue;
+        }
+        let k = match part {
+            "return" | "enter" | "↩" => "enter",
+            "esc" | "escape" => "escape",
+            "backspace" | "delete" | "⌫" => "backspace",
+            "del" | "forwarddelete" | "forward-delete" => "forwarddelete",
+            "arrowup" | "up" | "↑" => "up",
+            "arrowdown" | "down" | "↓" => "down",
+            "arrowleft" | "left" | "←" => "left",
+            "arrowright" | "right" | "→" => "right",
+            "pgup" | "pageup" => "pageup",
+            "pgdn" | "pagedown" => "pagedown",
+            "tab" | "space" | "home" | "end" => part,
+            "-" | "=" | "[" | "]" | "\\" | ";" | "'" | "," | "." | "/" | "`" => part,
+            p if p.len() == 1 && p.chars().all(|c| c.is_ascii_alphanumeric()) => p,
+            p if p.starts_with('f') && p[1..].parse::<u8>().is_ok_and(|n| (1..=12).contains(&n)) => p,
+            "" => return Err("That shortcut has an empty part. Write it like \"cmd+t\".".into()),
+            p => return Err(format!("\"{p}\" isn't a key press_keys knows. Use a-z, 0-9, enter, tab, escape, space, backspace, delete, the arrows, home, end, pageup, pagedown or f1-f12, with cmd, ctrl, option or shift.")),
+        };
+        if key.is_some() {
+            return Err("Give one key (with any modifiers), like \"cmd+t\". For several, call press_keys again.".into());
+        }
+        key = Some(k.to_string());
+    }
+    let Some(key) = key else {
+        return Err("Give a key, not only modifiers: like \"cmd+t\" or \"enter\".".into());
+    };
+    let order = ["ctrl", "option", "shift", "cmd"];
+    mods.sort_by_key(|m| order.iter().position(|o| o == m));
+    Ok((mods, key))
+}
+
+async fn press_keys(app: &App, thread: &Thread, args: &Value) -> Result<String, String> {
+    let raw = args.get("keys").and_then(Value::as_str).unwrap_or("");
+    let (mods, key) = parse_keys(raw)?;
+    let times = args.get("times").and_then(Value::as_u64).unwrap_or(1).clamp(1, 20);
+    let sign = |m: &str| match m {
+        "ctrl" => "⌃",
+        "option" => "⌥",
+        "shift" => "⇧",
+        _ => "⌘",
+    };
+    let shown = format!("{}{}", mods.iter().map(|m| sign(m)).collect::<String>(), if key.len() == 1 { key.to_uppercase() } else { key.clone() });
+    let shown = if times > 1 { format!("{shown} ×{times}") } else { shown };
+    let what = what_of(args, "");
+    app.gate(&thread.id, Action::Type, &shown, &what).await?;
+    forget_shot(app, thread);
+    app.input(json!({ "kind": "keys", "key": key, "mods": mods, "times": times }), 15).await?;
+    Ok(format!("Pressed {shown}. Look at the screen to check what it did."))
 }
 
 /// One picture of the display under the pointer, taken by the app. Nothing of it is kept: the tool
@@ -665,6 +884,26 @@ mod tests {
             let e = shot.point(px, py).unwrap_err();
             assert!(e.contains("isn't in the picture") && e.contains("1568×1019"), "{px},{py}: {e}");
         }
+    }
+
+    #[test]
+    fn shortcuts_are_checked_and_put_in_order() {
+        assert_eq!(parse_keys("Shift+CMD+t").unwrap(), (vec!["shift", "cmd"], "t".to_string()));
+        assert_eq!(parse_keys("command+option+escape").unwrap(), (vec!["option", "cmd"], "escape".to_string()));
+        assert_eq!(parse_keys(" Return ").unwrap(), (vec![], "enter".to_string()));
+        assert_eq!(parse_keys("ctrl+F12").unwrap(), (vec!["ctrl"], "f12".to_string()));
+        assert_eq!(parse_keys("cmd+/").unwrap(), (vec!["cmd"], "/".to_string()));
+        for bad in ["", "cmd", "cmd+shift", "cmd+t+w", "hyper+t", "f13", "cmd++", "ab"] {
+            assert!(parse_keys(bad).is_err(), "{bad} should be refused");
+        }
+    }
+
+    #[test]
+    fn typed_text_is_kept_as_its_length_only() {
+        let kept = recorded_args("type_text", &json!({ "text": "hunter2 é", "what": "the password field" }));
+        assert_eq!(kept, json!({ "text": "9 characters", "what": "the password field" }));
+        let other = json!({ "keys": "cmd+t", "what": "a new tab" });
+        assert_eq!(recorded_args("press_keys", &other), other);
     }
 
     #[test]

@@ -29,7 +29,7 @@ Linux), and a setup window asks once for what it uses: the microphone (then chec
 really arrives), notifications, your Desktop, Documents and Downloads folders, the speech model
 download and, last, Screen Recording (macOS answers that one in System Settings, then asks to
 reopen Dune Bot). It never asks for Full Disk Access or Input Monitoring; Accessibility only the
-first time an agent clicks for you. Reopen setup from the menu bar: **Set up Dune Bot…**.
+first time an agent uses the mouse or keyboard for you. Reopen setup from the menu bar: **Set up Dune Bot…**.
 
 ## Use it
 
@@ -74,7 +74,8 @@ only), Ask, Always or Never.
 | Read a file, look inside a folder, search your past chats | **Always** |
 | Look at your screen | **Always** (macOS asks once for Screen Recording) |
 | Find where you are | **Always** (macOS asks once for Location Services) |
-| Click on your screen | **Always** (macOS only; macOS asks once for Accessibility) |
+| Click, scroll and drag on your screen | **Always** (macOS only; macOS asks once for Accessibility) |
+| Type and press keys | **Always** (macOS only; the same Accessibility switch) |
 
 What Auto counts as risky, and the limits nothing can lift, are under [Safety](#safety).
 
@@ -155,9 +156,21 @@ voice local even with keys saved.
   start and stop, 0.5 to 1.4 s), rests a moment, then presses and lets go at a finger's pace; the
   pointer stays there. Moving the mouse on the way stops it without a click. It never clicks
   Dune Bot itself: the app asks macOS which window is frontmost at that point and refuses its own bar,
-  card, windows and menu bar icon, so an agent can't answer its own approval cards. The first click
+  windows and menu bar icon; the answer card lets Dune Bot's own clicks through to what's under it
+  (it never takes them), so an agent can't answer its own approval cards. The first click
   asks macOS for Accessibility (System Settings opens on it). Agents are told to click with it, not
   with osascript, which can drive any app and so still asks under Auto.
+- **Scroll and drag** (`scroll`, `drag`, macOS) work the same way: a point (or two) in the latest
+  picture, the pointer gliding there first; a drag holds the left button and always lets go, even
+  when stopped. Each picture is good for one mouse action: the next one looks again.
+- **Typing and keys** (`type_text`, `press_keys`, macOS) go to the app that has the keyboard, at a
+  person's pace (quicker inside words, a beat after a space or a stop). Shortcuts carry their
+  modifiers on the key's own events; no modifier key goes down alone, and the ⌥⌘ chord rests while
+  Dune Bot types. Before every key the app checks that neither Dune Bot nor one of its windows has
+  the keyboard (so an agent can't press ⌘↩ on its own card) and that the mouse hasn't moved; either
+  stops it. The chat and the activity log keep how many characters were typed, never the text. When
+  you close the bar after typing a question, the app you were in gets the keyboard back (as Spotlight
+  does), so an agent can type where you were.
 - `list_folder` counts a whole folder tree (`deep: true`: files, folders, sizes, the largest files)
   without asking, and agents are told to use it instead of a command.
 - Stop ends the running command, not just the agent's turn. Cards left open when Dune Bot quits come
@@ -199,7 +212,8 @@ to have `serve`.
 
 Agents run in codemax's `mcp-only` policy: their own file and shell tools are refused, so their only
 way to act is Dune Bot's tools (`run_command`, `read_file`, `write_file`, `list_folder`,
-`search_chats`, `look_at_screen`, `find_location`, and `click` on macOS), served on a loopback port with a separate token
+`search_chats`, `look_at_screen`, `find_location`, and `click`, `scroll`, `drag`, `type_text` and
+`press_keys` on macOS), served on a loopback port with a separate token
 per chat. Agents are told to write one short line saying what they're doing before they use a tool
 (`instructions` in `core/src/agent.rs`), and questions asked from the bar carry a note asking for one
 or two short sentences (`SPOKEN_NOTE`).

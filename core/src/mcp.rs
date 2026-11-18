@@ -88,13 +88,14 @@ async fn handle(
 /// Runs one tool and shows it in the chat as a tool card that updates when it finishes.
 /// A picture (look_at_screen) goes to the agent only: the card keeps the text line.
 pub async fn run_tool(app: &Arc<App>, thread: &crate::store::Thread, name: &str, args: &Value) -> (String, bool, Option<Value>) {
-    let meta = json!({ "tool": name, "args": args, "status": "running" });
+    let kept = tools::recorded_args(name, args);
+    let meta = json!({ "tool": name, "args": kept, "status": "running" });
     let card = app.add_message(&thread.id, "tool", name, meta).ok();
     let (text, is_error, image) = tools::call(app, thread, name, args).await;
     if let Some(card) = card {
         let output: String = text.chars().take(4000).collect();
         let status = if is_error { "failed" } else { "done" };
-        app.update_message(&card.id, name, json!({ "tool": name, "args": args, "status": status, "output": output }));
+        app.update_message(&card.id, name, json!({ "tool": name, "args": kept, "status": status, "output": output }));
     }
     (text, is_error, image)
 }

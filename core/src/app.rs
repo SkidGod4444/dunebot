@@ -74,7 +74,7 @@ pub struct App {
     captures: Mutex<HashMap<String, oneshot::Sender<Result<Value, String>>>>,
     locations: Mutex<HashMap<String, oneshot::Sender<Value>>>,
     /// Clicks asked of the app (it holds macOS's Accessibility permission), by request id.
-    clicks: Mutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
+    inputs: Mutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
     /// Each chat's latest picture of the screen: where it lies on the screen, so a click can be given
     /// as a point in it.
     pub shots: Mutex<HashMap<String, crate::tools::Shot>>,
@@ -115,7 +115,7 @@ impl App {
             fixes_sent: Mutex::new(HashMap::new()),
             captures: Mutex::new(HashMap::new()),
             locations: Mutex::new(HashMap::new()),
-            clicks: Mutex::new(HashMap::new()),
+            inputs: Mutex::new(HashMap::new()),
             shots: Mutex::new(HashMap::new()),
         }
     }
@@ -156,27 +156,46 @@ impl App {
         Ok(json!({ "ok": true }))
     }
 
-    /// Asks the app to click at a point on the screen (in points, as the app's screen counts them).
-    pub async fn click(&self, x: f64, y: f64, right: bool, count: u32) -> Result<(), String> {
+    /// Asks the app to use the mouse or keyboard for an agent (`req` has `kind`: click, scroll,
+    /// drag, type or keys; points are in the app's screen points). Waits up to `secs`.
+    pub async fn input(&self, mut req: Value, secs: u64) -> Result<(), String> {
+        /// However the wait ends (answered, timed out, or the turn stopped and dropped it), the chord
+        /// comes back; unless answered, the app is told to stop (it checks before every key).
+        struct Pending<'a> {
+            app: &'a App,
+            id: String,
+            answered: bool,
+        }
+        impl Drop for Pending<'_> {
+            fn drop(&mut self) {
+                crate::keys::input_ended();
+                self.app.inputs.lock().unwrap().remove(&self.id);
+                if !self.answered {
+                    self.app.out.event("input.cancel", json!({ "requestId": self.id }));
+                }
+            }
+        }
         let id = new_id();
         let (tx, rx) = oneshot::channel();
-        self.clicks.lock().unwrap().insert(id.clone(), tx);
-        self.out.event(
-            "input.click",
-            json!({ "requestId": id, "x": x, "y": y, "button": if right { "right" } else { "left" }, "count": count }),
-        );
-        let answer = tokio::time::timeout(std::time::Duration::from_secs(15), rx).await;
-        self.clicks.lock().unwrap().remove(&id);
+        self.inputs.lock().unwrap().insert(id.clone(), tx);
+        req["requestId"] = json!(id);
+        crate::keys::input_started();
+        let mut pending = Pending { app: self, id, answered: false };
+        self.out.event("input.do", req);
+        let answer = tokio::time::timeout(std::time::Duration::from_secs(secs), rx).await;
         match answer {
-            Ok(Ok(r)) => r,
-            _ => Err("Dune Bot couldn't click: the app didn't answer.".into()),
+            Ok(Ok(r)) => {
+                pending.answered = true;
+                r
+            }
+            _ => Err("Dune Bot couldn't do it: the app didn't answer, so it was told to stop.".into()),
         }
     }
 
-    /// The app's answer to `input.click`. Single use; an unknown id is refused.
-    pub fn click_result(&self, p: &Value) -> anyhow::Result<Value> {
+    /// The app's answer to `input.do`. Single use; an unknown id is refused.
+    pub fn input_result(&self, p: &Value) -> anyhow::Result<Value> {
         let id = p.get("requestId").and_then(Value::as_str).unwrap_or("");
-        let tx = self.clicks.lock().unwrap().remove(id).ok_or_else(|| anyhow!("no such click request"))?;
+        let tx = self.inputs.lock().unwrap().remove(id).ok_or_else(|| anyhow!("no such input request"))?;
         let r = match p.get("error").and_then(Value::as_str) {
             Some(e) => Err(e.chars().take(300).collect()),
             None => Ok(()),
@@ -402,7 +421,7 @@ impl App {
             // A chat a schedule started runs while you may be away: it always asks before commands,
             // file changes and looks at the screen, whatever Permissions says ("Never" still means never).
             Mode::Always | Mode::Auto
-                if matches!(action, Action::RunCommand | Action::WriteFile | Action::LookScreen | Action::Click)
+                if matches!(action, Action::RunCommand | Action::WriteFile | Action::LookScreen | Action::Click | Action::Type)
                     && self.db(|d| d.is_scheduled(thread_id)).unwrap_or(true) =>
             {
                 Mode::Ask

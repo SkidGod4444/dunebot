@@ -332,30 +332,69 @@ ok("No past chat mentions" in whole, "search_chats says when nothing matches")
 # clicks: by a point in the chat's latest picture of the screen, done by the app, without asking
 blind = echo_turn("click 10 10 the tab")
 ok(blind["meta"]["status"] != "done" and "Look at the screen first" in blind["meta"].get("output", ""), "click needs a picture of the screen first")
-send("threads.send", id=t4, text="look")
-cap = wait(lambda m: m.get("event") == "screen.capture")
 PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
-send("screen.result", requestId=cap["requestId"], data=PNG, mime="image/png", width=800, height=500,
-     display={"x": 1512, "y": 0, "width": 1600, "height": 1000}, pointer={"x": 1600, "y": 100})
-wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == t4)
+def look():
+    send("threads.send", id=t4, text="look")
+    cap = wait(lambda m: m.get("event") == "screen.capture")
+    send("screen.result", requestId=cap["requestId"], data=PNG, mime="image/png", width=800, height=500,
+         display={"x": 1512, "y": 0, "width": 1600, "height": 1000}, pointer={"x": 1600, "y": 100})
+    wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == t4)
+def input_turn(text, error=None):
+    send("threads.send", id=t4, text=text)
+    req = wait(lambda m: m.get("event") in ("input.do", "approval.request"))
+    if req.get("event") == "input.do":
+        send("input.result", requestId=req["requestId"], **({"error": error} if error else {}))
+    wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == t4)
+    last = [m for m in send("threads.get", id=t4)["result"]["messages"] if m["role"] == "tool"][-1]
+    return req, last
+look()
 send("threads.send", id=t4, text="click 100 50 the Career tab")
-ask = wait(lambda m: m.get("event") in ("input.click", "approval.request"))
-ok(ask.get("event") == "input.click" and ask["x"] == 1712 and ask["y"] == 100 and ask["count"] == 1 and ask["button"] == "left",
+ask = wait(lambda m: m.get("event") in ("input.do", "approval.request"))
+ok(ask.get("event") == "input.do" and ask["kind"] == "click" and ask["x"] == 1712 and ask["y"] == 100 and ask["count"] == 1 and ask["button"] == "left",
    f"click asks the app at the screen point, without a card ({ask.get('x')},{ask.get('y')})")
 send("input.result", requestId=ask["requestId"])
 wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == t4)
 done = [m for m in send("threads.get", id=t4)["result"]["messages"] if m["role"] == "tool"][-1]
 ok(done["meta"]["status"] == "done" and "the Career tab" in done["meta"].get("output", ""), "click reports what it clicked")
 ok(any(r["action"] == "click" and r["decision"] == "allowed (always)" and r["target"] == "the Career tab" for r in send("ledger.list")["result"]), "click is in the activity log")
-send("threads.send", id=t4, text="click 100 50 Dune Bot's card")
-own = wait(lambda m: m.get("event") == "input.click")
-send("input.result", requestId=own["requestId"], error="That point is on Dune Bot's own answer card, and Dune Bot never clicks itself.")
-wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == t4)
-refused = [m for m in send("threads.get", id=t4)["result"]["messages"] if m["role"] == "tool"][-1]
+used = echo_turn("click 100 50 the same tab again")
+ok("Look at the screen first" in used["meta"].get("output", ""), "a picture is good for one click: the next one looks again")
+look()
+_, refused = input_turn("click 100 50 Dune Bot's card", error="That point is on Dune Bot's own answer card, and Dune Bot never clicks itself.")
 ok(refused["meta"]["status"] != "done" and "never clicks itself" in refused["meta"].get("output", ""), "the app's refusal reaches the agent")
+look()
 outside = echo_turn("click 900 50 off the picture")
 ok("isn't in the picture" in outside["meta"].get("output", ""), "a point outside the picture is refused")
-ok(send("input.result", requestId="nope").get("error"), "an unknown click answer is refused")
+ok(send("input.result", requestId="nope").get("error"), "an unknown input answer is refused")
+
+# scroll, drag, typing and keys: the same way, without asking (the user's choice)
+look()
+req, sc = input_turn("scroll 100 50 down")
+ok(req.get("kind") == "scroll" and req["x"] == 1712 and req["dy"] == -1 and req["dx"] == 0 and req["notches"] == 6 and sc["meta"]["status"] == "done",
+   f"scroll asks the app at the screen point ({req})")
+look()
+req, dr = input_turn("drag 0 0 400 250")
+ok(req.get("kind") == "drag" and (req["x1"], req["y1"], req["x2"], req["y2"]) == (1512, 0, 2312, 500) and dr["meta"]["status"] == "done", f"drag goes from point to point ({req})")
+req, ty = input_turn("type hunter2 secret\\nnext line")
+ok(req.get("kind") == "type" and req["text"] == "hunter2 secret\nnext line" and ty["meta"]["status"] == "done", "type_text sends the text to the app")
+ok(ty["meta"]["args"]["text"] == "24 characters", f"the chat keeps how much was typed, not what ({ty['meta']['args']})")
+row = next(r for r in send("ledger.list")["result"] if r["action"] == "type")
+ok(row["decision"] == "allowed (always)" and "hunter2" not in json.dumps(row) and "24 characters" in json.dumps(row), f"the activity log keeps the length only ({row})")
+req, kp = input_turn("keys Shift+CMD+t 2")
+ok(req.get("kind") == "keys" and req["key"] == "t" and req["mods"] == ["shift", "cmd"] and req["times"] == 2 and "⇧⌘T ×2" in kp["meta"].get("output", ""), f"press_keys sends the shortcut in order ({req})")
+send("settings.set", action="type", mode="ask")
+send("threads.send", id=t4, text="type hello")
+card = wait(lambda m: m.get("event") in ("approval.request", "input.do"))
+ok(card.get("event") == "approval.request" and card.get("label") == "Type and press keys" and "hello" not in json.dumps(card), f"typing set to Ask shows a card, without the text ({card})")
+time.sleep(0.6)  # the core refuses an allow in a card's first half second
+send("approvals.respond", id=card["approvalId"], decision="once")
+req = wait(lambda m: m.get("event") == "input.do")
+ok(req["kind"] == "type" and req["text"] == "hello", "after Allow once, the app is asked to type")
+send("input.result", requestId=req["requestId"])
+wait(lambda m: m.get("event") == "turn.ended" and m["threadId"] == t4)
+send("settings.set", action="type", mode="always")
+bad = echo_turn("keys cmd+t+w")
+ok(bad["meta"]["status"] != "done" and "one key" in bad["meta"].get("output", ""), "two keys in one shortcut are refused before the app hears of it")
 
 p2.stdin.close(); p2.wait(timeout=5)
 print("ALL PASS")

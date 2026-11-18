@@ -223,9 +223,12 @@ fn instructions(thread: &Thread) -> String {
         os = std::env::consts::OS,
         cwd = thread.cwd,
         click = if cfg!(target_os = "macos") {
-            " To click something on the screen for the user, take a picture with look_at_screen, then use click with a \
-             point in it: it doesn't ask the user. Never click through run_command (osascript, cliclick): that asks the user \
-             every time."
+            " To use the screen for the user, take a picture with look_at_screen, then click, scroll or drag at points in \
+             it (each picture is good for one of those: look again before the next), and type with type_text or press keys \
+             and shortcuts with press_keys. The app the user is in already has the keyboard: when they say to type \"here\" \
+             or in what they're looking at, type straight away; click first only to put the text somewhere else. None of \
+             them ask the user. Never \
+             do these through run_command (osascript, cliclick, System Events): that asks the user every time."
         } else {
             ""
         }
@@ -550,7 +553,8 @@ pub const SPOKEN_NOTE: &str = "<dunebot-voice>Asked from Dune Bot's bar: your an
 pub const ENGLISH_NOTE: &str = "<dunebot-language>The user asked in Hindi or Hinglish. Write your whole answer in English (their choice): Dune Bot shows your English answer and, when it reads it aloud, says it in Hinglish itself. Don't write Hindi or Hinglish yourself.</dunebot-language>\n\n";
 
 /// The test agent: `run <command>`, `ls <folder>`, `read <file>`, `write <file>` + newline + content,
-/// `look`, `where`, `click <x> <y> [what]` (a point in the latest picture), `search [words]`, `pause <words>`.
+/// `look`, `where`, `click <x> <y> [what]` (a point in the latest picture), `scroll <x> <y> <direction>`,
+/// `drag <x1> <y1> <x2> <y2>`, `type <text>`, `keys <shortcut> [times]`, `search [words]`, `pause <words>`.
 async fn echo_turn(app: &Arc<App>, thread: &Thread, text: &str, turn: &mut Turn) -> (&'static str, Option<String>) {
     let (head, rest) = text.split_once(char::is_whitespace).unwrap_or((text, ""));
     let rest = rest.trim();
@@ -567,6 +571,25 @@ async fn echo_turn(app: &Arc<App>, thread: &Thread, text: &str, turn: &mut Turn)
                 (Some(x), Some(y)) => Some(("click", json!({ "x": x, "y": y, "what": w.next().unwrap_or("a point").trim() }))),
                 _ => None,
             }
+        }
+        "scroll" => {
+            let w: Vec<&str> = rest.split_whitespace().collect();
+            let n = |i: usize| w.get(i).and_then(|v| v.parse::<f64>().ok());
+            match (n(0), n(1), w.get(2)) {
+                (Some(x), Some(y), Some(d)) => Some(("scroll", json!({ "x": x, "y": y, "direction": d, "what": "the page" }))),
+                _ => None,
+            }
+        }
+        "drag" => {
+            let n: Vec<f64> = rest.split_whitespace().filter_map(|v| v.parse().ok()).collect();
+            (n.len() == 4).then(|| ("drag", json!({ "from_x": n[0], "from_y": n[1], "to_x": n[2], "to_y": n[3], "what": "a test drag" })))
+        }
+        "type" if !rest.is_empty() => Some(("type_text", json!({ "text": rest.replace("\\n", "\n"), "what": "the field" }))),
+        "keys" if !rest.is_empty() => {
+            let mut w = rest.split_whitespace();
+            let keys = w.next().unwrap_or("");
+            let times = w.next().and_then(|t| t.parse::<u64>().ok()).unwrap_or(1);
+            Some(("press_keys", json!({ "keys": keys, "times": times, "what": "a test" })))
         }
         "search" => Some(("search_chats", if rest.is_empty() { json!({}) } else { json!({ "query": rest }) })),
         "stream" | "markdown" => {

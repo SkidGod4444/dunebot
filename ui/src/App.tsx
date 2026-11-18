@@ -526,7 +526,12 @@ function Permissions() {
               )}
               {r.action === "click" && r.mode !== "never" && (
                 <p className="mt-1.5 text-[13px] text-muted">
-                  A click where an agent saw something on your screen (a tab, a button): the pointer glides there like a hand and clicks. Move the mouse to stop it. Never on Dune Bot itself. macOS asks once to let Dune Bot control the computer. Scheduled chats always ask.
+                  A click, scroll or drag where an agent saw something on your screen (a tab, a button, a list): the pointer glides there like a hand. Move the mouse to stop it. Never on Dune Bot itself. macOS asks once to let Dune Bot control the computer. Scheduled chats always ask.
+                </p>
+              )}
+              {r.action === "type" && r.mode !== "never" && (
+                <p className="mt-1.5 text-[13px] text-muted">
+                  Typing and shortcuts in the app you're in, at a person's pace. This can do whatever you could at the keyboard, including Return in Terminal. Move the mouse to stop it. Never into Dune Bot itself. The activity log keeps how many characters, never the text. Scheduled chats always ask.
                 </p>
               )}
               {r.action === "look-screen" && r.mode !== "never" && (

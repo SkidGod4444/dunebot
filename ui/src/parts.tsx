@@ -132,13 +132,17 @@ const FAILED: Record<string, string> = {
   look_at_screen: "Couldn't see the screen",
   find_location: "Couldn't find where you are",
   click: "Couldn't click",
+  scroll: "Couldn't scroll",
+  drag: "Couldn't drag",
+  type_text: "Couldn't type",
+  press_keys: "Couldn't press keys",
 };
 
 /** What a failed step was, for "Teach a fix" (kept with the fix; the chat doesn't show steps). */
 export function failureOf(m: Message) {
   const failed = FAILED[m.meta.tool] ?? m.text;
   const args = m.meta.args ?? {};
-  const target: string = args.command ?? args.path ?? args.query ?? args.what ?? (args.chat ? `chat ${args.chat}` : "");
+  const target: string = args.command ?? args.path ?? args.query ?? args.what ?? args.keys ?? (args.chat ? `chat ${args.chat}` : "");
   return { failure: target ? `${failed}: ${target}` : failed, detail: firstLine(m.meta.output) };
 }
 
@@ -148,6 +152,8 @@ const ASK: Record<string, string> = {
   "read-file": "read this file",
   "list-folder": "look inside this folder",
   "search-chats": "search your past chats",
+  click: "use the mouse on your screen",
+  type: "type or press keys",
 };
 
 const ALL_IN_CHAT: Record<string, string> = {
@@ -156,6 +162,8 @@ const ALL_IN_CHAT: Record<string, string> = {
   "read-file": "Allow all reads in this chat",
   "list-folder": "Allow all folder views in this chat",
   "search-chats": "Allow all chat searches in this chat",
+  click: "Allow the mouse in this chat",
+  type: "Allow typing in this chat",
 };
 
 function tidyDetail(d: string) {

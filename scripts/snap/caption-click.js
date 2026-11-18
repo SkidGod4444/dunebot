@@ -1,6 +1,6 @@
-// The test agent looks at the screen, then clicks a point in that picture (`look`, then `click`).
-// Both are stand-ins: the picture comes from DUNEBOT_SCREEN_STUB, and DUNEBOT_CLICK_STUB makes the app
-// log the screen point instead of clicking. The log's "click: stand-in" line says the app took it.
+// The test agent looks at the screen, then clicks, scrolls and drags at points in those pictures,
+// types and presses a shortcut. All stand-ins: the picture comes from DUNEBOT_SCREEN_STUB, and
+// DUNEBOT_INPUT_STUB makes the app log what it would do instead of doing it ("input: stand-in …").
 (async () => {
   const dm = window.__dm;
   const t = await window.dunebot.call("threads.create", { agent: "echo", cwd: "~" });
@@ -22,9 +22,10 @@
       }
     }
   };
-  await ask("look");
-  await after(1);
-  await ask("click 10 20 the Career tab");
-  await after(2);
+  const steps = ["look", "click 10 20 the Career tab", "look", "scroll 10 20 down", "look", "drag 5 5 30 40", "type hello\\nworld", "keys cmd+t 2"];
+  for (const [i, s] of steps.entries()) {
+    await ask(s);
+    await after(i + 1);
+  }
   await new Promise((r) => setTimeout(r, 1200)); // the reply finishes appearing (smooth.ts)
 })();

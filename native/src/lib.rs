@@ -14,9 +14,13 @@
 //!   macOS, and what is it set to), so the log shows a style setting that was silently skipped.
 //! - `locationStart` / `locationPoll` / `locationName` / `locationStop`: where this Mac is, from
 //!   Location Services, and the area's name (the core's `find_location`; see `mod location`).
-//! - `postEventAccess` / `click`: whether this app may click for the user (macOS's Accessibility
-//!   list), and a click or a double click at a point on the screen, the pointer gliding there as a
-//!   hand would (the core's `click`; `clickPath` shows that path without moving anything).
+//! - `postEventAccess`: whether this app may use the mouse and keyboard for the user (macOS's
+//!   Accessibility list).
+//! - `pointerGlide` / `pointerPress` / `pointerButton` / `scrollAt`: the core's click, drag and
+//!   scroll, the pointer gliding as a hand would (`clickPath` shows that path without moving anything).
+//!   Each is one step, so the app checks what's under the pointer between them.
+//! - `keyText` / `keyCode` / `frontmostPid`: the core's typing and shortcuts, one key event at a
+//!   time (the app paces them and checks which app has the keyboard before each).
 //! - `frontWindowOwner`: which process owns the frontmost window at a point (so a click never lands
 //!   on Dune Bot itself, while one of its windows behind another app's doesn't count).
 
@@ -416,6 +420,10 @@ mod input {
         pub fn CGEventCreateMouseEvent(source: *const c_void, kind: u32, at: CGPoint, button: u32) -> *mut c_void;
         pub fn CGEventSetIntegerValueField(event: *mut c_void, field: u32, value: i64);
         pub fn CGEventPost(tap: u32, event: *mut c_void);
+        pub fn CGEventCreateKeyboardEvent(source: *const c_void, key: u16, down: bool) -> *mut c_void;
+        pub fn CGEventKeyboardSetUnicodeString(event: *mut c_void, length: usize, chars: *const u16);
+        pub fn CGEventSetFlags(event: *mut c_void, flags: u64);
+        pub fn CGEventCreateScrollWheelEvent2(source: *const c_void, units: u32, count: u32, wheel1: i32, wheel2: i32, wheel3: i32) -> *mut c_void;
     }
     #[link(name = "CoreFoundation", kind = "framework")]
     unsafe extern "C" {
@@ -423,6 +431,7 @@ mod input {
     }
 
     const MOUSE_MOVED: u32 = 5;
+    const LEFT_DRAGGED: u32 = 6;
     const CLICK_STATE: u32 = 1; // kCGMouseEventClickState
     const HID_TAP: u32 = 0; // kCGHIDEventTap
 
@@ -464,15 +473,23 @@ mod input {
     /// The user moved the mouse while Dune Bot moved it: stopped, nothing clicked.
     pub const TAKEN: i32 = 2;
 
-    /// Glides the pointer to `to` as a hand would, rests on it a moment, then clicks `count` times
-    /// (2: a double click) at a finger's pace. The pointer stays there, as a person's would. If the
-    /// user moves the mouse on the way, it stops without clicking.
-    pub fn click(to: CGPoint, right: bool, count: i64) -> i32 {
+    fn seed() -> u64 {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(7)
+    }
+
+    /// Whether the pointer is now more than a hand's twitch from `at` (the user took the mouse).
+    fn moved_from(at: CGPoint) -> bool {
+        use crate::glide::{dist, Pt};
+        location().is_some_and(|now| dist(Pt { x: now.x, y: now.y }, Pt { x: at.x, y: at.y }) > 24.0)
+    }
+
+    /// Glides the pointer to `to` as a hand would (with the left button held: a drag). Stops if the
+    /// user moves the mouse on the way.
+    pub fn glide(to: CGPoint, held: bool) -> i32 {
         use crate::glide::{dist, path, Pt, Rng, STEP_MS};
         let Some(from) = location() else { return FAILED };
-        let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(7);
-        let mut r = Rng(seed);
-        let (button, down, up) = if right { (1, 3, 4) } else { (0, 1, 2) };
+        let mut r = Rng(seed());
+        let kind = if held { LEFT_DRAGGED } else { MOUSE_MOVED };
         // The last places Dune Bot put the pointer: anywhere far from all of them is the user's hand
         // (the system reports a posted move a step or two late).
         let mut ours: Vec<Pt> = vec![Pt { x: from.x, y: from.y }];
@@ -481,7 +498,7 @@ mod input {
             if taken(&ours) {
                 return TAKEN;
             }
-            if !post(MOUSE_MOVED, CGPoint { x: p.x, y: p.y }, button, 0) {
+            if !post(kind, CGPoint { x: p.x, y: p.y }, 0, 0) {
                 return FAILED;
             }
             ours.push(p);
@@ -490,17 +507,24 @@ mod input {
             }
             pause(STEP_MS);
         }
-        // A moment on the target before pressing, as a person checks what's under the pointer.
+        DONE
+    }
+
+    /// Rests on `at` a moment, as a person checks what's under the pointer, then clicks `count`
+    /// times (2: a double click) at a finger's pace. Nothing if the user moved the mouse meanwhile.
+    pub fn press(at: CGPoint, right: bool, count: i64) -> i32 {
+        let mut r = crate::glide::Rng(seed());
+        let (button, down, up) = if right { (1, 3, 4) } else { (0, 1, 2) };
         pause(r.range(150.0, 260.0) as u64);
-        if taken(&ours) {
+        if moved_from(at) {
             return TAKEN;
         }
         for n in 1..=count {
-            if !post(down, to, button, n) {
+            if !post(down, at, button, n) {
                 return FAILED;
             }
             pause(r.range(60.0, 110.0) as u64);
-            if !post(up, to, button, n) {
+            if !post(up, at, button, n) {
                 return FAILED;
             }
             if n < count {
@@ -509,11 +533,112 @@ mod input {
         }
         DONE
     }
+
+    /// The left button down or up at `at`, nothing else (a drag's two ends).
+    pub fn button(at: CGPoint, down: bool) -> bool {
+        post(if down { 1 } else { 2 }, at, 0, 1)
+    }
+
+    /// Turns the wheel under the pointer at `at`, `notches` times, each about 50 points
+    /// (`dx`/`dy` -1, 0 or 1: +1 is up or left), in small smooth pieces as a trackpad does. Stops if
+    /// the user moves the mouse.
+    pub fn scroll(at: CGPoint, dx: i32, dy: i32, notches: u32) -> i32 {
+        let mut r = crate::glide::Rng(seed());
+        for _ in 0..notches {
+            if moved_from(at) {
+                return TAKEN;
+            }
+            for _ in 0..4 {
+                let step = r.range(11.0, 14.0) as i32;
+                let e = unsafe { CGEventCreateScrollWheelEvent2(std::ptr::null(), 0, 2, dy * step, dx * step, 0) };
+                if e.is_null() {
+                    return FAILED;
+                }
+                unsafe {
+                    CGEventPost(HID_TAP, e);
+                    CFRelease(e);
+                }
+                pause(r.range(10.0, 15.0) as u64);
+            }
+            pause(r.range(40.0, 90.0) as u64);
+        }
+        DONE
+    }
+
+    /// One key event that types `text` (a character or two, whatever the keyboard layout), with no
+    /// modifier keys.
+    pub fn key_text(text: &str, down: bool) -> bool {
+        let units: Vec<u16> = text.encode_utf16().collect();
+        if units.is_empty() || units.len() > 20 {
+            return false;
+        }
+        unsafe {
+            let e = CGEventCreateKeyboardEvent(std::ptr::null(), 0, down);
+            if e.is_null() {
+                return false;
+            }
+            CGEventSetFlags(e, 0);
+            CGEventKeyboardSetUnicodeString(e, units.len(), units.as_ptr());
+            CGEventPost(HID_TAP, e);
+            CFRelease(e);
+        }
+        true
+    }
+
+    /// One key (a macOS virtual key code) down or up, with these modifier flags held. Only the
+    /// key's own event carries them: no modifier key is pressed on its own.
+    pub fn key_code(code: u16, flags: u64, down: bool) -> bool {
+        unsafe {
+            let e = CGEventCreateKeyboardEvent(std::ptr::null(), code, down);
+            if e.is_null() {
+                return false;
+            }
+            CGEventSetFlags(e, flags);
+            CGEventPost(HID_TAP, e);
+            CFRelease(e);
+        }
+        true
+    }
+
+    /// Brings the app with this process id to the front (Dune Bot gives the keyboard back to the app
+    /// the user was in before they typed in the bar). False when there's no such app.
+    pub fn activate(pid: i32) -> bool {
+        use objc2::msg_send;
+        use objc2::runtime::{AnyClass, AnyObject};
+        unsafe {
+            let Some(cls) = AnyClass::get(c"NSRunningApplication") else { return false };
+            let app: *mut AnyObject = msg_send![cls, runningApplicationWithProcessIdentifier: pid];
+            if app.is_null() {
+                return false;
+            }
+            let ok: bool = msg_send![app, activateWithOptions: 0usize];
+            ok
+        }
+    }
+
+    /// The process of the app in front (the one that gets the keyboard), or -1.
+    pub fn frontmost_pid() -> i64 {
+        use objc2::msg_send;
+        use objc2::runtime::{AnyClass, AnyObject};
+        unsafe {
+            let Some(cls) = AnyClass::get(c"NSWorkspace") else { return -1 };
+            let ws: *mut AnyObject = msg_send![cls, sharedWorkspace];
+            if ws.is_null() {
+                return -1;
+            }
+            let app: *mut AnyObject = msg_send![ws, frontmostApplication];
+            if app.is_null() {
+                return -1;
+            }
+            let pid: i32 = msg_send![app, processIdentifier];
+            pid as i64
+        }
+    }
 }
 
-/// macOS: whether this app may click for the user (it's on in System Settings › Privacy & Security ›
-/// Accessibility). With `ask`, macOS shows its box the first time (and lists the app there). Other
-/// systems: false (clicking isn't there yet).
+/// macOS: whether this app may use the mouse and keyboard for the user (it's on in System Settings ›
+/// Privacy & Security › Accessibility). With `ask`, macOS shows its box the first time (and lists the
+/// app there). Other systems: false (not there yet).
 #[napi]
 pub fn post_event_access(ask: bool) -> bool {
     #[cfg(target_os = "macos")]
@@ -616,25 +741,30 @@ pub fn front_window_owner(x: f64, y: f64, skip: Vec<Buffer>) -> napi::Result<i64
     }
 }
 
-/// One click, off Electron's main thread (it waits between the mouse's events).
-pub struct ClickTask {
-    x: f64,
-    y: f64,
-    right: bool,
-    count: u32,
+/// One step of the mouse, off Electron's main thread (it waits between the mouse's events).
+pub enum Pointer {
+    Glide { x: f64, y: f64, held: bool },
+    Press { x: f64, y: f64, right: bool, count: u32 },
+    Scroll { x: f64, y: f64, dx: i32, dy: i32, notches: u32 },
 }
 
-impl napi::Task for ClickTask {
+pub struct PointerTask(Pointer);
+
+impl napi::Task for PointerTask {
     type Output = i32;
     type JsValue = i32;
 
     fn compute(&mut self) -> napi::Result<i32> {
         #[cfg(target_os = "macos")]
         {
-            if !self.x.is_finite() || !self.y.is_finite() {
-                return Ok(input::FAILED);
-            }
-            Ok(input::click(input::CGPoint { x: self.x, y: self.y }, self.right, self.count.clamp(1, 2) as i64))
+            let at = |x: f64, y: f64| (x.is_finite() && y.is_finite()).then_some(input::CGPoint { x, y });
+            Ok(match self.0 {
+                Pointer::Glide { x, y, held } => at(x, y).map_or(input::FAILED, |p| input::glide(p, held)),
+                Pointer::Press { x, y, right, count } => at(x, y).map_or(input::FAILED, |p| input::press(p, right, count.clamp(1, 2) as i64)),
+                Pointer::Scroll { x, y, dx, dy, notches } => {
+                    at(x, y).map_or(input::FAILED, |p| input::scroll(p, dx.signum(), dy.signum(), notches.clamp(1, 30)))
+                }
+            })
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -648,12 +778,103 @@ impl napi::Task for ClickTask {
 }
 
 /// macOS: glides the pointer to a point on the screen (points from the top left of the main display)
-/// as a person would and clicks there (a double click with `count` 2, the right button with
-/// `right`); the pointer stays there. Resolves 0 when clicked, 2 when the user moved the mouse on the
-/// way (nothing clicked), 1 when the events couldn't be made. Other systems: 1.
+/// as a person would, with the left button held when `held` (a drag). Resolves 0 when there, 2 when
+/// the user moved the mouse on the way (it stopped), 1 when the events couldn't be made. Other
+/// systems: 1.
 #[napi]
-pub fn click(x: f64, y: f64, right: bool, count: u32) -> napi::bindgen_prelude::AsyncTask<ClickTask> {
-    napi::bindgen_prelude::AsyncTask::new(ClickTask { x, y, right, count })
+pub fn pointer_glide(x: f64, y: f64, held: bool) -> napi::bindgen_prelude::AsyncTask<PointerTask> {
+    napi::bindgen_prelude::AsyncTask::new(PointerTask(Pointer::Glide { x, y, held }))
+}
+
+/// macOS: rests on the point a moment, then clicks there (a double click with `count` 2, the right
+/// button with `right`). Resolves 0 when clicked, 2 when the user moved the mouse meanwhile (nothing
+/// clicked), 1 when the events couldn't be made. Other systems: 1.
+#[napi]
+pub fn pointer_press(x: f64, y: f64, right: bool, count: u32) -> napi::bindgen_prelude::AsyncTask<PointerTask> {
+    napi::bindgen_prelude::AsyncTask::new(PointerTask(Pointer::Press { x, y, right, count }))
+}
+
+/// macOS: the left button down or up at the point, nothing more (a drag's two ends). False when the
+/// event couldn't be made, and on other systems.
+#[napi]
+pub fn pointer_button(x: f64, y: f64, down: bool) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        x.is_finite() && y.is_finite() && input::button(input::CGPoint { x, y }, down)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (x, y, down);
+        false
+    }
+}
+
+/// macOS: turns the wheel at the point (the pointer must be there), `notches` times of about 50
+/// points; `dy` 1 scrolls up, -1 down; `dx` 1 left, -1 right. Resolves 0 when done, 2 when the user
+/// moved the mouse (it stopped), 1 when the events couldn't be made. Other systems: 1.
+#[napi]
+pub fn scroll_at(x: f64, y: f64, dx: i32, dy: i32, notches: u32) -> napi::bindgen_prelude::AsyncTask<PointerTask> {
+    napi::bindgen_prelude::AsyncTask::new(PointerTask(Pointer::Scroll { x, y, dx, dy, notches }))
+}
+
+/// macOS: one key event typing `text` (one character), down or up, into whatever has the keyboard.
+/// False when it couldn't be made, and on other systems.
+#[napi]
+pub fn key_text(text: String, down: bool) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        input::key_text(&text, down)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (text, down);
+        false
+    }
+}
+
+/// macOS: one key (its virtual key code) down or up, with modifier flags (shift 0x20000, control
+/// 0x40000, option 0x80000, command 0x100000) on that event only. False when it couldn't be made,
+/// and on other systems.
+#[napi]
+pub fn key_code(code: u32, flags: f64, down: bool) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        code < 128 && flags.is_finite() && flags >= 0.0 && input::key_code(code as u16, flags as u64 & 0x1E_0000, down)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (code, flags, down);
+        false
+    }
+}
+
+/// macOS: brings the app with this process id to the front. False when there's no such app, and on
+/// other systems.
+#[napi]
+pub fn activate_app(pid: i32) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        pid > 0 && pid as u32 != std::process::id() && input::activate(pid)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
+/// macOS: the process id of the app in front (the one the keyboard types into), -1 when none.
+/// Other systems: -2.
+#[napi]
+pub fn frontmost_pid() -> i64 {
+    #[cfg(target_os = "macos")]
+    {
+        input::frontmost_pid()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        -2
+    }
 }
 
 /// What the last notification request answered ("granted", "declined", "error: …"), once.

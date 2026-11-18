@@ -119,7 +119,7 @@ async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<Value
         // The app only: where the computer is, asked for by a `location.request` event.
         "location.result" => app.location_result(p)?,
         // The app only: whether the click asked for by an `input.click` event was made.
-        "input.result" => app.click_result(p)?,
+        "input.result" => app.input_result(p)?,
         "settings.get" => app.settings_json(),
         "settings.set" => {
             app.set_mode(s(p, "action")?, s(p, "mode")?)?;
