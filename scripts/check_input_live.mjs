@@ -1,7 +1,9 @@
 // The mouse and keyboard for real, on CI's Windows and Linux machines only (a Mac runner can't be
 // given Accessibility, and nobody's own screen is ever used). A window of its own holds a button, a
 // text box, a scrolling list and a box to drag; electron/input.mjs drives them through the built
-// addon (native/dunebot_native.node), and the page says what happened.
+// addon (native/dunebot_native.node), and the page says what happened. It runs twice: at 100%, and
+// with the screen scaled to 150% (as many laptops are), where every point must be turned into the
+// display's own pixels before the system takes it.
 // Usage, on CI: node scripts/native.mjs && node scripts/check_input_live.mjs (Linux: under xvfb-run).
 import fs from "node:fs";
 import path from "node:path";
@@ -17,10 +19,15 @@ if (!process.versions.electron) {
     process.exit(0);
   }
   const { spawnSync } = await import("node:child_process");
-  const args = [path.join(root, "node_modules", "electron", "cli.js"), fileURLToPath(import.meta.url)];
-  if (process.platform === "linux") args.push("--no-sandbox");
-  const r = spawnSync(process.execPath, args, { stdio: "inherit", timeout: 180_000 });
-  process.exit(r.status ?? 1);
+  let worst = 0;
+  for (const scale of ["1", "1.5"]) {
+    console.log(`\n— screen scaled to ${Number(scale) * 100}%`);
+    const args = [path.join(root, "node_modules", "electron", "cli.js"), fileURLToPath(import.meta.url), `--force-device-scale-factor=${scale}`];
+    if (process.platform === "linux") args.push("--no-sandbox");
+    const r = spawnSync(process.execPath, args, { stdio: "inherit", timeout: 180_000, env: { ...process.env, DUNEBOT_LIVE_SCALE: scale } });
+    worst = Math.max(worst, r.status ?? 1);
+  }
+  process.exit(worst);
 }
 
 const { app, BrowserWindow, screen } = await import("electron");
@@ -57,8 +64,11 @@ app.whenReady().then(async () => {
     app.exit(1);
   }, 150_000);
   const d = screen.getPrimaryDisplay();
-  console.log(`display ${d.bounds.width}x${d.bounds.height} at scale ${d.scaleFactor}; addon access ${addon.postEventAccess(false)}`);
-  const win = new BrowserWindow({ x: d.workArea.x + 60, y: d.workArea.y + 60, width: 640, height: 480, alwaysOnTop: true, show: false });
+  console.log(`display ${d.bounds.width}x${d.bounds.height} points at scale ${d.scaleFactor}; addon access ${addon.postEventAccess(false)}`);
+  // A run meant to be scaled that isn't would pass without testing the conversion at all.
+  ok(Math.abs(d.scaleFactor - Number(process.env.DUNEBOT_LIVE_SCALE || 1)) < 0.01, `the screen is at the scale asked for (${d.scaleFactor})`);
+  // Small enough for a 1024x768 screen at 150%.
+  const win = new BrowserWindow({ x: d.workArea.x + 20, y: d.workArea.y + 20, width: 560, height: 400, useContentSize: true, alwaysOnTop: true, show: false });
   await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(PAGE)}`);
   win.show();
   win.focus();
@@ -155,7 +165,7 @@ app.whenReady().then(async () => {
     console.log(`presses seen: ${JSON.stringify((await state()).downs)}; window at ${JSON.stringify(win.getContentBounds())}`);
     const dir = path.join(root, "snapshots");
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, `input-live-${process.platform}.png`), (await win.webContents.capturePage()).toPNG());
+    fs.writeFileSync(path.join(dir, `input-live-${process.platform}-${process.env.DUNEBOT_LIVE_SCALE || 1}x.png`), (await win.webContents.capturePage()).toPNG());
   }
   console.log(failed ? `${failed} FAILED` : "ALL PASS");
   app.exit(failed ? 1 : 0);
