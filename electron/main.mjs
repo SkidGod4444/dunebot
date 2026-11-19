@@ -143,6 +143,9 @@ function startCore() {
       // Streamed speech: for the card only (it's the one reading aloud), never logged.
       if (caption && !caption.isDestroyed()) caption.webContents.send("core:event", m);
       if (m.event === "voice.stream" && m.state === "error") log("voice stream stopped with an error");
+    } else if (m.event === "connectors.store" || m.event === "connectors.need" || m.event === "connectors.open") {
+      // A sign-in, or a sign-in page: for this process only, never a window or the log.
+      connectorEvent(m);
     } else if (m.event) {
       broadcast(m);
       onCoreEvent(m);
@@ -174,6 +177,7 @@ const ALLOWED = new Set([
   "phone.status", "phone.set", "phone.unpair",
   "voice.status", "voice.start", "voice.stop", "voice.cancel", "voice.say",
   "voice.streamOpen", "voice.streamSay", "voice.streamClose",
+  "connectors.list", "connectors.connect", "connectors.cancel", "connectors.disconnect",
 ]);
 
 function fromOurPage(e) {
@@ -191,6 +195,7 @@ ipcMain.handle("core:call", (e, method, params) => {
   if (method === "voice.say") return sayWithSarvam(params?.text);
   if (method === "voice.streamOpen") return sarvamReady().then(() => call("voice.streamOpen", {}));
   if (method === "voice.streamSay") return sayStreamed(params?.stream, params?.text);
+  if (method === "connectors.connect") return connectorConnect(params);
   // A preference one window changes reaches every window and the tray (the card reads "voice.speak",
   // the tray ticks "agent"), as the tray's own changes do.
   if (method === "prefs.set")
@@ -979,6 +984,64 @@ function lockedKey({ id, name, file, pattern, method }) {
     },
   };
 }
+// ---------- connectors: the user's Slack, Gmail, Notion, Calendar and X ----------
+// The core signs in (connectors/ in the core) and hands each sign-in here to lock away with
+// safeStorage, the same way as the voice keys: `connectors.store` saves one (or deletes it when it's
+// null), `connectors.need` asks for one back after a restart (answered with `connectors.secret`,
+// which no window may call), `connectors.open` is the vendor's sign-in page for the browser. None
+// of them reaches a window or the log. Snapshots and self-checks never touch the keychain or the
+// browser.
+const CONNECTOR = /^(slack|gmail|notion|calendar|x)$/;
+const connectorFile = (source) => path.join(app.getPath("userData"), `connector-${source}.bin`);
+
+function connectorEvent(m) {
+  const source = String(m.source ?? "");
+  if (!CONNECTOR.test(source)) return;
+  const test = snapshot || selfcheck;
+  if (m.event === "connectors.open") {
+    const url = String(m.url ?? "");
+    if (test || !/^https:\/\//i.test(url)) return log(`connectors: ${source}: sign-in page not opened`);
+    shell.openExternal(url);
+    return log(`connectors: ${source}: sign-in page opened in the browser`);
+  }
+  const f = connectorFile(source);
+  if (m.event === "connectors.store") {
+    if (test) return;
+    if (m.secret == null) {
+      fs.rmSync(f, { force: true });
+      return log(`connectors: ${source}: sign-in removed`);
+    }
+    if (!keyCanLock()) return log(`connectors: ${source}: no keychain to lock the sign-in with; kept only until Dune Bot quits`);
+    try {
+      fs.writeFileSync(`${f}.part`, safeStorage.encryptString(String(m.secret)), { mode: 0o600 });
+      fs.renameSync(`${f}.part`, f);
+      log(`connectors: ${source}: sign-in saved, locked by the system keychain`);
+    } catch (e) {
+      log(`connectors: ${source}: sign-in not saved (${e.code ?? "error"})`);
+    }
+    return;
+  }
+  // connectors.need: unlocked only now, when an agent first uses the account since the core started.
+  let secret = null;
+  if (!test && keyCanLock() && fs.existsSync(f)) {
+    try {
+      secret = safeStorage.decryptString(fs.readFileSync(f));
+    } catch {
+      log(`connectors: ${source}: couldn't unlock the saved sign-in`);
+    }
+  }
+  call("connectors.secret", { requestId: String(m.requestId ?? ""), source, secret }).catch(() =>
+    log(`connectors: ${source}: the core didn't take the sign-in`),
+  );
+}
+
+/** Connect from Settings: only where the sign-in can be locked away, and never in a test run. */
+function connectorConnect(params) {
+  if (snapshot || selfcheck) throw new Error("Not connected: this is a test run.");
+  if (!keyCanLock()) throw new Error("This computer has no keychain to lock the sign-in with, so Dune Bot won't keep it.");
+  return call("connectors.connect", params ?? {});
+}
+
 const sarvamKey = lockedKey({ id: "sarvam", name: "Sarvam", file: "sarvam-key.bin", pattern: /^[A-Za-z0-9_-]{10,200}$/, method: "voice.key" });
 const deepgramKey = lockedKey({ id: "deepgram", name: "Deepgram", file: "deepgram-key.bin", pattern: /^[A-Za-z0-9_-]{20,200}$/, method: "voice.deepgramKey" });
 // Settings › Phone: the user's Telegram bot token, locked the same way. The core polls Telegram with

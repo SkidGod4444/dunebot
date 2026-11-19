@@ -20,6 +20,15 @@ use crate::{
 const MAX_OUTPUT: usize = 30_000;
 const MAX_READ: u64 = 256 * 1024;
 
+/// Every tool, with the connected accounts' (connectors/).
+pub fn list_for(app: &App) -> Value {
+    let mut all = list();
+    if let Some(a) = all.as_array_mut() {
+        a.extend(crate::connectors::tools(app));
+    }
+    all
+}
+
 pub fn list() -> Value {
     let mut tools = json!([
         {
@@ -218,6 +227,8 @@ pub async fn call(app: &Arc<App>, thread: &Thread, name: &str, args: &Value) -> 
         "drag" => drag(app, thread, args).await,
         "type_text" => type_text(app, thread, args).await,
         "press_keys" => press_keys(app, thread, args).await,
+        // The user's accounts (connectors/): each read only when the user asked for it in this chat.
+        _ if crate::connectors::owns(name) => crate::connectors::call(app, thread, name, args).await,
         _ => Err(format!("Dune Bot has no tool named \"{name}\".")),
     };
     match r {

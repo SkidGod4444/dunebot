@@ -130,6 +130,13 @@ pub(crate) async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::R
         // The app only: whether the click asked for by an `input.click` event was made.
         "input.result" => app.input_result(p)?,
         "settings.get" => app.settings_json(),
+        // The user's accounts (connectors/). Pages see states and names, never a sign-in.
+        "connectors.list" => crate::connectors::list(app),
+        "connectors.connect" => crate::connectors::connect(app, p)?,
+        "connectors.cancel" => crate::connectors::cancel(app, p)?,
+        "connectors.disconnect" => crate::connectors::disconnect(app, p)?,
+        // The app only (never a page): a saved sign-in it unlocked, for a `connectors.need` event.
+        "connectors.secret" => crate::connectors::receive(app, p)?,
         "settings.set" => {
             app.set_mode(s(p, "action")?, s(p, "mode")?)?;
             app.settings_json()

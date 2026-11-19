@@ -107,6 +107,11 @@ fn doing(a: Action) -> &'static str {
         Action::Click => "click, scroll or drag on the screen",
         Action::Type => "type or press keys",
         Action::Point => "point at things on the screen",
+        Action::SlackWrite => "send or change things in Slack",
+        Action::GmailWrite => "draft or change email in Gmail",
+        Action::NotionWrite => "create or change Notion pages",
+        Action::CalendarWrite => "add or change calendar events",
+        Action::XPost => "post on X",
     }
 }
 
@@ -229,7 +234,9 @@ pub fn may_use(app: &App, thread: &Thread, tool: &str) -> Result<(), String> {
     let Some(bot) = get(app, &thread.agent) else {
         return Err("This chat's bot was deleted, so Dune Bot does nothing more for it.".into());
     };
-    let Some(action) = action_of(tool) else { return Ok(()) };
+    // An account's change (Slack, Gmail...) is the bot's to make only if it may; its reads follow
+    // asked.rs as for any chat.
+    let Some(action) = action_of(tool).or_else(|| crate::connectors::change_action(app, tool)) else { return Ok(()) };
     if bot.may(action) {
         return Ok(());
     }
@@ -933,6 +940,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_bot_changes_an_account_only_if_it_may() {
+        let mut r = Rig::new();
+        let w = r.call("bots.save", json!({ "name": "Writer", "role": "Writes", "engine": "echo", "may": ["read-file"] })).await.unwrap();
+        let chat = r.chat(w["id"].as_str().unwrap());
+        let no = may_use(&r.app, &chat, "x_post").unwrap_err();
+        assert!(no.starts_with("Writer may not post on X"), "{no}");
+        assert!(may_use(&r.app, &chat, "x_search").is_ok(), "a read follows asked.rs, not the bot's list");
+        let p = r.call("bots.save", json!({ "name": "Poster", "role": "Posts", "engine": "echo", "may": ["x-post"] })).await.unwrap();
+        assert!(may_use(&r.app, &r.chat(p["id"].as_str().unwrap()), "x_post").is_ok());
+    }
+
+    #[tokio::test]
     async fn a_bot_does_only_what_it_may() {
         let mut r = Rig::new();
         r.app.set_mode("run-command", "always").unwrap();
@@ -963,7 +982,7 @@ mod tests {
         assert!(mine.contains("only when it clearly helps") && mine.contains("say so in one short line"), "{mine}");
         let ops = all(&r.app).into_iter().find(|b| b.name == "Ops").unwrap();
         let theirs = instructions(&r.app, &r.chat(&ops.id));
-        assert!(theirs.contains("doesn't let you create or change files; look inside folders;") && theirs.contains("; or find where the computer is:"), "{theirs}");
+        assert!(theirs.contains("doesn't let you create or change files; look inside folders;") && theirs.contains("; find where the computer is;") && theirs.contains("; or post on X:"), "{theirs}");
         let plain = instructions(&r.app, &r.chat("claude"));
         assert!(plain.contains("The user has made bots") && plain.contains("- Researcher:") && !plain.contains("You are"), "{plain}");
 

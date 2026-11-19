@@ -5,6 +5,7 @@
 
 mod agent;
 mod asked;
+mod connectors;
 mod dictation;
 mod fixes;
 mod keys;

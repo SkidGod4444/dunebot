@@ -6,6 +6,7 @@ import {
 } from "./store";
 import { AgentAvatar, ApprovalCard, AssistantBubble, failureOf, Mascot, TeachFix, ThinkingBubble, UserBubble } from "./parts";
 import { useStickToBottom } from "./stick";
+import { Connectors, isConnectorAction } from "./Connectors";
 import { plainPreview } from "./reply";
 import { BotsSettings } from "./BotsSettings";
 import { DictationSetting } from "./dictation";
@@ -506,7 +507,7 @@ function Permissions() {
           <h1 className="font-pixel text-[32px] leading-tight">Permissions</h1>
           <p className="mt-1 text-[15px] text-muted">What agents may do on this computer. These apply to every chat.</p>
           <div className="mt-6 divide-y divide-line rounded-2xl border border-line">
-            {modes.map((r) => (
+            {modes.filter((r) => !isConnectorAction(r.action)).map((r) => (
               <div key={r.action} className="px-4 py-3.5">
               <div className="flex items-center gap-4">
                 <span className="flex-1 text-[15px] font-medium">{r.label}</span>
@@ -550,6 +551,8 @@ function Permissions() {
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Keys</h2>
           {window.dunebot.platform === "darwin" && <KeySettings />}
           <DictationSetting />
+          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Connectors</h2>
+          <Connectors />
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Voice</h2>
           <VoiceSettings />
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Phone</h2>
