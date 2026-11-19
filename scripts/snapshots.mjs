@@ -13,6 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { pointerRun } from "./check_pointer.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const out = path.resolve(process.argv[2] ?? "snapshots");
@@ -47,6 +48,13 @@ const SHOTS = [
     DUNEBOT_SCREEN_STUB: path.join(root, "electron", "assets", "icon.png"),
     DUNEBOT_INPUT_STUB: "1",
     DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-click.js"),
+  }],
+  // Teaching: the test agent points at a tab in a stand-in picture, looks again, then clicks under the
+  // highlight (stand-ins); the click must not be refused as Dune Bot's own window (check_pointer.mjs).
+  ["pointer", "pointer", {
+    DUNEBOT_SCREEN_STUB: path.join(root, "electron", "assets", "icon.png"),
+    DUNEBOT_INPUT_STUB: "1",
+    DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "pointer.js"),
   }],
   ["bar-held", "bar", { DUNEBOT_SNAPSHOT_HELD: "1", DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bar-held.js") }],
   ["setup", "setup", {}],
@@ -144,6 +152,11 @@ for (const theme of ["light", "dark"])
       } catch {}
       if (missing.length) problems.push(`${name} ${theme}: the app didn't take ${missing.map(String).join(", ")}; steps ${JSON.stringify(res)}\n${log.split("\n").filter((l) => /input|screen|turn/.test(l)).slice(-10).join("\n")}`);
       else note += " clicked, scrolled, dragged, typed and pressed keys (stand-ins)";
+    }
+    if (name === "pointer") {
+      const run = pointerRun(log);
+      for (const p of run.problems) problems.push(`${name} ${theme}: ${p}\n${log.split("\n").filter((l) => /pointer|input|screen|turn/.test(l)).slice(-10).join("\n")}`);
+      note += run.note;
     }
     if (name === "caption-held-read") {
       // The held question goes only after the answer has been read: "speech:" (reading over) first.
