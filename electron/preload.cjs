@@ -69,6 +69,13 @@ contextBridge.exposeInMainWorld("dunebot", {
     settled: (on) => ipcRenderer.send("caption:settled", !!on),
     testShow: (threadId) => ipcRenderer.send("caption:test-show", String(threadId)),
   },
+  // The highlight an agent points with when it teaches (electron/pointer.mjs): what to draw, and
+  // "drawn" once it is (the window is shown only then).
+  pointer: {
+    onShow: listen("pointer:show"),
+    onHide: listen("pointer:hide"),
+    drawn: (gen) => ipcRenderer.send("pointer:drawn", Number(gen)),
+  },
 });
 
 // Wayland, while an agent uses the pointer: this page takes no mouse input (electron/pass-clicks.mjs).

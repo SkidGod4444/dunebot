@@ -18,6 +18,7 @@ import { createInput } from "./input.mjs";
 import { createWayland } from "./wayland.mjs";
 import { gnomeKeys, onGnome } from "./gnome-keys.mjs";
 import { createGuard } from "./pass-clicks.mjs";
+import { createPointer } from "./pointer.mjs";
 import { place as placeCaption, corner as captionCorner, covers, inside, heading, WIN_W as CAPTION_W, WIN_H as CAPTION_H } from "./caption-place.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -1214,13 +1215,17 @@ async function locationForCore(requestId) {
 // cards or change its settings.
 const ACCESSIBILITY_PANE = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
 const ownName = (w) => (w === caption ? "answer card" : w === bar ? "bar" : "window");
+// The highlight an agent points with when it teaches (electron/pointer.mjs): click-through, always.
+const highlight = createPointer({ BrowserWindow, screen, ipcMain, pageUrl, webPreferences, harden, platform: process.platform, wayland, snapshot: !!snapshot, log, call });
 
 /** Which of Dune Bot's own windows a click at this point would reach, if one would. A window of
  * Dune Bot's behind another app's doesn't count; the card while it follows the pointer, or while
- * Dune Bot itself uses the mouse, doesn't either (it lets clicks through then, to what's under it). */
+ * Dune Bot itself uses the mouse, doesn't either (it lets clicks through then, to what's under it),
+ * and the highlight never does (it lets every click through). The highlight counts as shown while
+ * it's up, even hidden for a picture or in a hidden-window test, so the test checks this rule. */
 function ownWindowAt(x, y) {
-  const shown = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && w.isVisible());
-  const passes = (w) => w === caption && (captionMoving || pointerBusy > 0);
+  const shown = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && (w.isVisible() || highlight.up(w)));
+  const passes = (w) => highlight.is(w) || (w === caption && (captionMoving || pointerBusy > 0));
   const hit = (w) => {
     const b = w.getBounds();
     return !passes(w) && x >= b.x && x < b.x + b.width && y >= b.y && y < b.y + b.height;
@@ -1341,6 +1346,7 @@ async function startGnomeKeys() {
 function stopAgents(why, { keepSession = false } = {}) {
   log(`stop: ${why}`);
   hushCaption();
+  highlight.clear("every agent was stopped");
   if (wl && !keepSession) wl.stop();
   return call("agents.stopAll").catch(() => {});
 }
@@ -1479,7 +1485,7 @@ function askScreen() {
 async function captureForCore(requestId) {
   try {
     wl?.begin();
-    const shot = await takeScreenshot();
+    const shot = await highlight.whileHidden(takeScreenshot); // never with the highlight in it
     log(`screen: picture ${shot.width}x${shot.height}, ${Math.round((shot.data.length * 0.75) / 1024)} KB`);
     await call("screen.result", { requestId, ...shot });
   } catch (err) {
@@ -1752,6 +1758,7 @@ function someWindowFocused() {
 
 const firstWords = new Set(); // chats whose answer hasn't started yet (for the log's timings)
 function onCoreEvent(m) {
+  if (highlight.onCoreEvent(m)) return; // the highlight's own requests (and it goes when a chat moves on)
   switch (m.event) {
     case "thread.updated":
       titles.set(m.thread.id, m.thread.title);
@@ -2037,7 +2044,7 @@ app.whenReady().then(async () => {
     if (process.env.DUNEBOT_SNAPSHOT_THEME) nativeTheme.themeSource = process.env.DUNEBOT_SNAPSHOT_THEME;
     if (snapView === "bar" && process.env.DUNEBOT_SNAPSHOT_HELD) createCaption(); // made at startup, as in the app
     const win =
-      snapView === "bar" ? createBar() : snapView === "caption" ? createCaption() : snapView === "setup" ? openSetup() : openMain(process.env.DUNEBOT_SNAPSHOT_MAIN_VIEW ?? "chat");
+      snapView === "bar" ? createBar() : snapView === "caption" ? createCaption() : snapView === "setup" ? openSetup() : snapView === "pointer" ? highlight.window() : openMain(process.env.DUNEBOT_SNAPSHOT_MAIN_VIEW ?? "chat");
     takeSnapshot(win);
     return;
   }

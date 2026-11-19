@@ -17,16 +17,20 @@ pub enum Action {
     Click,
     /// Typing or a key or shortcut, into whatever app has the keyboard (never Dune Bot itself).
     Type,
+    /// A ring with a short label around something on the screen, to show the user where it is
+    /// (teaching: tools/teach.rs). It changes nothing.
+    Point,
 }
 
 impl Action {
-    pub const ALL: [Action; 9] = [
+    pub const ALL: [Action; 10] = [
         Action::RunCommand,
         Action::WriteFile,
         Action::ReadFile,
         Action::ListFolder,
         Action::SearchChats,
         Action::LookScreen,
+        Action::Point,
         Action::Click,
         Action::Type,
         Action::FindLocation,
@@ -43,6 +47,7 @@ impl Action {
             Action::FindLocation => "find-location",
             Action::Click => "click",
             Action::Type => "type",
+            Action::Point => "point",
         }
     }
 
@@ -57,6 +62,7 @@ impl Action {
             Action::FindLocation => "Find where you are",
             Action::Click => "Click, scroll and drag on your screen",
             Action::Type => "Type and press keys",
+            Action::Point => "Point at things on your screen",
         }
     }
 
@@ -65,8 +71,9 @@ impl Action {
             // The user chose Auto for commands (2026-11-16; "only risky ones ask" 2026-11-17).
             Action::RunCommand => Mode::Auto,
             Action::WriteFile => Mode::Ask,
-            // The user chose looks without asking (2026-11-16, "dont ask to look my screen").
-            Action::ReadFile | Action::ListFolder | Action::SearchChats | Action::LookScreen => Mode::Always,
+            // The user chose looks without asking (2026-11-16, "dont ask to look my screen"). Pointing
+            // at something to teach changes nothing either, so it never asks (nor in scheduled chats).
+            Action::ReadFile | Action::ListFolder | Action::SearchChats | Action::LookScreen | Action::Point => Mode::Always,
             // The user asked for the exact location from the system (2026-11-17); macOS asks once itself.
             Action::FindLocation => Mode::Always,
             // The user chose clicks without asking, through Dune Bot's own tool (2026-11-18); osascript,
