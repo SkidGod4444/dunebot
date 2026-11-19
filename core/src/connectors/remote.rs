@@ -20,9 +20,12 @@ pub enum Fail {
 fn rpc(url: &str, token: &str, session: Option<&str>, id: u64, method: &str, params: Value, limit: u64, secs: u64) -> Result<(Value, Option<String>), Fail> {
     let auth = format!("Bearer {token}");
     let mut headers = vec![("authorization", auth.as_str()), ("accept", "application/json, text/event-stream")];
+    // After initialize, every request names the protocol (servers without sessions too).
+    if method != "initialize" {
+        headers.push(("mcp-protocol-version", PROTOCOL));
+    }
     if let Some(s) = session {
         headers.push(("mcp-session-id", s));
-        headers.push(("mcp-protocol-version", PROTOCOL));
     }
     let body = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
     let a = http::post_json(url, &body, &headers, limit, secs).map_err(|e| Fail::Other(http::redact(&e, &[token])))?;

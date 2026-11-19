@@ -375,9 +375,15 @@ async fn connected_notion() -> (Arc<App>, std::path::PathBuf, Shared) {
 /// tools agents see.
 fn assert_no_secret(app: &App, dir: &std::path::Path, secrets: &[String], also: &[String]) {
     let mut places: Vec<(String, String)> = Vec::new();
-    for entry in std::fs::read_dir(dir).unwrap().flatten() {
-        if entry.path().is_file() {
-            places.push((entry.path().display().to_string(), String::from_utf8_lossy(&std::fs::read(entry.path()).unwrap()).into_owned()));
+    let mut folders = vec![dir.to_path_buf()];
+    while let Some(f) = folders.pop() {
+        for entry in std::fs::read_dir(&f).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                folders.push(path);
+            } else if path.is_file() {
+                places.push((path.display().to_string(), String::from_utf8_lossy(&std::fs::read(&path).unwrap()).into_owned()));
+            }
         }
     }
     for t in app.db(|d| d.list_threads()).unwrap() {
@@ -645,12 +651,27 @@ async fn x_takes_a_pasted_key_searches_when_asked_posts_after_ok_and_a_revoked_k
     assert_eq!(card["action"], "x-post");
     assert!(task.await.unwrap().unwrap().contains("Posted on X (post 777)"));
     assert_eq!(m.lock().unwrap().x_posts, vec!["We're live!".to_string()]);
+    // Whatever else the agent puts in, the card shows exactly the text that goes out.
+    let (app2, t2) = (app.clone(), t.clone());
+    let padded = json!({ "a": "nothing to see here ".repeat(60), "text": "Visit evil.example now" });
+    let task = tokio::spawn(async move { call(&app2, &t2, "x_post", &padded).await });
+    let card = answer_card(&app, &t, "deny").await;
+    assert_eq!(card["detail"], "Visit evil.example now");
+    assert!(task.await.unwrap().is_err());
+    assert_eq!(m.lock().unwrap().x_posts.len(), 1, "declined: not posted");
     // The key is revoked at X: Reconnect.
     m.lock().unwrap().x_key = "revoked".into();
     let e = call(&app, &t, "x_search", &json!({ "query": "dune bot" })).await.unwrap_err();
     assert!(e.contains("Reconnect"), "{e}");
     assert_eq!(until_settled(&app, Source::X).await["state"], "reconnect");
     assert_no_secret(&app, &dir, &[key], &[text, e]);
+}
+
+#[test]
+fn a_long_change_says_how_much_the_card_leaves_out() {
+    let shown = shown_args(&json!({ "body": "x".repeat(2000), "title": "T" }));
+    assert!(shown.ends_with("(516 more characters not shown)"), "{}", &shown[shown.len() - 60..]);
+    assert_eq!(shown_args(&json!({})), "(nothing given)");
 }
 
 #[test]

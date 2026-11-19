@@ -627,7 +627,13 @@ fn find(app: &App, name: &str) -> Option<(Source, Tool)> {
     meta(app, s)?.tools.into_iter().find(|t| t.name == name).map(|t| (s, t))
 }
 
-/// What the user sees on the OK card for a change: the tool's input, short.
+/// What X will post: the text, trimmed (the OK card shows exactly this).
+fn x_text(args: &Value) -> String {
+    args.get("text").and_then(Value::as_str).unwrap_or("").trim().to_string()
+}
+
+/// What the user sees on the OK card for a change: the tool's input, every part named; when it's
+/// long, the card says how much isn't shown.
 fn shown_args(args: &Value) -> String {
     let mut parts = Vec::new();
     if let Some(o) = args.as_object() {
@@ -639,13 +645,20 @@ fn shown_args(args: &Value) -> String {
             parts.push(format!("{k}: {v}"));
         }
     }
-    let s: String = parts.join("; ").chars().filter(|c| !c.is_control() || *c == '\n').collect();
-    let mut s: String = s.chars().take(600).collect();
+    let all: String = parts.join("; ").chars().filter(|c| !c.is_control() || *c == '\n').collect();
+    let total = all.chars().count();
+    let mut s: String = all.chars().take(SHOWN).collect();
+    if total > SHOWN {
+        s.push_str(&format!(" … ({} more characters not shown)", total - SHOWN));
+    }
     if s.is_empty() {
         s = "(nothing given)".into();
     }
     s
 }
+
+/// How much of a change's input the OK card shows.
+const SHOWN: usize = 1500;
 
 /// One connector tool, for the chat `thread` (tools.rs).
 pub async fn call(app: &App, thread: &Thread, name: &str, args: &Value) -> Result<String, String> {
@@ -667,7 +680,17 @@ pub async fn call(app: &App, thread: &Thread, name: &str, args: &Value) -> Resul
     if tool.read {
         let _ = app.db(|d| d.ledger_add(Some(&thread.id), &format!("{}-account", s.key()), name, "allowed (asked)", "read"));
     } else {
-        app.gate(&thread.id, vendor::write_action(s), &format!("{label}: {}", tool.vendor), &shown_args(args)).await?;
+        // X posts only `text`: the card shows exactly that, whole, and nothing else.
+        let detail = if s == Source::X {
+            let text = x_text(args);
+            if text.is_empty() || text.chars().count() > 4000 {
+                return Err("Give the post's text (at most 4000 characters; X allows 280 on most accounts).".into());
+            }
+            text
+        } else {
+            shown_args(args)
+        };
+        app.gate(&thread.id, vendor::write_action(s), &format!("{label}: {}", tool.vendor), &detail).await?;
     }
     let (text, failed) = run(app, s, &tool, args).await?;
     let body: String = text.chars().take(MAX_ANSWER).collect();
@@ -698,7 +721,7 @@ async fn run(app: &App, s: Source, tool: &Tool, args: &Value) -> Result<(String,
                         x::search(&base, &t, &q, a.get("max_results").and_then(Value::as_u64).unwrap_or(10)).map(|t| (t, false))
                     }
                     _ => {
-                        let text = a.get("text").and_then(Value::as_str).unwrap_or("").trim().to_string();
+                        let text = x_text(&a);
                         if text.is_empty() {
                             return Err(Fail::Other("give the text to post".into()));
                         }
