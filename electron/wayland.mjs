@@ -14,7 +14,10 @@ import path from "node:path";
 /** What Dune Bot says, for the desktop it runs on (GNOME names its box's switch; others differ). */
 function words(desktop) {
   const gnome = desktop === "GNOME";
-  const allow = gnome ? `turn on "Allow Remote Interaction" in it, then press Share` : "allow control of the keyboard and pointer in it, then share the screen";
+  // With more than one screen the box also asks which to share: all of them, so Dune Bot can see and click on each.
+  const allow = gnome
+    ? `turn on "Allow Remote Interaction" in it, pick every screen if it asks which, then press Share`
+    : "allow control of the keyboard and pointer in it, pick every screen if it asks which, then share the screen";
   return {
     ASKING: `${desktop} is asking the user to let Dune Bot see the screen and use the keyboard and pointer (a box on their screen). Tell them to ${allow}, and that you'll go on once they have. Then try again.`,
     SCREEN_ONLY: `${desktop} gave Dune Bot the screen but not the keyboard and pointer. Tell the user ${desktop} will ask again: ${allow.replace(" in it", " in its box")}. Then try again.`,

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Drives dunebot-wayland through every request inside a headless GNOME session (run.sh starts
-it) and checks each against a real window. A Clutter virtual pointer made through Shell.Eval is
-the test's own hand: it answers GNOME's box the way a person would. Test-only.
+it, with one or more monitors at any scale) and checks each against a real window. screens.py
+answers GNOME's box the way a person would (a Clutter pointer made through Shell.Eval) and says
+where the screens and windows are. Test-only.
 
 usage: drive.py <helper binary> <out dir>"""
 import hashlib
@@ -40,14 +41,11 @@ def ev(js):
 J = "const C = imports.gi.Clutter; const G = imports.gi.GLib;"
 
 
-def hand_click(x, y):
-    ev(f"{J} global._ciP.notify_absolute_motion(G.get_monotonic_time(), {x}, {y}); 'moved'")
-    time.sleep(0.3)
-    ev(
-        f"{J} const t = G.get_monotonic_time(); global._ciP.notify_button(t, C.BUTTON_PRIMARY, C.ButtonState.PRESSED);"
-        f" global._ciP.notify_button(t + 80000, C.BUTTON_PRIMARY, C.ButtonState.RELEASED); 'clicked'"
-    )
-    time.sleep(0.6)
+def screens(*args):
+    r = subprocess.run(["python3", "-I", f"{HERE}/screens.py", *args], capture_output=True, text=True, timeout=30)
+    if r.returncode != 0:
+        raise RuntimeError(f"screens.py {' '.join(args)}: {(r.stderr or r.stdout).strip()[-300:]}")
+    return json.loads(r.stdout)
 
 
 def shot(name):
@@ -97,6 +95,29 @@ class Lines:
                 self.cv.wait(left)
 
 
+class Target(Lines):
+    """target.py fullscreen on one monitor. It reports in its own logical points; `desk` turns
+    those into the desktop's (the window's place, and its size against the points it reports:
+    twice as many at 200% when GNOME lays the screens out in pixels)."""
+
+    def __init__(self, monitor=0, secs=240):
+        self.title = "target" if monitor == 0 else f"target-{monitor}"
+        super().__init__(["python3", f"{HERE}/target.py", str(secs), str(monitor), self.title], f"{OUT}/{self.title}.err")
+
+    def ready(self):
+        if not self.wait(lambda l: l == "READY", timeout=30):
+            return False
+        at = {l.split()[0]: list(map(int, l.split()[1:])) for l in self.lines if l.split()[0] in ("entry", "area", "marker", "size")}
+        self.entry, self.area, self.marker, self.size = at["entry"], at["area"], at["marker"], at["size"]
+        self.rect = screens("window", self.title)
+        self.k = self.rect["w"] / self.size[0]
+        return True
+
+    def desk(self, x, y):
+        d = (self.rect["x"] + x * self.k, self.rect["y"] + y * self.k)
+        return tuple(int(v) if float(v).is_integer() else v for v in d)
+
+
 class Helper(Lines):
     def __init__(self, log):
         super().__init__([HELPER], log)
@@ -130,9 +151,6 @@ class Helper(Lines):
             self.p.kill()
 
 
-SWITCH, SHARE = (896, 322), (922, 189)  # GNOME 46's box on a 1280x800 screen (spike round 7)
-
-
 def open_with_box(h, allow_control=True, tag="box"):
     n = h.send("open")
     if not h.event("asking", timeout=20):
@@ -140,8 +158,8 @@ def open_with_box(h, allow_control=True, tag="box"):
     time.sleep(3)
     shot(f"{tag}-shown")
     if allow_control:
-        hand_click(*SWITCH)
-    hand_click(*SHARE)
+        screens("box", "switch")
+    screens("box", "share")
     return h.answer(n, 30)
 
 
@@ -202,16 +220,17 @@ LEDS = tempfile.mkdtemp(prefix="dunebot-leds-")
 def main():
     os.makedirs(LEDS, exist_ok=True)
     os.environ["DUNEBOT_WL_LEDS"] = LEDS
-    ev(f"{J} const s = C.get_default_backend().get_default_seat(); global._ciP = s.create_virtual_device(C.InputDeviceType.POINTER_DEVICE); 'hand'")
-    time.sleep(1)
     ev("Main.overview.hide(); 'ok'")
-    target = Lines(["python3", f"{HERE}/target.py", "240"], f"{OUT}/target.err")
+    mons = screens("monitors")
+    print("monitors:", json.dumps(mons), flush=True)
+    target = Target(0)
     TARGET_LINES[0] = target.lines
-    if not check("target window up", target.wait(lambda l: l == "READY", timeout=30)):
+    if not check("target window up", target.ready()):
         return
-    alloc = {l.split()[0]: list(map(int, l.split()[1:])) for l in target.lines if l.split()[0] in ("entry", "area")}
-    ex, ey, ew, eh = alloc["entry"]
-    ax, ay, aw, ah = alloc["area"]
+    print(f"target: {target.rect}, reports {target.size} (x{target.k})", flush=True)
+    D = target.desk
+    ex, ey, ew, eh = target.entry
+    ax, ay, aw, ah = target.area
 
     # 1. The box, answered with control allowed.
     h = Helper(f"{OUT}/helper1.err")
@@ -223,14 +242,26 @@ def main():
     check("open: screen stream opened", r.get("eyes") is True)
     check("open: a restore token", bool(r.get("token")))
     streams = r.get("streams") or []
-    check("open: one monitor stream 1280x800", len(streams) == 1 and (streams[0]["w"], streams[0]["h"]) == (1280, 800), streams)
-    check("open: pointer region covers the screen", any(g[2] == 1280 and g[3] == 800 for g in r.get("regions", [])), r.get("regions"))
+    place = lambda g: [g["x"], g["y"], g["w"], g["h"]]
+    check(
+        f"open: one stream per monitor ({len(mons)}), each where its monitor is",
+        sorted(map(place, streams)) == sorted(map(place, mons)),
+        f"streams {[place(x) for x in streams]}, monitors {[place(m) for m in mons]}",
+    )
+    regions = r.get("regions", [])
+    check("open: the pointer's regions cover every monitor", all(any(g[:4] == place(m) for g in regions) for m in mons), f"regions {regions}")
     token = r.get("token")
-    node = streams[0]["node"] if streams else 0
+    first = next((x for x in streams if (x["x"], x["y"]) == (mons[0]["x"], mons[0]["y"])), streams[0] if streams else None)
+    node = first["node"] if first else 0
 
-    # 2. Screen pictures.
+    # 2. Screen pictures: every pixel of the monitor (as many as or more than its points).
     f1 = frame(h, node, "frame1")
-    check("frame: full size", f1.get("w") == 1280 and f1.get("h") == 800 and f1.get("bytes") == 1280 * 800 * 4, f1)
+    fw, fh = f1.get("w", 0), f1.get("h", 0)
+    check(
+        "frame: the whole monitor, every pixel",
+        first and f1.get("bytes") == fw * fh * 4 and fw >= first["w"] and fw * first["h"] == fh * first["w"],
+        f"{fw}x{fh} for a {first and first['w']}x{first and first['h']} monitor",
+    )
     raw = open(f"{OUT}/frame1.bgra", "rb").read() if "error" not in f1 else b""
     colours = len({raw[i : i + 3] for i in range(0, len(raw), 4 * 997)})
     check("frame: has content (not one colour)", colours > 3, f"{colours} colours sampled")
@@ -244,20 +275,36 @@ def main():
     # 3. Clicks land where asked.
     for i, (x, y) in enumerate([(ax + 200, ay + 150), (ax + aw - 40, ay + ah - 40), (ax + 7, ay + 9)]):
         m = target.mark()
-        err = click_at(h, x, y)
+        err = click_at(h, *D(x, y))
         line = target.wait(lambda l: l.startswith("press 1 "), m, 5)
         got = list(map(int, line.split()[2:4])) if line else None
-        check(f"click {i + 1} lands at ({x}, {y})", got and abs(got[0] - x) <= 1 and abs(got[1] - y) <= 1, err or got)
+        check(f"click {i + 1} lands at ({x}, {y})", got and abs(got[0] - x) <= 1 and abs(got[1] - y) <= 1, err or f"{got}, sent {D(x, y)}")
         check(f"click {i + 1} released", target.wait(lambda l: l.startswith("release 1 "), m, 3))
     m = target.mark()
-    err = click_at(h, ax + 300, ay + 200, "right")
+    err = click_at(h, *D(ax + 300, ay + 200), "right")
     check("right click", target.wait(lambda l: l.startswith("press 3 "), m, 5), err or "")
+
+    # 3b. Every other monitor: its picture, and clicks on a window there.
+    for i, mon in enumerate(mons[1:], 1):
+        st = next((x for x in streams if (x["x"], x["y"]) == (mon["x"], mon["y"])), None)
+        fi = frame(h, st["node"], f"frame-monitor{i}") if st else {"error": "no stream"}
+        check(f"monitor {i}: its own picture, every pixel", st and fi.get("bytes") == fi.get("w", 0) * fi.get("h", 0) * 4 and fi.get("w", 0) >= st["w"], fi.get("error") or f"{fi['w']}x{fi['h']} for {place(mon)} at scale {mon['scale']}")
+        other = Target(i)
+        if check(f"monitor {i}: a window there", other.ready() and other.rect["monitor"] == i, getattr(other, "rect", None)):
+            oax, oay, oaw, oah = other.area
+            for x, y in [(oax + 200, oay + 150), (oax + oaw - 40, oay + oah - 40)]:
+                m = other.mark()
+                err = click_at(h, *other.desk(x, y))
+                line = other.wait(lambda l: l.startswith("press 1 "), m, 5)
+                got = list(map(int, line.split()[2:4])) if line else None
+                check(f"monitor {i}: a click lands at ({x}, {y})", got and abs(got[0] - x) <= 1 and abs(got[1] - y) <= 1, err or f"{got}, sent {other.desk(x, y)}")
+        other.p.terminate()
     m = target.mark()
-    err = h.call("move", x=5000, y=10)
+    err = h.call("move", x=max(m["x"] + m["w"] for m in mons) + 1000, y=10)
     check("a point off every screen is refused", "error" in err, err.get("error"))
 
     # 4. Typing by the layout.
-    click_at(h, ex + ew // 2, ey + eh // 2)
+    click_at(h, *D(ex + ew // 2, ey + eh // 2))
     time.sleep(0.3)
     text = "Hello, World! 123 ~ (a+b)={c}"
     m = target.mark()
@@ -358,11 +405,11 @@ def main():
     # 4d. A drag: down at one point, moves, up at another. A double click.
     m = target.mark()
     pts = [(ax + 100, ay + 100), (ax + 200, ay + 140), (ax + 300, ay + 180), (ax + 400, ay + 220)]
-    h.call("move", x=pts[0][0], y=pts[0][1])
+    h.call("move", x=D(*pts[0])[0], y=D(*pts[0])[1])
     h.call("button", button="left", down=True)
     for x, y in pts[1:]:
         time.sleep(0.05)
-        h.call("move", x=x, y=y)
+        h.call("move", x=D(x, y)[0], y=D(x, y)[1])
     h.call("button", button="left", down=False)
     pressed = target.wait(lambda l: l.startswith("press 1 "), m, 5)
     released = target.wait(lambda l: l.startswith("release 1 "), m, 5)
@@ -373,7 +420,7 @@ def main():
         f"{pressed} / {len(moved)} moves / {released}",
     )
     m = target.mark()
-    h.call("move", x=ax + 500, y=ay + 200)
+    h.call("move", x=D(ax + 500, ay + 200)[0], y=D(ax + 500, ay + 200)[1])
     for _ in range(2):
         h.call("button", button="left", down=True)
         time.sleep(0.03)
@@ -383,7 +430,7 @@ def main():
     check("double click is seen as one", dbl, dbl)
 
     # 5. Scrolling: +1 is up.
-    h.call("move", x=ax + 200, y=ay + 150)
+    h.call("move", x=D(ax + 200, ay + 150)[0], y=D(ax + 200, ay + 150)[1])
     m = target.mark()
     r = h.call("scroll", dx=0, dy=1, n=3)
     up = target.wait(lambda l: l.startswith("scroll"), m, 5)
@@ -411,7 +458,7 @@ def main():
     check("restore: GNOME kept the token", r.get("token") == token, "same" if r.get("token") == token else "new token")
     token = r.get("token") or token
     m = target.mark()
-    click_at(h, ax + 250, ay + 100)
+    click_at(h, *D(ax + 250, ay + 100))
     line = target.wait(lambda l: l.startswith("press 1 "), m, 5)
     check("restore: clicks work", line and line.split()[2:4] == [str(ax + 250), str(ay + 100)], line)
 
@@ -474,6 +521,12 @@ def main():
 
 try:
     main()
+except Exception as e:
+    # A crash must never read as a pass: the summary below only counts the checks that ran.
+    import traceback
+
+    traceback.print_exc()
+    check("helper test ran to the end", False, repr(e)[:300])
 finally:
     try:
         open(f"{OUT}/target.log", "w").write("\n".join(TARGET_LINES[0]) + "\n")

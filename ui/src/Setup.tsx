@@ -194,7 +194,10 @@ export function Setup() {
   const hotkey = st.hotkey?.replace("Control", "Ctrl");
   const wl = !!st.wayland;
   const desk = st.wayland ?? "GNOME";
-  const allowIt = desk === "GNOME" ? "turn on “Allow Remote Interaction”, then Share" : "allow control of the keyboard and pointer, then share the screen";
+  const allowIt =
+    desk === "GNOME"
+      ? "turn on “Allow Remote Interaction”, pick every screen if it asks, then Share"
+      : "allow control of the keyboard and pointer, pick every screen if it asks, then share the screen";
   const gk = st.gnomeKeys;
   const ctrl = (k: string | null) => k?.replace("Control", "Ctrl") ?? "";
 

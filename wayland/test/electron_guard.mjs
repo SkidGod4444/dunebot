@@ -144,7 +144,10 @@ app.whenReady().then(async () => {
         // As main.mjs's takeScreenshot: the helper's BGRA into a nativeImage, then JPEG.
         const f = await wl.frame();
         const img = nativeImage.createFromBitmap(f.data.subarray(0, f.width * f.height * 4), { width: f.width, height: f.height });
-        const px = [...img.crop({ x: m.pixel[0], y: m.pixel[1], width: 1, height: 1 }).toBitmap()];
+        // The point is in the desktop's coordinates; the picture's pixels may be more (200%).
+        const k = f.width / f.display.width;
+        const at = { x: Math.round((m.pixel[0] - f.display.x) * k), y: Math.round((m.pixel[1] - f.display.y) * k) };
+        const px = [...img.crop({ ...at, width: 1, height: 1 }).toBitmap()];
         say({ pixel: px, size: img.getSize(), jpeg: img.toJPEG(75).length });
       } else if (m.quit) {
         wl?.quit();

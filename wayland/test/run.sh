@@ -2,6 +2,8 @@
 # The helper's test, then the app side's, in a headless GNOME Wayland session (GNOME's own shell,
 # portal, PipeWire and media-keys service). Needs python3-gi with GTK 3, and node.
 # usage: run.sh <helper binary> <out dir>     (runs itself again inside dbus-run-session)
+# DUNEBOT_WL_MONITORS: the screens, e.g. "1280x800" (the default) or "1280x800 2560x1600".
+# DUNEBOT_WL_SCALES: each one's scale, e.g. "2" or "1,2" (the default: whatever GNOME picks, 1).
 set -u
 HELPER=$(realpath "$1"); OUT=$(realpath -m "$2"); HERE=$(dirname "$(realpath "$0")")
 if [ -z "${INSIDE:-}" ]; then
@@ -13,10 +15,15 @@ fi
 pipewire > "$OUT/pipewire.log" 2>&1 &
 sleep 1
 wireplumber > "$OUT/wireplumber.log" 2>&1 &
-gnome-shell --headless --wayland --virtual-monitor 1280x800 --unsafe-mode > "$OUT/shell.log" 2>&1 &
+SCREENS=()
+for m in ${DUNEBOT_WL_MONITORS:-1280x800}; do SCREENS+=(--virtual-monitor "$m"); done
+gnome-shell --headless --wayland "${SCREENS[@]}" --unsafe-mode > "$OUT/shell.log" 2>&1 &
 for _ in $(seq 1 80); do [ -S "$XDG_RUNTIME_DIR/wayland-0" ] && break; sleep 0.5; done
 export WAYLAND_DISPLAY=wayland-0 GDK_BACKEND=wayland
 sleep 4
+if [ -n "${DUNEBOT_WL_SCALES:-}" ]; then
+  python3 -I "$HERE/screens.py" apply "$DUNEBOT_WL_SCALES" | tee "$OUT/screens.json" || exit 1
+fi
 # DUNEBOT_WL_ONLY=app: the app's side alone (quicker, while working on it). CI runs both.
 HELPER_TEST=0
 if [ "${DUNEBOT_WL_ONLY:-}" != app ]; then
