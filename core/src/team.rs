@@ -940,6 +940,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_real_agent_is_offered_every_new_tool() {
+        // What tools/list (mcp.rs) gives a real agent: the echo agent calls tools directly, so this
+        // checks the merged list itself.
+        let r = Rig::new();
+        let list = crate::tools::list_for(&r.app);
+        let names: Vec<&str> = list.as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
+        for want in ["point_at", "clear_pointer", "ask_bot", "connected_accounts", "look_at_screen", "click", "type_text"] {
+            assert!(names.contains(&want), "{want} missing from {names:?}");
+        }
+        let mut sorted = names.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), names.len(), "no tool twice: {names:?}");
+    }
+
+    #[tokio::test]
     async fn a_bot_changes_an_account_only_if_it_may() {
         let mut r = Rig::new();
         let w = r.call("bots.save", json!({ "name": "Writer", "role": "Writes", "engine": "echo", "may": ["read-file"] })).await.unwrap();

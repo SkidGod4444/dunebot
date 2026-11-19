@@ -54,7 +54,7 @@ pub const READS: &str = "phone.reads";
 pub const ACTIONS: &str = "phone.actions";
 
 /// What the agent is told when a phone turn tries one of those with the switch off.
-pub const REFUSED: &str = "From the user's phone, Dune Bot doesn't look at the screen, click, type, run commands or change files; they can allow it (with an OK each time) in Dune Bot's settings on their computer, under Phone.";
+pub const REFUSED: &str = "From the user's phone, Dune Bot doesn't look at the screen, click, type, run commands, change files or send or change anything in their accounts; they can allow it (with an OK each time) in Dune Bot's settings on their computer, under Phone.";
 
 const PRIVATE: &str = "This bot is private.";
 const PAIRED: &str = "Paired with Dune Bot. Send a message here to ask it something; /stop stops it, /new starts a new chat.";
@@ -1152,7 +1152,7 @@ mod tests {
         app.set_mode("run-command", "always").unwrap();
         for text in ["look", "type hello", "keys cmd+t", "run echo phone-should-not-run", &format!("write {}\nnope", file.display())] {
             let got = ask(&app, &mock, text).await;
-            assert!(got.iter().any(|t| t.contains("doesn't look at the screen, click, type, run commands or change files")), "{text}: {got:?}");
+            assert!(got.iter().any(|t| t.contains("doesn't look at the screen, click, type, run commands, change files or send or change anything in their accounts")), "{text}: {got:?}");
         }
         // A click, with a picture of the screen already taken: refused at the gate too.
         let t = setting(&app, THREAD).unwrap();
@@ -1245,6 +1245,23 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(500)).await;
         assert!(mock.sent().iter().any(|(m, b)| m == "editMessageText" && b["text"].as_str().is_some_and(|t| t.ends_with("Declined."))));
         done(&app, &dir);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn the_phone_changes_nothing_in_an_account_unless_actions_are_on() {
+        use crate::policy::Action;
+        let (app, mock, _dir) = paired("account-changes").await;
+        crate::protocol::handle(&app, "phone.set", &json!({ "key": "reads", "on": true })).await.unwrap();
+        ask(&app, &mock, "post on slack and on X that we shipped").await;
+        let t = setting(&app, THREAD).unwrap();
+        for (a, key) in [(Action::SlackWrite, "slack-write"), (Action::XPost, "x-post")] {
+            app.set_mode(key, "always").unwrap();
+            // Permissions say Always, and the account was named: still refused from the phone.
+            let no = app.gate(&t, a, "#general", "we shipped").await.unwrap_err();
+            assert_eq!(no, REFUSED, "{key}");
+        }
+        assert!(app.db(|d| d.ledger_list(20)).unwrap().iter().any(|l| l.action == "slack-write" && l.decision == "blocked (from your phone)"));
+        assert!(!app.db(|d| d.ledger_list(20)).unwrap().iter().any(|l| l.action == "slack-write" && l.decision.starts_with("allowed")));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

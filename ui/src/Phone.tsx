@@ -80,8 +80,8 @@ export function PhoneSettings() {
         onPick={(v) => flip("actions", v)}
         hint={
           ph?.actions
-            ? "From your phone, Dune Bot may look at the screen, click, type, run commands and change files, and each one asks first, every time. Answer Yes or No on your phone or here."
-            : "Off: from your phone, Dune Bot never looks at the screen, clicks, types, runs commands or changes files. It can still answer, read files and look inside folders, as Permissions allow."
+            ? "From your phone, Dune Bot may look at the screen, click, type, run commands, change files and send or change things in your accounts, and each one asks first, every time. Answer Yes or No on your phone or here."
+            : "Off: from your phone, Dune Bot never looks at the screen, clicks, types, runs commands, changes files or sends anything from your accounts. It can still answer, read files and look inside folders, as Permissions allow."
         }
       />
       {problem && <p className="px-4 py-2.5 text-[13px] font-medium text-ink">{problem}</p>}

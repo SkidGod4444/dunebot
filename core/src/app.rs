@@ -433,11 +433,23 @@ impl App {
     ) -> Result<(), String> {
         let mut why: Option<String> = None;
         // A turn from the user's paired phone (telegram.rs), or a teammate's working for one (team.rs),
-        // is a remote way in: it never looks at the
+        // is a remote way in: it never sends or changes anything in an account, nor looks at the
         // screen, clicks, types, runs commands or changes files unless they turned on "Let my phone
         // run actions" in Settings › Phone; then each one asks, every time ("for this chat" from an
         // earlier card doesn't count), whatever Permissions says ("Never" still means never).
-        let from_phone = matches!(action, Action::RunCommand | Action::WriteFile | Action::LookScreen | Action::Click | Action::Type)
+        let from_phone = matches!(
+            action,
+            Action::RunCommand
+                | Action::WriteFile
+                | Action::LookScreen
+                | Action::Click
+                | Action::Type
+                | Action::SlackWrite
+                | Action::GmailWrite
+                | Action::NotionWrite
+                | Action::CalendarWrite
+                | Action::XPost
+        )
             && crate::team::works_for(self, thread_id) == crate::asked::Origin::Phone;
         if from_phone && self.mode(action) != Mode::Never && !crate::telegram::actions_on(self) {
             self.ledger(thread_id, action, target, "blocked (from your phone)", detail);
