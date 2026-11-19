@@ -94,5 +94,7 @@ ipcRenderer.on("guard", (_e, on, n) => {
   guard(on);
   if (n) ipcRenderer.send("guard:ack", n);
 });
-// A page that loads while an agent's step is under way starts guarded (main always answers on Linux).
-if (process.platform === "linux") guard(ipcRenderer.sendSync("guard:state") === true);
+// A page that loads while an agent's step is under way starts guarded. Only on Wayland, as main.mjs
+// decides it (main answers there before any window exists; a page with no answer would hang).
+const onWayland = process.platform === "linux" && (process.env.XDG_SESSION_TYPE === "wayland" || !!process.env.WAYLAND_DISPLAY);
+if (onWayland) guard(ipcRenderer.sendSync("guard:state") === true);
