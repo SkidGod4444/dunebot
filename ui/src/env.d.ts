@@ -13,12 +13,18 @@ interface Window {
     glassRadius: (radius: number) => void;
     note?: (text: string) => void;
     testTranscript?: (text: string) => void;
+    testDictate?: (text: string) => void;
     sarvam: {
       status: () => Promise<SarvamStatus>;
       save: (key: string) => Promise<SarvamStatus>;
       remove: () => Promise<SarvamStatus>;
     };
     deepgram: {
+      status: () => Promise<SarvamStatus>;
+      save: (key: string) => Promise<SarvamStatus>;
+      remove: () => Promise<SarvamStatus>;
+    };
+    telegram: {
       status: () => Promise<SarvamStatus>;
       save: (key: string) => Promise<SarvamStatus>;
       remove: () => Promise<SarvamStatus>;

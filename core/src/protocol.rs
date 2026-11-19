@@ -43,6 +43,13 @@ impl Out {
         self.send(v);
     }
 
+    /// Tests: every line the core would print, to read back.
+    #[cfg(test)]
+    pub fn capture() -> (Self, mpsc::UnboundedReceiver<String>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        (Out(tx), rx)
+    }
+
     fn reply(&self, id: Value, r: Result<Value, String>) {
         match r {
             Ok(result) => self.send(json!({ "id": id, "result": result })),
@@ -77,7 +84,7 @@ fn s<'a>(p: &'a Value, k: &str) -> anyhow::Result<&'a str> {
     p.get(k).and_then(Value::as_str).ok_or_else(|| anyhow!("missing \"{k}\""))
 }
 
-async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<Value> {
+pub(crate) async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<Value> {
     Ok(match method {
         "hello" => json!({
             "version": env!("CARGO_PKG_VERSION"),
@@ -104,7 +111,7 @@ async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<Value
         "threads.send" => {
             // From the bar: the answer is spoken and shown as a caption by the pointer (agent::SPOKEN_NOTE).
             let spoken = p.get("spoken").and_then(Value::as_bool).unwrap_or(false);
-            agent::send(app.clone(), s(p, "id")?, s(p, "text")?, spoken).await?
+            agent::send(app.clone(), s(p, "id")?, s(p, "text")?, spoken, crate::asked::Origin::User).await?
         }
         "threads.cancel" => {
             agent::cancel(app, s(p, "id")?).await?;
@@ -123,6 +130,13 @@ async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<Value
         // The app only: whether the click asked for by an `input.click` event was made.
         "input.result" => app.input_result(p)?,
         "settings.get" => app.settings_json(),
+        // The user's accounts (connectors/). Pages see states and names, never a sign-in.
+        "connectors.list" => crate::connectors::list(app),
+        "connectors.connect" => crate::connectors::connect(app, p)?,
+        "connectors.cancel" => crate::connectors::cancel(app, p)?,
+        "connectors.disconnect" => crate::connectors::disconnect(app, p)?,
+        // The app only (never a page): a saved sign-in it unlocked, for a `connectors.need` event.
+        "connectors.secret" => crate::connectors::receive(app, p)?,
         "settings.set" => {
             app.set_mode(s(p, "action")?, s(p, "mode")?)?;
             app.settings_json()
@@ -230,6 +244,13 @@ async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<Value
             .await??
         }
         "agents.list" => agent::list_agents().await,
+        // The user's bots (team.rs): picked like agents, each with a role and the engine it runs on.
+        "bots.list" => crate::team::list(app),
+        "bots.save" => json!(crate::team::save(app, p)?),
+        "bots.delete" => {
+            crate::team::delete(app, s(p, "id")?)?;
+            json!({ "ok": true })
+        }
         // Stops every chat that's working: its command's process group, the agent's turn, open cards.
         "agents.stopAll" => {
             let ids: Vec<String> = app.busy.lock().unwrap().iter().cloned().collect();
@@ -256,6 +277,22 @@ async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<Value
             let s = app.db(|d| d.schedule_get(id))?;
             crate::schedule::run(app, &s).await?
         }
+        // Settings › Phone (telegram.rs): the bot, the pairing code, the paired chat, the two switches.
+        "phone.status" => app.phone.status(app),
+        "phone.set" => {
+            let on = p.get("on").and_then(Value::as_bool).ok_or_else(|| anyhow!("missing \"on\""))?;
+            app.phone.set_switch(app, s(p, "key")?, on)?;
+            app.phone.status(app)
+        }
+        "phone.unpair" => {
+            app.phone.unpair(app);
+            app.phone.status(app)
+        }
+        // The app only (never a page): hands over the Telegram bot token, or takes it back with null.
+        "phone.token" => {
+            app.phone.set_token(app, p.get("key").and_then(Value::as_str).map(String::from))?;
+            app.phone.status(app)
+        }
         "fixes.list" => json!(app.db(|d| d.fixes(None))?),
         "fixes.add" => {
             let thread = p.get("threadId").and_then(Value::as_str);
@@ -273,6 +310,8 @@ async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<Value
             app.db(|d| d.fix_delete(id))?;
             json!({ "ok": true })
         }
+        // The app only: Right ⌥ let go or used for a shortcut, and a test's words (dictation.rs).
+        m if m.starts_with("dictation.") => crate::dictation::handle(app, m, p).await?,
         "" => bail!("missing \"method\""),
         _ => bail!("unknown method \"{method}\""),
     })

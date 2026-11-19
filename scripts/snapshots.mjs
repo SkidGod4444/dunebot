@@ -13,6 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { pointerRun } from "./check_pointer.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const out = path.resolve(process.argv[2] ?? "snapshots");
@@ -48,6 +49,22 @@ const SHOTS = [
     DUNEBOT_INPUT_STUB: "1",
     DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-click.js"),
   }],
+  // Teaching: the test agent points at a tab in a stand-in picture, looks again, then clicks under the
+  // highlight (stand-ins); the click must not be refused as Dune Bot's own window (check_pointer.mjs).
+  ["pointer", "pointer", {
+    DUNEBOT_SCREEN_STUB: path.join(root, "electron", "assets", "icon.png"),
+    DUNEBOT_INPUT_STUB: "1",
+    DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "pointer.js"),
+  }],
+  // Dictation: words as if just said (no microphone) typed through the app's stand-in keyboard; then
+  // with Dune Bot's own window holding the keyboard, nothing typed and the card says why.
+  ["caption-dictation", "caption", { DUNEBOT_INPUT_STUB: "1", DUNEBOT_DICTATION_TEST: "1", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-dictation.js") }],
+  ["caption-dictation-refused", "caption", {
+    DUNEBOT_INPUT_STUB: "1",
+    DUNEBOT_DICTATION_TEST: "1",
+    DUNEBOT_SNAPSHOT_KEYBOARD: "ours",
+    DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-dictation.js"),
+  }],
   ["bar-held", "bar", { DUNEBOT_SNAPSHOT_HELD: "1", DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bar-held.js") }],
   ["setup", "setup", {}],
   ["main", "main", {}],
@@ -58,6 +75,14 @@ const SHOTS = [
   ["schedules", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "schedules.js") }],
   ["permissions", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions.js") }],
   ["permissions-voice", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-voice.js") }],
+  // Settings › Bots (three bots, one open in the editor), and the bar's picker with them in it.
+  ["bots", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bots.js") }],
+  ["bar-bots", "bar", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bar-bots.js") }],
+  // Permissions › Phone (the Telegram bot): no token; then drawn with a pairing code, and paired.
+  ["permissions-phone", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-phone.js") }],
+  ["permissions-phone-code", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-phone-code.js") }],
+  ["permissions-phone-paired", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-phone-paired.js") }],
+  ["permissions-connectors", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-connectors.js") }],
 ];
 const problems = [];
 // DUNEBOT_SNAPSHOT_ONLY=caption,caption-stream: just those views.
@@ -145,12 +170,62 @@ for (const theme of ["light", "dark"])
       if (missing.length) problems.push(`${name} ${theme}: the app didn't take ${missing.map(String).join(", ")}; steps ${JSON.stringify(res)}\n${log.split("\n").filter((l) => /input|screen|turn/.test(l)).slice(-10).join("\n")}`);
       else note += " clicked, scrolled, dragged, typed and pressed keys (stand-ins)";
     }
+    if (name === "pointer") {
+      const run = pointerRun(log);
+      for (const p of run.problems) problems.push(`${name} ${theme}: ${p}\n${log.split("\n").filter((l) => /pointer|input|screen|turn/.test(l)).slice(-10).join("\n")}`);
+      note += run.note;
+    }
+    if (name.startsWith("caption-dictation")) {
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      const states = (res?.states ?? []).map((s) => s.state).join(",");
+      const typed = /input: stand-in typing, 19 characters/.test(log);
+      const why = [];
+      if (!res?.listening) why.push("the card never said Listening…");
+      if (name === "caption-dictation") {
+        if (!typed) why.push("the app never typed (stand-in) the 19 characters");
+        if (states !== "typing,typed") why.push(`the card was told ${states || "nothing"}`);
+        if (!/dictation typed, 19 characters/.test(log)) why.push("no \"dictation typed\" line in the log");
+      } else {
+        if (typed) why.push("it typed, though Dune Bot's own window had the keyboard");
+        if (!/input: type: Dune Bot's own window has the keyboard/.test(log)) why.push("typeText's refusal isn't in the log");
+        if (states !== "typing,refused") why.push(`the card was told ${states || "nothing"}`);
+        if (!/own windows/.test(res?.note ?? "")) why.push(`the card showed "${res?.note ?? ""}"`);
+      }
+      if (/Hello from Dune Bot/.test(log)) why.push("the words are in the log");
+      if (why.length) problems.push(`${name} ${theme}: ${why.join("; ")} (${JSON.stringify(res)})\n${log.split("\n").filter((l) => /dictation|input/.test(l)).slice(-8).join("\n")}`);
+      else note += name === "caption-dictation" ? ` typed (stand-in)${res.typingShown ? ", \"Typing…\" shown" : ""}` : " refused, the card said why";
+    }
+    if (name === "bots" || name === "bar-bots") {
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      const good =
+        name === "bots"
+          ? res?.rows?.join() === "Researcher,Writer" && res.editor && res.editing === "Ops" && res.pressed?.join() === "Run commands,Read files" && res.handCursor
+          : res?.groups?.join() === "Bots" && res.options?.join() === "Researcher,Writer,Ops" && res.picked && /Wr\s*Writer/.test(res.label ?? "") && res.handCursor;
+      if (!good) problems.push(`${name} ${theme}: ${JSON.stringify(res)}`);
+      else note += name === "bots" ? " three bots, Ops in the editor, hand cursor on every button" : " bots in the picker, Writer picked";
+    }
     if (name === "caption-held-read") {
       // The held question goes only after the answer has been read: "speech:" (reading over) first.
       const read = log.search(/speech: .*streamed [1-9]/);
       const done = log.indexOf("card done with the answer");
       if (read < 0 || done < 0 || done < read) problems.push(`${name} ${theme}: reading over at ${read}, card done at ${done} (done must come after)\n${log.split("\n").filter((l) => /speech|card |turn/.test(l)).slice(-8).join("\n")}`);
       else note += " waited for the reading to end";
+    }
+    if (name.startsWith("permissions-phone")) {
+      // { found, code, paired, switches }: the section is there with both switches, and the state asked for.
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      const want = { "permissions-phone": [false, false], "permissions-phone-code": [true, false], "permissions-phone-paired": [false, true] }[name];
+      if (!res?.found || res.switches !== 2 || res.code !== want[0] || res.paired !== want[1]) problems.push(`${name} ${theme}: Phone section ${JSON.stringify(res)}`);
+      else note += res.code ? " pairing code shown" : res.paired ? " paired, Unpair shown" : " token box and two switches";
     }
     if (name === "caption-first-line") {
       // "On it." read while the command still ran, then "Done." after it.

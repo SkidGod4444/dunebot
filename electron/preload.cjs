@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld("dunebot", {
   note: (text) => ipcRenderer.send("page:note", String(text).slice(0, 200)),
   // Hidden-window checks only (main ignores it otherwise).
   testTranscript: (text) => ipcRenderer.send("test:transcript", String(text)),
+  // Hidden-window checks only (main ignores it otherwise): words as if just dictated, no microphone.
+  testDictate: (text) => ipcRenderer.send("test:dictate", String(text)),
   // The voice keys (Sarvam; Deepgram for English in an American voice): pages can save or remove
   // them and see whether one is saved, never read them.
   sarvam: {
@@ -32,6 +34,12 @@ contextBridge.exposeInMainWorld("dunebot", {
     status: () => ipcRenderer.invoke("deepgram:status"),
     save: (key) => ipcRenderer.invoke("deepgram:save", String(key)),
     remove: () => ipcRenderer.invoke("deepgram:remove"),
+  },
+  // The Telegram bot's token (Settings › Phone): the same, save or remove, never read.
+  telegram: {
+    status: () => ipcRenderer.invoke("telegram:status"),
+    save: (key) => ipcRenderer.invoke("telegram:save", String(key)),
+    remove: () => ipcRenderer.invoke("telegram:remove"),
   },
   setup: {
     status: () => ipcRenderer.invoke("setup:status"),
@@ -68,6 +76,13 @@ contextBridge.exposeInMainWorld("dunebot", {
     onMoving: listen("caption:moving"),
     settled: (on) => ipcRenderer.send("caption:settled", !!on),
     testShow: (threadId) => ipcRenderer.send("caption:test-show", String(threadId)),
+  },
+  // The highlight an agent points with when it teaches (electron/pointer.mjs): what to draw, and
+  // "drawn" once it is (the window is shown only then).
+  pointer: {
+    onShow: listen("pointer:show"),
+    onHide: listen("pointer:hide"),
+    drawn: (gen) => ipcRenderer.send("pointer:drawn", Number(gen)),
   },
 });
 

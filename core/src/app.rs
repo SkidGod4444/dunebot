@@ -48,7 +48,8 @@ fn min_read_time() -> Duration {
 /// `voice.speak`: "0" stops answers from being read aloud (the answer card's speaker button).
 /// `voice.engine`: "local" listens and reads aloud on this computer even when a Sarvam key is saved.
 /// `keys.chord`: the keys that tap/hold on macOS ("opt-cmd" ⌥⌘ by default, "ctrl-opt", "ctrl-cmd", "right-cmd").
-pub const PREFS: [&str; 8] = ["agent", "bar.thread", "setup.done", "setup.folders", "bar.place", "voice.speak", "voice.engine", "keys.chord"];
+/// `dictation`: "off" stops Right ⌥ held alone from typing what you say (macOS; unset is on).
+pub const PREFS: [&str; 9] = ["agent", "bar.thread", "setup.done", "setup.folders", "bar.place", "voice.speak", "voice.engine", "keys.chord", crate::dictation::PREF];
 
 pub struct App {
     pub out: Out,
@@ -66,6 +67,8 @@ pub struct App {
     /// The Sarvam key, in memory only (sarvam.rs).
     pub sarvam: crate::sarvam::Sarvam,
     pub deepgram: crate::deepgram::Deepgram,
+    /// The user's phone, through their Telegram bot (telegram.rs).
+    pub phone: crate::telegram::Phone,
     pub cancelled: Mutex<HashSet<String>>,
     pub sessions: tokio::sync::Mutex<HashMap<String, Arc<Codemax>>>,
     /// The newest fix each chat's agent has been given, so a fix made mid-chat reaches it once.
@@ -78,6 +81,8 @@ pub struct App {
     /// Each chat's latest picture of the screen: where it lies on the screen, so a click can be given
     /// as a point in it.
     pub shots: Mutex<HashMap<String, crate::tools::Shot>>,
+    /// The user's connected accounts (connectors/).
+    pub connectors: crate::connectors::Connectors,
 }
 
 pub fn new_id() -> String {
@@ -109,6 +114,7 @@ impl App {
             voice: Default::default(),
             sarvam: Default::default(),
             deepgram: Default::default(),
+            phone: Default::default(),
             busy: Mutex::new(HashSet::new()),
             cancelled: Mutex::new(HashSet::new()),
             sessions: tokio::sync::Mutex::new(HashMap::new()),
@@ -117,6 +123,7 @@ impl App {
             locations: Mutex::new(HashMap::new()),
             inputs: Mutex::new(HashMap::new()),
             shots: Mutex::new(HashMap::new()),
+            connectors: Default::default(),
         }
     }
 
@@ -392,10 +399,16 @@ impl App {
         if key == "keys.chord" && !crate::keys::CHORDS.iter().any(|(n, _, _)| *n == value) {
             bail!("unknown keys \"{value}\"");
         }
+        if key == crate::dictation::PREF {
+            crate::dictation::check(value)?;
+        }
         self.db(|d| d.set_setting(&format!("pref.{key}"), value))?;
         if key == "keys.chord" {
             let label = crate::keys::choose(Some(value));
             self.out.event("chord.keys", json!({ "name": value, "keys": label }));
+        }
+        if key == crate::dictation::PREF {
+            crate::dictation::set(self, value);
         }
         Ok(())
     }
@@ -419,7 +432,34 @@ impl App {
         look: Option<Result<(), crate::lookonly::Asked>>,
     ) -> Result<(), String> {
         let mut why: Option<String> = None;
+        // A turn from the user's paired phone (telegram.rs), or a teammate's working for one (team.rs),
+        // is a remote way in: it never sends or changes anything in an account, nor looks at the
+        // screen, clicks, types, runs commands or changes files unless they turned on "Let my phone
+        // run actions" in Settings › Phone; then each one asks, every time ("for this chat" from an
+        // earlier card doesn't count), whatever Permissions says ("Never" still means never).
+        let from_phone = matches!(
+            action,
+            Action::RunCommand
+                | Action::WriteFile
+                | Action::LookScreen
+                | Action::Click
+                | Action::Type
+                | Action::SlackWrite
+                | Action::GmailWrite
+                | Action::NotionWrite
+                | Action::CalendarWrite
+                | Action::XPost
+        )
+            && crate::team::works_for(self, thread_id) == crate::asked::Origin::Phone;
+        if from_phone && self.mode(action) != Mode::Never && !crate::telegram::actions_on(self) {
+            self.ledger(thread_id, action, target, "blocked (from your phone)", detail);
+            return Err(crate::telegram::REFUSED.into());
+        }
         let mode = match self.mode(action) {
+            Mode::Always | Mode::Auto | Mode::Ask if from_phone => {
+                why = Some("it came from your phone".into());
+                Mode::Ask
+            }
             // A chat a schedule started runs while you may be away: it always asks before commands,
             // file changes and looks at the screen, whatever Permissions says ("Never" still means never).
             Mode::Always | Mode::Auto
@@ -456,11 +496,12 @@ impl App {
             Mode::Always => "allowed (always)",
             // (Auto has been decided above: it never gets here as Auto.)
             Mode::Ask | Mode::Auto => {
-                if self.grants.lock().unwrap().contains(&(thread_id.to_string(), action)) {
+                if !from_phone && self.grants.lock().unwrap().contains(&(thread_id.to_string(), action)) {
                     "allowed (this chat)"
                 } else {
                     match self.ask(thread_id, action, target, detail, why.as_deref()).await {
                         Some(Decision::Once) => "approved once",
+                        Some(Decision::Chat) if from_phone => "approved once",
                         Some(Decision::Chat) => {
                             self.grants.lock().unwrap().insert((thread_id.to_string(), action));
                             "approved for this chat"

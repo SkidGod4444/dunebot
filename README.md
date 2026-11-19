@@ -29,7 +29,7 @@ Linux), and a setup window asks once for what it uses: the microphone (then chec
 really arrives), notifications, your Desktop, Documents and Downloads folders, the speech model
 download and, last, Screen Recording (macOS answers that one in System Settings, then asks to
 reopen Dune Bot). It never asks for Full Disk Access or Input Monitoring; Accessibility only the
-first time an agent uses the mouse or keyboard for you. Reopen setup from the menu bar: **Set up Dune Bot…**.
+first time an agent uses the mouse or keyboard for you, or you dictate. Reopen setup from the menu bar: **Set up Dune Bot…**.
 
 ## Use it
 
@@ -41,6 +41,12 @@ first time an agent uses the mouse or keyboard for you. Reopen setup from the me
   modifier-key state only, so Dune Bot needs no Input Monitoring permission and never sees what you
   type; ⌥⌘ followed by another key or a click (⌥⌘Esc, ⌥⌘D, …) is ignored. If another app wants the
   same keys, pick ⌃⌥, ⌃⌘ or Right ⌘ alone instead (Permissions › Keys, or Keys in the menu bar).
+- **Dictate.** macOS: **hold Right ⌥** on its own and talk; let go, and what you said is typed where
+  your text cursor is, in any app, like the system's dictation. It isn't sent to an agent and nothing
+  is read aloud. Read the same way as ⌥⌘ (no Input Monitoring); another key or a click while you hold
+  it cancels, so ⌥ shortcuts and special characters still work. Typing goes through the same checks as
+  an agent's (never into Dune Bot itself; Accessibility asked the first time). Turn it off in
+  Permissions › Keys or Keys in the menu bar. Windows and Linux: not yet.
 - **Answers at once, works after.** When a request needs work, the agent first says what it's doing
   ("Sure, checking the weather where you are."). The card shows that line and reads it aloud right
   away while the work goes on, then reads the answer after it.
@@ -322,13 +328,16 @@ python3 -I scripts/check_languages_live.py core/target/debug/dunebot-core <.env 
 python3 -I scripts/check_deepgram_live.py core/target/debug/dunebot-core <.env file(s) with DEEPGRAM_API_KEY, SARVAM_API_KEY> <out dir>
                                    # real Deepgram the same way: American English streamed and whole, Hindi to Sarvam, a wrong key
 node scripts/check_follow.mjs      # where the card goes as it follows the pointer (never on it, on screen, no flapping); moving toward it holds it
+node scripts/check_dictation.mjs   # dictation: words fed to the core (no mic) typed exactly through input.mjs (fake addon); refusals type nothing
 ```
 
 `node scripts/snapshots.mjs` also runs the card on a scripted pointer (`caption-follow`): it must
 move, never sit under the pointer or off the screen, and hold still while a card waits. And
 (`caption-grab`): it must keep following while the pointer moves beside it, and stop for good once
 the pointer heads for it. `caption-first-line` checks that the agent's first line is read while its
-step still runs.
+step still runs. `caption-dictation` feeds words as if dictated and checks the app types them (stand-in
+keyboard); `caption-dictation-refused` gives Dune Bot's own window the keyboard: nothing typed, and the
+card says why in one sentence.
 
 UI snapshots without showing a window (no tray, hotkey or notifications in this mode):
 
@@ -357,6 +366,7 @@ on macOS, Windows and Linux. What each system forces:
 | Bar and setup surface | Apple's Liquid Glass edge (macOS 26+) around a solid dark fill, always dark | the same dark, solid | the same dark, solid |
 | Open the bar | tap ⌥⌘ (opens at the chosen place) | Ctrl+Alt+Space (or the next free of Alt+Shift+Space, Ctrl+Shift+Space) | same as Windows; on Wayland through the desktop's shortcut portal (it asks once) |
 | Talk | hold ⌥⌘ or the mic button | hold the mic button | hold the mic button |
+| Dictate (typed where you are) | hold Right ⌥ alone | not yet (letting go of Alt opens apps' menus; AltGr) | not yet; Wayland can't (no key state for apps) |
 | Answer card | solid dark card that follows the pointer, read aloud | the same; Windows voices | the same on X11 (following not yet run on a real Linux display); the system voice needs speech-dispatcher; on Wayland it stays where it opened (Wayland doesn't tell apps where the pointer is) |
 | Clicking the answer card | while the pointer is on it | while the pointer is on it | only while a card waits for your OK (the window can't tell where the pointer is) |
 | Setup asks for | mic, notifications, Desktop/Documents/Downloads, speech model, Screen Recording | speech model (shows the mic if Windows has it off) | speech model |

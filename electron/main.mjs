@@ -15,9 +15,11 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { createInput } from "./input.mjs";
+import { createDictation } from "./dictation.mjs";
 import { createWayland } from "./wayland.mjs";
 import { gnomeKeys, onGnome } from "./gnome-keys.mjs";
 import { createGuard } from "./pass-clicks.mjs";
+import { createPointer } from "./pointer.mjs";
 import { place as placeCaption, corner as captionCorner, covers, inside, heading, WIN_W as CAPTION_W, WIN_H as CAPTION_H } from "./caption-place.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -141,6 +143,9 @@ function startCore() {
       // Streamed speech: for the card only (it's the one reading aloud), never logged.
       if (caption && !caption.isDestroyed()) caption.webContents.send("core:event", m);
       if (m.event === "voice.stream" && m.state === "error") log("voice stream stopped with an error");
+    } else if (m.event === "connectors.store" || m.event === "connectors.need" || m.event === "connectors.open") {
+      // A sign-in, or a sign-in page: for this process only, never a window or the log.
+      connectorEvent(m);
     } else if (m.event) {
       broadcast(m);
       onCoreEvent(m);
@@ -168,8 +173,11 @@ const ALLOWED = new Set([
   "hello", "threads.list", "threads.create", "threads.get", "threads.delete", "threads.send",
   "threads.cancel", "threads.changes", "threads.undo", "agents.stopAll", "fixes.list", "fixes.add", "fixes.set", "fixes.delete",
   "schedules.list", "schedules.add", "schedules.set", "schedules.delete", "schedules.run", "approvals.respond", "settings.get", "settings.set", "prefs.set", "agents.list", "ledger.list",
+  "bots.list", "bots.save", "bots.delete",
+  "phone.status", "phone.set", "phone.unpair",
   "voice.status", "voice.start", "voice.stop", "voice.cancel", "voice.say",
   "voice.streamOpen", "voice.streamSay", "voice.streamClose",
+  "connectors.list", "connectors.connect", "connectors.cancel", "connectors.disconnect",
 ]);
 
 function fromOurPage(e) {
@@ -187,6 +195,7 @@ ipcMain.handle("core:call", (e, method, params) => {
   if (method === "voice.say") return sayWithSarvam(params?.text);
   if (method === "voice.streamOpen") return sarvamReady().then(() => call("voice.streamOpen", {}));
   if (method === "voice.streamSay") return sayStreamed(params?.stream, params?.text);
+  if (method === "connectors.connect") return connectorConnect(params);
   // A preference one window changes reaches every window and the tray (the card reads "voice.speak",
   // the tray ticks "agent"), as the tray's own changes do.
   if (method === "prefs.set")
@@ -975,8 +984,69 @@ function lockedKey({ id, name, file, pattern, method }) {
     },
   };
 }
+// ---------- connectors: the user's Slack, Gmail, Notion, Calendar and X ----------
+// The core signs in (connectors/ in the core) and hands each sign-in here to lock away with
+// safeStorage, the same way as the voice keys: `connectors.store` saves one (or deletes it when it's
+// null), `connectors.need` asks for one back after a restart (answered with `connectors.secret`,
+// which no window may call), `connectors.open` is the vendor's sign-in page for the browser. None
+// of them reaches a window or the log. Snapshots and self-checks never touch the keychain or the
+// browser.
+const CONNECTOR = /^(slack|gmail|notion|calendar|x)$/;
+const connectorFile = (source) => path.join(app.getPath("userData"), `connector-${source}.bin`);
+
+function connectorEvent(m) {
+  const source = String(m.source ?? "");
+  if (!CONNECTOR.test(source)) return;
+  const test = snapshot || selfcheck;
+  if (m.event === "connectors.open") {
+    const url = String(m.url ?? "");
+    if (test || !/^https:\/\//i.test(url)) return log(`connectors: ${source}: sign-in page not opened`);
+    shell.openExternal(url);
+    return log(`connectors: ${source}: sign-in page opened in the browser`);
+  }
+  const f = connectorFile(source);
+  if (m.event === "connectors.store") {
+    if (test) return;
+    if (m.secret == null) {
+      fs.rmSync(f, { force: true });
+      return log(`connectors: ${source}: sign-in removed`);
+    }
+    if (!keyCanLock()) return log(`connectors: ${source}: no keychain to lock the sign-in with; kept only until Dune Bot quits`);
+    try {
+      fs.writeFileSync(`${f}.part`, safeStorage.encryptString(String(m.secret)), { mode: 0o600 });
+      fs.renameSync(`${f}.part`, f);
+      log(`connectors: ${source}: sign-in saved, locked by the system keychain`);
+    } catch (e) {
+      log(`connectors: ${source}: sign-in not saved (${e.code ?? "error"})`);
+    }
+    return;
+  }
+  // connectors.need: unlocked only now, when an agent first uses the account since the core started.
+  let secret = null;
+  if (!test && keyCanLock() && fs.existsSync(f)) {
+    try {
+      secret = safeStorage.decryptString(fs.readFileSync(f));
+    } catch {
+      log(`connectors: ${source}: couldn't unlock the saved sign-in`);
+    }
+  }
+  call("connectors.secret", { requestId: String(m.requestId ?? ""), source, secret }).catch(() =>
+    log(`connectors: ${source}: the core didn't take the sign-in`),
+  );
+}
+
+/** Connect from Settings: only where the sign-in can be locked away, and never in a test run. */
+function connectorConnect(params) {
+  if (snapshot || selfcheck) throw new Error("Not connected: this is a test run.");
+  if (!keyCanLock()) throw new Error("This computer has no keychain to lock the sign-in with, so Dune Bot won't keep it.");
+  return call("connectors.connect", params ?? {});
+}
+
 const sarvamKey = lockedKey({ id: "sarvam", name: "Sarvam", file: "sarvam-key.bin", pattern: /^[A-Za-z0-9_-]{10,200}$/, method: "voice.key" });
 const deepgramKey = lockedKey({ id: "deepgram", name: "Deepgram", file: "deepgram-key.bin", pattern: /^[A-Za-z0-9_-]{20,200}$/, method: "voice.deepgramKey" });
+// Settings › Phone: the user's Telegram bot token, locked the same way. The core polls Telegram with
+// it from the start (core/src/telegram.rs), so it's handed over as soon as the core runs.
+const telegramKey = lockedKey({ id: "telegram", name: "Telegram bot", file: "telegram-token.bin", pattern: /^\d{5,15}:[A-Za-z0-9_-]{30,60}$/, method: "phone.token" });
 /** Both keys with the core before anything is heard or read aloud. */
 const sarvamReady = () => Promise.all([sarvamKey.ready(), deepgramKey.ready()]);
 
@@ -1019,7 +1089,7 @@ async function sarvamImport() {
   }
 }
 
-for (const [id, store] of [["sarvam", sarvamKey], ["deepgram", deepgramKey]]) {
+for (const [id, store] of [["sarvam", sarvamKey], ["deepgram", deepgramKey], ["telegram", telegramKey]]) {
   for (const what of ["status", "save", "remove"]) {
     ipcMain.handle(`${id}:${what}`, (e, arg) => {
       if (!fromOurPage(e)) throw new Error("refused");
@@ -1058,6 +1128,24 @@ function onChord(kind) {
     if (captionThread === null) hideCaption();
   }
 }
+
+// Dictation (macOS): Right ⌥ held alone, its words typed where the text cursor is (electron/dictation.mjs).
+const dictation = createDictation({
+  call,
+  log,
+  emit,
+  micStatus,
+  openSetup,
+  startVoice,
+  showListening: () => {
+    hushCaption(); // the mic mustn't hear Dune Bot
+    if (!captionWaits()) showCaption(null);
+  },
+  hideListening: () => captionThread === null && hideCaption(),
+  savePref: (key, value) => savePref(key, value).then(() => broadcast({ event: "prefs.updated", prefs })),
+  refreshTray: () => refreshTray(),
+  test: snapshot && process.env.DUNEBOT_DICTATION_TEST === "1" ? { ipcMain, from: (sender) => !!caption && sender === caption.webContents } : undefined,
+});
 
 // ---------- the history window ----------
 let mainWin = null;
@@ -1214,13 +1302,17 @@ async function locationForCore(requestId) {
 // cards or change its settings.
 const ACCESSIBILITY_PANE = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
 const ownName = (w) => (w === caption ? "answer card" : w === bar ? "bar" : "window");
+// The highlight an agent points with when it teaches (electron/pointer.mjs): click-through, always.
+const highlight = createPointer({ BrowserWindow, screen, ipcMain, pageUrl, webPreferences, harden, platform: process.platform, wayland, snapshot: !!snapshot, log, call });
 
 /** Which of Dune Bot's own windows a click at this point would reach, if one would. A window of
  * Dune Bot's behind another app's doesn't count; the card while it follows the pointer, or while
- * Dune Bot itself uses the mouse, doesn't either (it lets clicks through then, to what's under it). */
+ * Dune Bot itself uses the mouse, doesn't either (it lets clicks through then, to what's under it),
+ * and the highlight never does (it lets every click through). The highlight counts as shown while
+ * it's up, even hidden for a picture or in a hidden-window test, so the test checks this rule. */
 function ownWindowAt(x, y) {
-  const shown = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && w.isVisible());
-  const passes = (w) => w === caption && (captionMoving || pointerBusy > 0);
+  const shown = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && (w.isVisible() || highlight.up(w)));
+  const passes = (w) => highlight.is(w) || (w === caption && (captionMoving || pointerBusy > 0));
   const hit = (w) => {
     const b = w.getBounds();
     return !passes(w) && x >= b.x && x < b.x + b.width && y >= b.y && y < b.y + b.height;
@@ -1250,6 +1342,8 @@ function refuseOwn(x, y, verb) {
 
 /** Why Dune Bot mustn't type now (one of its own windows, or Dune Bot itself, has the keyboard). */
 function keyboardIsOurs() {
+  // Hidden-window checks only: snapshot windows never have the keyboard, so a check can say one does.
+  if (snapshot && process.env.DUNEBOT_SNAPSHOT_KEYBOARD === "ours") return "Dune Bot's own window has the keyboard";
   const focused = BrowserWindow.getFocusedWindow();
   if (focused && !focused.isDestroyed()) return `Dune Bot's own ${ownName(focused)} has the keyboard`;
   if (!wayland && inputAddon?.frontmostPid && inputAddon.frontmostPid() === process.pid) return "Dune Bot is the app in front";
@@ -1341,6 +1435,7 @@ async function startGnomeKeys() {
 function stopAgents(why, { keepSession = false } = {}) {
   log(`stop: ${why}`);
   hushCaption();
+  highlight.clear("every agent was stopped");
   if (wl && !keepSession) wl.stop();
   return call("agents.stopAll").catch(() => {});
 }
@@ -1479,7 +1574,7 @@ function askScreen() {
 async function captureForCore(requestId) {
   try {
     wl?.begin();
-    const shot = await takeScreenshot();
+    const shot = await highlight.whileHidden(takeScreenshot); // never with the highlight in it
     log(`screen: picture ${shot.width}x${shot.height}, ${Math.round((shot.data.length * 0.75) / 1024)} KB`);
     await call("screen.result", { requestId, ...shot });
   } catch (err) {
@@ -1703,6 +1798,7 @@ function refreshTray() {
           ? { label: "Ask Dune Bot", accelerator: hotkey, registerAccelerator: false, click: () => showBar({ focus: true }) }
           : { label: "Ask Dune Bot (no hotkey: all choices taken)", click: () => showBar({ focus: true }) },
       { label: isMac && chord ? `Talk                       hold ${keysLabel()}` : "Talk: hold the mic button in the bar", enabled: false },
+      ...dictation.hint(),
       ...(voiceNote ? [{ label: voiceNote, enabled: false }] : []),
       ...(need ? [{ label: `${need} waiting for your OK`, click: () => showWaiting() }] : []),
       { label: "Show last answer       ↑ in the bar", enabled: !!lastAsked, click: () => showLastAnswer() },
@@ -1718,7 +1814,7 @@ function refreshTray() {
         submenu: BAR_PLACES.map(([k, label]) => ({ label, type: "radio", checked: barPlace() === k, click: () => setBarPlace(k) })),
       },
       ...(isMac && chord
-        ? [{ label: "Keys", submenu: KEYS.map(([k, label]) => ({ label, type: "radio", checked: keysName() === k, click: () => setKeys(k) })) }]
+        ? [{ label: "Keys", submenu: [...KEYS.map(([k, label]) => ({ label, type: "radio", checked: keysName() === k, click: () => setKeys(k) })), ...dictation.menu()] }]
         : []),
       { label: "Agent", submenu: agentItems.length ? agentItems : [{ label: "Looking for agents…", enabled: false }] },
       { type: "separator" },
@@ -1752,6 +1848,7 @@ function someWindowFocused() {
 
 const firstWords = new Set(); // chats whose answer hasn't started yet (for the log's timings)
 function onCoreEvent(m) {
+  if (highlight.onCoreEvent(m)) return; // the highlight's own requests (and it goes when a chat moves on)
   switch (m.event) {
     case "thread.updated":
       titles.set(m.thread.id, m.thread.title);
@@ -1780,6 +1877,11 @@ function onCoreEvent(m) {
       break;
     case "chord":
       onChord(m.kind);
+      return;
+    case "dictation":
+    case "dictation.ready":
+    case "dictation.state":
+      dictation.onEvent(m);
       return;
     case "screen.capture":
       captureForCore(m.requestId);
@@ -2037,10 +2139,11 @@ app.whenReady().then(async () => {
     if (process.env.DUNEBOT_SNAPSHOT_THEME) nativeTheme.themeSource = process.env.DUNEBOT_SNAPSHOT_THEME;
     if (snapView === "bar" && process.env.DUNEBOT_SNAPSHOT_HELD) createCaption(); // made at startup, as in the app
     const win =
-      snapView === "bar" ? createBar() : snapView === "caption" ? createCaption() : snapView === "setup" ? openSetup() : openMain(process.env.DUNEBOT_SNAPSHOT_MAIN_VIEW ?? "chat");
+      snapView === "bar" ? createBar() : snapView === "caption" ? createCaption() : snapView === "setup" ? openSetup() : snapView === "pointer" ? highlight.window() : openMain(process.env.DUNEBOT_SNAPSHOT_MAIN_VIEW ?? "chat");
     takeSnapshot(win);
     return;
   }
+  telegramKey.ready(); // the phone's bot answers from the start (Settings › Phone)
   if (isMac) app.dock?.hide();
   tray = new Tray(nativeImage.createFromPath(path.join(here, "assets", ICONS.idle)));
   // Windows/Linux: a left click opens the bar (macOS shows the menu).
