@@ -7,6 +7,7 @@ import {
 import { AgentAvatar, ApprovalCard, AssistantBubble, failureOf, Mascot, TeachFix, ThinkingBubble, UserBubble } from "./parts";
 import { useStickToBottom } from "./stick";
 import { plainPreview } from "./reply";
+import { BotsSettings } from "./BotsSettings";
 
 export function App() {
   const view = useStore((s) => s.view);
@@ -542,6 +543,8 @@ function Permissions() {
               </div>
             ))}
           </div>
+          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Bots</h2>
+          <BotsSettings />
           {window.dunebot.platform === "darwin" && (
             <>
               <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Keys</h2>

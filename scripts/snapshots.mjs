@@ -58,6 +58,9 @@ const SHOTS = [
   ["schedules", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "schedules.js") }],
   ["permissions", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions.js") }],
   ["permissions-voice", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-voice.js") }],
+  // Settings › Bots (three bots, one open in the editor), and the bar's picker with them in it.
+  ["bots", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bots.js") }],
+  ["bar-bots", "bar", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bar-bots.js") }],
 ];
 const problems = [];
 // DUNEBOT_SNAPSHOT_ONLY=caption,caption-stream: just those views.
@@ -144,6 +147,18 @@ for (const theme of ["light", "dark"])
       } catch {}
       if (missing.length) problems.push(`${name} ${theme}: the app didn't take ${missing.map(String).join(", ")}; steps ${JSON.stringify(res)}\n${log.split("\n").filter((l) => /input|screen|turn/.test(l)).slice(-10).join("\n")}`);
       else note += " clicked, scrolled, dragged, typed and pressed keys (stand-ins)";
+    }
+    if (name === "bots" || name === "bar-bots") {
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      const good =
+        name === "bots"
+          ? res?.rows?.join() === "Researcher,Writer" && res.editor && res.editing === "Ops" && res.pressed?.join() === "Run commands,Read files" && res.handCursor
+          : res?.groups?.join() === "Bots" && res.options?.join() === "Researcher,Writer,Ops" && res.picked && /Wr\s*Writer/.test(res.label ?? "") && res.handCursor;
+      if (!good) problems.push(`${name} ${theme}: ${JSON.stringify(res)}`);
+      else note += name === "bots" ? " three bots, Ops in the editor, hand cursor on every button" : " bots in the picker, Writer picked";
     }
     if (name === "caption-held-read") {
       // The held question goes only after the answer has been read: "speech:" (reading over) first.
