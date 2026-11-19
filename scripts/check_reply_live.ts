@@ -53,7 +53,9 @@ const PAGE = `(async () => {
   };
 })();`;
 
-const MINE = new Set(["threads.create", "threads.get", "threads.send", "threads.list", "threads.changes", "settings.get", "agents.list"]);
+// What the page asks for itself while loading and sending (bots.list: the user's bots, a list like
+// agents.list, for the picker).
+const MINE = new Set(["threads.create", "threads.get", "threads.send", "threads.list", "threads.changes", "settings.get", "agents.list", "bots.list"]);
 let failed = 0;
 const fail = (what: string) => {
   failed++;
