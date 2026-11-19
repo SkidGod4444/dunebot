@@ -454,7 +454,7 @@ async fn the_same_read_is_refused_unless_the_users_own_words_asked() {
     let (app, _dir, m) = connected_notion().await;
     let before = requests(&m);
     let cases = [
-        ("what's the weather", Origin::User, "hasn't asked for their Notion in this chat"),
+        ("what's the weather", Origin::User, "hasn't asked for their Notion in this conversation"),
         ("check my notion", Origin::Schedule, "schedule"),
         ("check my notion", Origin::Bot, "Another bot"),
         ("check my notion", Origin::Phone, "from your phone is off"),
