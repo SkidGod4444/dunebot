@@ -18,6 +18,7 @@ mod sarvam;
 mod speak_stream;
 mod schedule;
 mod store;
+mod telegram;
 mod tools;
 mod undo;
 mod voice;
@@ -54,6 +55,8 @@ async fn main() -> anyhow::Result<()> {
     app.set_mcp_port(port);
     agent::spawn_reaper(app.clone());
     schedule::spawn(app.clone());
+    // The user's Telegram bot (Settings › Phone): polls once the app hands over its token.
+    telegram::spawn(app.clone());
     {
         let app = app.clone();
         tokio::task::spawn_blocking(move || history::backfill(&app));
