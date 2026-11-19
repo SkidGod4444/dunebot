@@ -35,6 +35,12 @@ contextBridge.exposeInMainWorld("dunebot", {
     save: (key) => ipcRenderer.invoke("deepgram:save", String(key)),
     remove: () => ipcRenderer.invoke("deepgram:remove"),
   },
+  // The Telegram bot's token (Settings › Phone): the same, save or remove, never read.
+  telegram: {
+    status: () => ipcRenderer.invoke("telegram:status"),
+    save: (key) => ipcRenderer.invoke("telegram:save", String(key)),
+    remove: () => ipcRenderer.invoke("telegram:remove"),
+  },
   setup: {
     status: () => ipcRenderer.invoke("setup:status"),
     ask: (what) => ipcRenderer.invoke("setup:ask", what),

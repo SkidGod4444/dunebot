@@ -9,6 +9,7 @@ import { useStickToBottom } from "./stick";
 import { plainPreview } from "./reply";
 import { BotsSettings } from "./BotsSettings";
 import { DictationSetting } from "./dictation";
+import { PhoneSettings } from "./Phone";
 
 export function App() {
   const view = useStore((s) => s.view);
@@ -551,6 +552,8 @@ function Permissions() {
           <DictationSetting />
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Voice</h2>
           <VoiceSettings />
+          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Phone</h2>
+          <PhoneSettings />
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Always off limits</h2>
           <div className="rounded-2xl bg-side px-4 py-3.5">
             <p className="text-[14px] text-ink/70">Dune Bot's file tools never read or change these, whatever the settings above say:</p>

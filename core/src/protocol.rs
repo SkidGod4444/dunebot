@@ -84,7 +84,7 @@ fn s<'a>(p: &'a Value, k: &str) -> anyhow::Result<&'a str> {
     p.get(k).and_then(Value::as_str).ok_or_else(|| anyhow!("missing \"{k}\""))
 }
 
-async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<Value> {
+pub(crate) async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<Value> {
     Ok(match method {
         "hello" => json!({
             "version": env!("CARGO_PKG_VERSION"),
@@ -269,6 +269,22 @@ async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<Value
             let id = p.get("id").and_then(Value::as_i64).ok_or_else(|| anyhow::anyhow!("missing \"id\""))?;
             let s = app.db(|d| d.schedule_get(id))?;
             crate::schedule::run(app, &s).await?
+        }
+        // Settings › Phone (telegram.rs): the bot, the pairing code, the paired chat, the two switches.
+        "phone.status" => app.phone.status(app),
+        "phone.set" => {
+            let on = p.get("on").and_then(Value::as_bool).ok_or_else(|| anyhow!("missing \"on\""))?;
+            app.phone.set_switch(app, s(p, "key")?, on)?;
+            app.phone.status(app)
+        }
+        "phone.unpair" => {
+            app.phone.unpair(app);
+            app.phone.status(app)
+        }
+        // The app only (never a page): hands over the Telegram bot token, or takes it back with null.
+        "phone.token" => {
+            app.phone.set_token(app, p.get("key").and_then(Value::as_str).map(String::from))?;
+            app.phone.status(app)
         }
         "fixes.list" => json!(app.db(|d| d.fixes(None))?),
         "fixes.add" => {

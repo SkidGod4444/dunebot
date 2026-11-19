@@ -24,6 +24,11 @@ interface Window {
       save: (key: string) => Promise<SarvamStatus>;
       remove: () => Promise<SarvamStatus>;
     };
+    telegram: {
+      status: () => Promise<SarvamStatus>;
+      save: (key: string) => Promise<SarvamStatus>;
+      remove: () => Promise<SarvamStatus>;
+    };
     setup: {
       status: () => Promise<import("./Setup").SetupStatus>;
       ask: (what: "mic" | "mic-test" | "notifications" | "folders" | "voice" | "screen" | "gnome-keys") => Promise<any>;

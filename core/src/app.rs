@@ -67,6 +67,8 @@ pub struct App {
     /// The Sarvam key, in memory only (sarvam.rs).
     pub sarvam: crate::sarvam::Sarvam,
     pub deepgram: crate::deepgram::Deepgram,
+    /// The user's phone, through their Telegram bot (telegram.rs).
+    pub phone: crate::telegram::Phone,
     pub cancelled: Mutex<HashSet<String>>,
     pub sessions: tokio::sync::Mutex<HashMap<String, Arc<Codemax>>>,
     /// The newest fix each chat's agent has been given, so a fix made mid-chat reaches it once.
@@ -110,6 +112,7 @@ impl App {
             voice: Default::default(),
             sarvam: Default::default(),
             deepgram: Default::default(),
+            phone: Default::default(),
             busy: Mutex::new(HashSet::new()),
             cancelled: Mutex::new(HashSet::new()),
             sessions: tokio::sync::Mutex::new(HashMap::new()),
@@ -426,7 +429,21 @@ impl App {
         look: Option<Result<(), crate::lookonly::Asked>>,
     ) -> Result<(), String> {
         let mut why: Option<String> = None;
+        // A turn from the user's paired phone (telegram.rs) is a remote way in: it never looks at the
+        // screen, clicks, types, runs commands or changes files unless they turned on "Let my phone
+        // run actions" in Settings › Phone; then each one asks, every time ("for this chat" from an
+        // earlier card doesn't count), whatever Permissions says ("Never" still means never).
+        let from_phone = matches!(action, Action::RunCommand | Action::WriteFile | Action::LookScreen | Action::Click | Action::Type)
+            && crate::asked::origin(thread_id) == crate::asked::Origin::Phone;
+        if from_phone && self.mode(action) != Mode::Never && !crate::telegram::actions_on(self) {
+            self.ledger(thread_id, action, target, "blocked (from your phone)", detail);
+            return Err(crate::telegram::REFUSED.into());
+        }
         let mode = match self.mode(action) {
+            Mode::Always | Mode::Auto | Mode::Ask if from_phone => {
+                why = Some("it came from your phone".into());
+                Mode::Ask
+            }
             // A chat a schedule started runs while you may be away: it always asks before commands,
             // file changes and looks at the screen, whatever Permissions says ("Never" still means never).
             Mode::Always | Mode::Auto
@@ -463,11 +480,12 @@ impl App {
             Mode::Always => "allowed (always)",
             // (Auto has been decided above: it never gets here as Auto.)
             Mode::Ask | Mode::Auto => {
-                if self.grants.lock().unwrap().contains(&(thread_id.to_string(), action)) {
+                if !from_phone && self.grants.lock().unwrap().contains(&(thread_id.to_string(), action)) {
                     "allowed (this chat)"
                 } else {
                     match self.ask(thread_id, action, target, detail, why.as_deref()).await {
                         Some(Decision::Once) => "approved once",
+                        Some(Decision::Chat) if from_phone => "approved once",
                         Some(Decision::Chat) => {
                             self.grants.lock().unwrap().insert((thread_id.to_string(), action));
                             "approved for this chat"
