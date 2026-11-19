@@ -50,11 +50,17 @@ const OFFSET: &str = "phone.offset";
 const BOT_ID: &str = "phone.bot";
 /// "on": phone turns may read the accounts their message names (asked.rs reads it).
 pub const READS: &str = "phone.reads";
-/// "on": phone turns may look at the screen, click, type, run commands and change files, each asking.
+/// "on": phone turns may look at the screen, click, type, run commands, change files and send or
+/// change things in accounts, each asking.
 pub const ACTIONS: &str = "phone.actions";
+/// "on": phone turns may read files, look inside folders, search past chats and find where the
+/// computer is, each asking.
+pub const FILES: &str = "phone.files";
 
 /// What the agent is told when a phone turn tries one of those with the switch off.
 pub const REFUSED: &str = "From the user's phone, Dune Bot doesn't look at the screen, click, type, run commands, change files or send or change anything in their accounts; they can allow it (with an OK each time) in Dune Bot's settings on their computer, under Phone.";
+/// The same for a read (the "Read my files from my phone" switch off).
+pub const REFUSED_READS: &str = "From the user's phone, Dune Bot doesn't read files, look inside folders, search past chats or find where the computer is; they can allow it (with an OK each time) in Dune Bot's settings on their computer, under Phone.";
 
 const PRIVATE: &str = "This bot is private.";
 const PAIRED: &str = "Paired with Dune Bot. Send a message here to ask it something; /stop stops it, /new starts a new chat.";
@@ -229,7 +235,37 @@ fn paired_chat(app: &App) -> Option<i64> {
 
 /// Whether the user let their phone run actions (each one still asks).
 pub fn actions_on(app: &App) -> bool {
-    setting(app, ACTIONS).as_deref() == Some("on")
+    switch_on(app, ACTIONS)
+}
+
+/// Which Settings › Phone switch lets a phone turn do this; with it off the gate refuses, with it
+/// on each one asks, every time, and the phone may answer. Every action is listed (no catch-all),
+/// so a new one has to be placed. None: the teaching ring, which reads and changes nothing.
+pub fn switch_for(action: crate::policy::Action) -> Option<&'static str> {
+    use crate::policy::Action as A;
+    match action {
+        A::ReadFile | A::ListFolder | A::SearchChats | A::FindLocation => Some(FILES),
+        A::RunCommand
+        | A::WriteFile
+        | A::LookScreen
+        | A::Click
+        | A::Type
+        | A::SlackWrite
+        | A::GmailWrite
+        | A::NotionWrite
+        | A::CalendarWrite
+        | A::XPost => Some(ACTIONS),
+        A::Point => None,
+    }
+}
+
+pub fn switch_on(app: &App, key: &str) -> bool {
+    setting(app, key).as_deref() == Some("on")
+}
+
+/// What the agent is told when a phone turn tries something whose switch is off.
+pub fn refused(key: &str) -> &'static str {
+    if key == FILES { REFUSED_READS } else { REFUSED }
 }
 
 fn new_code() -> String {
@@ -350,6 +386,7 @@ impl Phone {
             "paired": paired,
             "reads": setting(app, READS).as_deref() == Some("on"),
             "actions": actions_on(app),
+            "files": switch_on(app, FILES),
             "problem": self.problem.lock().unwrap().clone(),
         })
     }
@@ -415,11 +452,12 @@ impl Phone {
         Ok(())
     }
 
-    /// Settings › Phone's two switches: "reads" and "actions".
+    /// Settings › Phone's three switches: "reads" (accounts), "files" and "actions".
     pub fn set_switch(&self, app: &App, key: &str, on: bool) -> anyhow::Result<()> {
         let (setting_key, what) = match key {
             "reads" => (READS, "phone: read accounts"),
             "actions" => (ACTIONS, "phone: run actions"),
+            "files" => (FILES, "phone: read files"),
             _ => bail!("unknown phone setting \"{key}\""),
         };
         let value = if on { "on" } else { "off" };
@@ -784,9 +822,10 @@ impl Relay {
                     let status = m.meta.get("status").and_then(Value::as_str).unwrap_or("");
                     match self.cards.get(id).copied() {
                         None if status == "pending" => {
-                            // With "Let my phone run actions" off, no card is the phone's to answer
-                            // (one can still come up for a read Permissions say to ask about).
-                            let buttons = actions_on(app);
+                            // The phone answers a card only when the switch for its action is on
+                            // (switch_for); any other card needs the computer.
+                            let action = m.meta.get("action").and_then(Value::as_str).and_then(crate::policy::Action::from_key);
+                            let buttons = action.and_then(switch_for).is_some_and(|k| switch_on(app, k));
                             let text = if buttons { card_text(m) } else { format!("{}\n\nThis needs your OK at the computer.", card_text(m).trim_end_matches("Allow it?").trim_end()) };
                             app.phone.post(Op::Card { chat, approval: id.to_string(), text, buttons });
                             self.cards.insert(id.to_string(), false);
@@ -1160,11 +1199,20 @@ mod tests {
         let got = ask(&app, &mock, "click 10 10 the button").await;
         assert!(got.iter().any(|t| t.contains("doesn't look at the screen")), "{got:?}");
         assert!(!file.exists());
+        // Reads too ("Read my files from my phone" is off): a file, a folder, past chats, the place.
+        // Permissions say Always for all four at the computer.
+        let note = elsewhere.join("note.txt");
+        std::fs::write(&note, "secret-from-the-computer").unwrap();
+        for text in [format!("read {}", note.display()), format!("ls {}", elsewhere.display()), "search hello".into(), "where".into()] {
+            let got = ask(&app, &mock, &text).await;
+            assert!(got.iter().any(|t| t.contains("doesn't read files, look inside folders, search past chats or find where the computer is")), "{text}: {got:?}");
+            assert!(got.iter().all(|t| !t.contains("secret-from-the-computer")), "{text}: {got:?}");
+        }
         let msgs = app.db(|d| d.messages(&t)).unwrap();
         assert!(msgs.iter().all(|m| m.role != "approval"), "nothing even asked");
         let ledger = app.db(|d| d.ledger_list(50)).unwrap();
         let blocked: Vec<&str> = ledger.iter().filter(|r| r.decision == "blocked (from your phone)").map(|r| r.action.as_str()).collect();
-        for a in ["look-screen", "type", "run-command", "write-file", "click"] {
+        for a in ["look-screen", "type", "run-command", "write-file", "click", "read-file", "list-folder", "search-chats", "find-location"] {
             assert!(blocked.contains(&a), "{a} in {blocked:?}");
         }
         // At the computer, the same chat still runs it (Always).
@@ -1173,12 +1221,13 @@ mod tests {
         until("the computer's turn", 10, || !app.busy.lock().unwrap().contains(&t)).await;
         assert!(app.db(|d| d.ledger_list(5)).unwrap().iter().any(|r| r.decision == "allowed (always)"));
 
-        // A read Permissions say to ask about still asks, but only the computer can answer it.
-        std::fs::write(elsewhere.join("note.txt"), "hi").unwrap();
-        app.set_mode("read-file", "ask").unwrap();
-        mock.message(ME, ME, "private", Some(&format!("read {}", elsewhere.join("note.txt").display())));
-        until("the card on the phone", 10, || mock.texts_to(ME).iter().any(|t| t.contains("Read a file"))).await;
-        let card = mock.sent().into_iter().rev().find(|(m, b)| m == "sendMessage" && b["text"].as_str().is_some_and(|t| t.contains("Read a file"))).unwrap().1;
+        // Something no phone switch covers (the teaching ring) set to Ask still asks, but only the
+        // computer can answer it.
+        app.set_mode("point", "ask").unwrap();
+        app.shots.lock().unwrap().insert(t.clone(), crate::tools::Shot { x: 0.0, y: 0.0, width: 100.0, height: 100.0, scale: 1.0, at: Instant::now() });
+        mock.message(ME, ME, "private", Some("point 10 10 20 20 the button"));
+        until("the card on the phone", 10, || mock.texts_to(ME).iter().any(|t| t.contains("Point at things"))).await;
+        let card = mock.sent().into_iter().rev().find(|(m, b)| m == "sendMessage" && b["text"].as_str().is_some_and(|t| t.contains("Point at things"))).unwrap().1;
         assert!(card.get("reply_markup").is_none() && card["text"].as_str().unwrap().ends_with("This needs your OK at the computer."), "{card}");
         let pending = app.db(|d| d.messages(&t)).unwrap().into_iter().rev().find(|m| m.role == "approval").unwrap();
         let id = pending.meta["approvalId"].as_str().unwrap().to_string();
@@ -1244,6 +1293,58 @@ mod tests {
         until("the turn to end", 20, || !app.busy.lock().unwrap().contains(&t)).await;
         tokio::time::sleep(Duration::from_millis(500)).await;
         assert!(mock.sent().iter().any(|(m, b)| m == "editMessageText" && b["text"].as_str().is_some_and(|t| t.ends_with("Declined."))));
+        done(&app, &dir);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn reads_need_their_own_switch_then_each_asks_and_the_phone_can_answer() {
+        let (app, mock, dir) = paired("files").await;
+        let elsewhere = std::env::temp_dir().join(format!("dunebot-phone-reads-{}", crate::app::new_id()));
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let note = elsewhere.join("note.txt");
+        std::fs::write(&note, "hello-from-the-computer").unwrap();
+        let read = format!("read {}", note.display());
+        // "Let my phone run actions" doesn't open reads.
+        app.phone.set_switch(&app, "actions", true).unwrap();
+        let got = ask(&app, &mock, &read).await;
+        assert!(got.iter().any(|t| t.contains("doesn't read files")), "{got:?}");
+        assert!(got.iter().all(|t| !t.contains("hello-from-the-computer")), "{got:?}");
+        let t = setting(&app, THREAD).unwrap();
+
+        // Their own switch does: each read asks (Permissions say Always), with Yes and No on the phone.
+        app.phone.set_switch(&app, "files", true).unwrap();
+        assert_eq!(app.phone.status(&app)["files"], json!(true));
+        assert_eq!(app.phone.status(&app)["actions"], json!(true));
+        let cards = |m: &Mock| m.sent().into_iter().filter(|(m, b)| m == "sendMessage" && b["reply_markup"].is_object()).map(|(_, b)| b).collect::<Vec<_>>();
+        mock.message(ME, ME, "private", Some(&read));
+        until("the card on the phone", 10, || cards(&mock).len() == 1).await;
+        let card = cards(&mock).remove(0);
+        let text = card["text"].as_str().unwrap();
+        assert!(text.contains("Read a file") && text.contains("note.txt") && text.contains("from your phone"), "{text}");
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        mock.tap(ME, ME, card["reply_markup"]["inline_keyboard"][0][0]["callback_data"].as_str().unwrap());
+        until("the turn to end", 20, || !app.busy.lock().unwrap().contains(&t)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(mock.texts_to(ME).iter().any(|t| t.contains("hello-from-the-computer")), "the phone's Yes read it");
+
+        // The next read asks again ("for this chat" at the computer doesn't carry over), and No declines.
+        mock.message(ME, ME, "private", Some(&format!("ls {}", elsewhere.display())));
+        until("the second card", 10, || cards(&mock).len() == 2).await;
+        let second = cards(&mock).remove(1);
+        assert!(second["text"].as_str().unwrap().contains("from your phone"), "{second}");
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        mock.tap(ME, ME, second["reply_markup"]["inline_keyboard"][0][1]["callback_data"].as_str().unwrap());
+        until("the turn to end", 20, || !app.busy.lock().unwrap().contains(&t)).await;
+        let ledger = app.db(|d| d.ledger_list(30)).unwrap();
+        assert!(ledger.iter().any(|r| r.action == "read-file" && r.decision == "approved once" && r.detail.contains("asked because it came from your phone")));
+        assert!(ledger.iter().any(|r| r.action == "list-folder" && r.decision == "declined"));
+        assert!(ledger.iter().any(|r| r.action == "settings" && r.target == "phone: read files" && r.decision == "on"));
+
+        // Off again: refused again.
+        app.phone.set_switch(&app, "files", false).unwrap();
+        let got = ask(&app, &mock, &read).await;
+        assert!(got.iter().any(|t| t.contains("doesn't read files")), "{got:?}");
+        let _ = std::fs::remove_dir_all(&elsewhere);
         done(&app, &dir);
     }
 

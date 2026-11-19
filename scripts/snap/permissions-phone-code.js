@@ -1,7 +1,7 @@
 // Permissions › Phone with a token handed over and no chat paired yet: the code to send.
 window.__phoneState = {
   key: { saved: true, canSave: true },
-  phone: { token: true, bot: "@my_dunebot", code: "K7QPM2XD", paired: null, reads: false, actions: false, problem: null },
+  phone: { token: true, bot: "@my_dunebot", code: "K7QPM2XD", paired: null, reads: false, files: false, actions: false, problem: null },
 };
 
 (async () => {

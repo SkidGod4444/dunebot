@@ -218,14 +218,14 @@ for (const theme of ["light", "dark"])
       else note += " waited for the reading to end";
     }
     if (name.startsWith("permissions-phone")) {
-      // { found, code, paired, switches }: the section is there with both switches, and the state asked for.
+      // { found, code, paired, switches }: the section is there with its three switches, and the state asked for.
       let res = null;
       try {
         res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
       } catch {}
       const want = { "permissions-phone": [false, false], "permissions-phone-code": [true, false], "permissions-phone-paired": [false, true] }[name];
-      if (!res?.found || res.switches !== 2 || res.code !== want[0] || res.paired !== want[1]) problems.push(`${name} ${theme}: Phone section ${JSON.stringify(res)}`);
-      else note += res.code ? " pairing code shown" : res.paired ? " paired, Unpair shown" : " token box and two switches";
+      if (!res?.found || res.switches !== 3 || res.code !== want[0] || res.paired !== want[1]) problems.push(`${name} ${theme}: Phone section ${JSON.stringify(res)}`);
+      else note += res.code ? " pairing code shown" : res.paired ? " paired, Unpair shown" : " token box and three switches";
     }
     if (name === "caption-first-line") {
       // "On it." read while the command still ran, then "Done." after it.
