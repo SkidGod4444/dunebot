@@ -175,5 +175,81 @@ for (const [platform, enter] of [["darwin", "24"], ["win32", "d"], ["linux", "ff
   ok(/moved the mouse/.test(msg) && r.calls.filter((c) => c[2]).length === 1, `typing stops when the user moves the mouse (${msg})`);
 }
 
+// Wayland: electron/wayland.mjs stands in for the addon. Its answers are promises (a refusal is a
+// rejected one), points stay as given (logical), keys are X keysyms, and the whole text is checked
+// against the layout in use before the first key.
+function waylandRig({ missing = "", caps = false, glide = async () => 0, cancelled = () => false } = {}) {
+  const calls = [];
+  const addon = {
+    pointerGlide: async (x, y, held, isCancelled) => (calls.push(["glide", x, y, held]), glide(isCancelled)),
+    pointerPress: async (x, y, right, count) => (calls.push(["press", x, y, right, count]), 0),
+    pointerButton: async (x, y, down) => (calls.push(["button", down]), true),
+    scrollAt: async (x, y, dx, dy, n) => (calls.push(["scroll", x, y, dx, dy, n]), 0),
+    keyText: async (t, down) => {
+      if (t === "✗") throw new Error("helper refused");
+      calls.push(["text", t, down]);
+      return true;
+    },
+    keyCode: async (code, flags, down) => (calls.push(["key", code, flags, down]), true),
+    missingChars: async (text) => (calls.push(["check", text]), { missing, layout: "German", state: { from: "settings", caps: caps ? null : false } }),
+  };
+  const screen = { getCursorScreenPoint: () => ({ x: 0, y: 0 }), getDisplayNearestPoint: () => ({ scaleFactor: 2 }) };
+  const input = createInput({ addon: () => addon, screen, platform: "wayland", refuseOwn: () => {}, refuseKeyboard: () => {}, needAccess: () => {}, cancelled, stub: () => false });
+  return { input, calls };
+}
+{
+  const { input, calls } = waylandRig();
+  await input.clickAt({ x: 100, y: 50 });
+  const p = calls.find((c) => c[0] === "press");
+  ok(p[1] === 100 && p[2] === 50, `wayland: a click lands at 100,50 (logical, not × the scale) (${JSON.stringify(p)})`);
+}
+{
+  const { input, calls } = waylandRig();
+  const r = await input.typeText({ text: "hé\n" });
+  ok(calls[0][0] === "check" && calls[0][1] === "hé" && calls.filter((c) => c[0] === "text").length === 4, `wayland: the text is checked first, then typed (${JSON.stringify(calls.slice(0, 2))})`);
+  ok(keys(calls) === "↓ff0d ↑ff0d" && typeof r === "string", `wayland: a new line is Return's keysym (${keys(calls)})`);
+}
+{
+  const { input, calls } = waylandRig({ missing: "ж" });
+  const err = await input.typeText({ text: "ok ж" }).then(() => null, (e) => e.message);
+  ok(/Nothing was typed/.test(err ?? "") && /German/.test(err) && /"ж"/.test(err) && !calls.some((c) => c[0] === "text"), `wayland: a character the layout lacks: nothing typed, the layout named (${err})`);
+}
+{
+  const { input } = waylandRig({ caps: true });
+  const r = await input.typeText({ text: "ab" });
+  ok(typeof r === "object" && /Caps Lock/.test(r.note), `wayland: Caps Lock unknowable: the agent is told to look (${JSON.stringify(r)})`);
+}
+{
+  const { input, calls } = waylandRig();
+  const err = await input.typeText({ text: "a✗b" }).then(() => null, (e) => e.message);
+  ok(err === "helper refused" && calls.filter((c) => c[0] === "text").length === 2, `wayland: a refused character stops the typing with its reason (${err})`);
+}
+{
+  const { input, calls } = waylandRig();
+  await input.pressKeys({ key: "a", mods: ["ctrl"], times: 1 });
+  ok(keys(calls) === "↓ffe3 ↓61 ↑61 ↑ffe3", `wayland: Ctrl+A as X keysyms, awaited in order (${keys(calls)})`);
+}
+{
+  // Stopped mid-glide: the glide answers 3, the click never happens.
+  const { input, calls } = waylandRig({ glide: async () => 3 });
+  const err = await input.clickAt({ x: 10, y: 10 }).then(() => null, (e) => e.message);
+  ok(/^Stopped/.test(err ?? "") && !calls.some((c) => c[0] === "press"), `wayland: a stop during the glide: no click (${err})`);
+}
+{
+  // The chat gave up while the pointer was on its way: the glide sees it through its callback.
+  let gaveUp = false;
+  const { input, calls } = waylandRig({ cancelled: () => gaveUp, glide: async (isCancelled) => ((gaveUp = true), isCancelled() ? 3 : 0) });
+  const err = await input.clickAt({ x: 10, y: 10, requestId: "r1" }).then(() => null, (e) => e.message);
+  ok(/^Stopped/.test(err ?? "") && !calls.some((c) => c[0] === "press"), `wayland: a cancel reaches the glide: no click (${err})`);
+}
+{
+  // A drag lets the button go even when the glide is stopped.
+  let n = 0;
+  const { input, calls } = waylandRig({ glide: async () => (++n === 2 ? 3 : 0) });
+  await input.dragFrom({ x1: 1, y1: 1, x2: 50, y2: 50 }).catch(() => {});
+  const b = calls.filter((c) => c[0] === "button").map((c) => c[1]);
+  ok(b.join() === "true,false", `wayland: a stopped drag still lets the button go (${b})`);
+}
+
 console.log(failed ? `${failed} FAILED` : "ALL PASS");
 process.exit(failed ? 1 : 0);

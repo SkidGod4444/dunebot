@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AudioLines, Bell, Check, FolderOpen, Loader2, Mic, Monitor, TriangleAlert } from "lucide-react";
+import { AudioLines, Bell, Check, FolderOpen, Keyboard, Loader2, Mic, Monitor, TriangleAlert } from "lucide-react";
 import { Mascot } from "./parts";
 
 export type SetupStatus = {
@@ -15,6 +15,11 @@ export type SetupStatus = {
   keys?: string;
   voice: { available?: boolean; ready?: boolean; downloading?: boolean; progress?: number };
   done: boolean;
+  /** Linux on Wayland: the desktop that asks ("GNOME", "KDE", "Your desktop"); its box gives the
+   * screen, keyboard and pointer in one OK. */
+  wayland?: string | null;
+  /** GNOME on Wayland: Dune Bot's shortcuts in GNOME's settings (added only when the user says so). */
+  gnomeKeys?: { added: boolean; bar: string | null; stop: string | null } | null;
 };
 
 type Tone = "ok" | "todo" | "off" | "busy" | "warn";
@@ -187,6 +192,11 @@ export function Setup() {
   // Same rows on every system; one that asks nothing says so.
   const nothing = { tone: "ok" as Tone, label: "No permission needed" };
   const hotkey = st.hotkey?.replace("Control", "Ctrl");
+  const wl = !!st.wayland;
+  const desk = st.wayland ?? "GNOME";
+  const allowIt = desk === "GNOME" ? "turn on “Allow Remote Interaction”, then Share" : "allow control of the keyboard and pointer, then share the screen";
+  const gk = st.gnomeKeys;
+  const ctrl = (k: string | null) => k?.replace("Control", "Ctrl") ?? "";
 
   const micRow = (
       <Row
@@ -226,7 +236,9 @@ export function Setup() {
 
       {step === "screen" && !screenOk && (
         <p className="mt-4 rounded-xl bg-brand/12 px-3.5 py-2.5 text-[13px] font-medium text-ink">
-          Looking at your screen needs Screen Recording. Allow it below; macOS then asks to quit and reopen Dune Bot.
+          {wl
+            ? `Looking at your screen and clicking for you need ${desk === "Your desktop" ? "your desktop" : desk}'s OK. Press Allow, then in its box ${allowIt}.`
+            : "Looking at your screen needs Screen Recording. Allow it below; macOS then asks to quit and reopen Dune Bot."}
         </p>
       )}
 
@@ -239,7 +251,9 @@ export function Setup() {
           ? "macOS asks once for each of these. Answering now means nothing interrupts you later."
           : win
             ? "Windows asks for nothing up front; if something is switched off, it says so here."
-            : "Linux asks for nothing up front; get the speech model now so talking works straight away."}
+            : wl
+              ? `${desk} asks once to share your screen. Answering now means nothing interrupts you later.`
+              : "Linux asks for nothing up front; get the speech model now so talking works straight away."}
       </p>
 
       <div className="mt-3 flex flex-col gap-2">
@@ -294,13 +308,17 @@ export function Setup() {
         )}
         <Row
           icon={<Monitor size={17} />}
-          title="Screen Recording"
-          why="Agents look at the screen under your pointer, without asking, to answer you. Each picture goes only to your agent; Dune Bot keeps none."
+          title={wl ? "Screen, keyboard and pointer" : "Screen Recording"}
+          why={
+            wl
+              ? `${desk} asks once: ${allowIt}. Agents look at your screen and click and type for you; ${desk === "GNOME" ? "GNOME's top bar shows a dot" : "the desktop shows it"} while they do.`
+              : "Agents look at the screen under your pointer, without asking, to answer you. Each picture goes only to your agent; Dune Bot keeps none."
+          }
           focus={step === "screen" && !screenOk}
           {...(!asks.screen
             ? nothing
             : asking === "screen"
-              ? { tone: "busy" as Tone, label: "Answer the box" }
+              ? { tone: "busy" as Tone, label: wl && desk !== "Your desktop" ? `Answer ${desk}'s box` : "Answer the box" }
               : screenOk
                 ? { tone: "ok" as Tone, label: "Allowed" }
                 : st.screen === "not-determined"
@@ -308,6 +326,25 @@ export function Setup() {
                   : { tone: "off" as Tone, label: "Off", action: { text: "Open Settings", run: () => window.dunebot.setup.openSettings("screen") } })}
         />
       </div>
+
+      {gk && (
+        <div className="mt-2">
+          <Row
+            icon={<Keyboard size={17} />}
+            title="Keyboard shortcuts"
+            why={
+              gk.added
+                ? `${ctrl(gk.bar)} asks Dune Bot. ${ctrl(gk.stop)} stops every agent. Change them in GNOME's Settings › Keyboard.`
+                : "GNOME doesn't let apps set keys of their own, and moving the mouse doesn't stop Dune Bot here. Add two to GNOME's settings: one asks, one stops every agent."
+            }
+            {...(asking === "gnome-keys"
+              ? { tone: "busy" as Tone, label: "Adding" }
+              : gk.added
+                ? { tone: "ok" as Tone, label: "Added" }
+                : { tone: "todo" as Tone, label: "", action: { text: "Add", run: () => ask("gnome-keys") } })}
+          />
+        </div>
+      )}
 
       {problem && <p className="mt-3 text-[12.5px] font-medium text-ink">{problem}</p>}
 

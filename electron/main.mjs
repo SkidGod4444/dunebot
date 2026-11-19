@@ -15,6 +15,9 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { createInput } from "./input.mjs";
+import { createWayland } from "./wayland.mjs";
+import { gnomeKeys, onGnome } from "./gnome-keys.mjs";
+import { createGuard } from "./pass-clicks.mjs";
 import { place as placeCaption, corner as captionCorner, covers, inside, heading, WIN_W as CAPTION_W, WIN_H as CAPTION_H } from "./caption-place.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -29,7 +32,8 @@ const ASKS = {
   win32: { mic: true, notifications: false, folders: false, screen: false },
   linux: { mic: false, notifications: false, folders: false, screen: false },
 };
-const asks = () => ASKS[pagePlatform] ?? ASKS.linux;
+// Wayland: GNOME's box (the screen, the keyboard and the pointer, in one OK) is asked in setup.
+const asks = () => (pagePlatform === "linux" && waylandAsks() ? { ...ASKS.linux, screen: true } : ASKS[pagePlatform] ?? ASKS.linux);
 const exe = isWin ? ".exe" : "";
 const devUrl = process.env.DUNEBOT_DEV_URL;
 const snapshot = process.env.DUNEBOT_SNAPSHOT;
@@ -60,6 +64,11 @@ if (snapshot || selfcheck) {
 // One Dune Bot per user: a second launch just opens the bar. (Where global keys are blocked, a
 // keyboard shortcut in the system's settings that starts Dune Bot does the same.)
 if (!snapshot && !selfcheck && !app.requestSingleInstanceLock()) {
+  app.quit();
+  process.exit(0);
+}
+// The stop key (a GNOME shortcut that runs `dunebot --stop`) with no Dune Bot running: nothing to stop.
+if (process.argv.includes("--stop") && !snapshot && !selfcheck) {
   app.quit();
   process.exit(0);
 }
@@ -173,10 +182,22 @@ ipcMain.handle("core:call", (e, method, params) => {
   // Snapshots only: every call a page makes, by name (scripts/check_reply_live.mjs reads them).
   if (snapshot && process.env.DUNEBOT_SNAPSHOT_CALLS === "1") console.log(`page call: ${String(method)}`);
   if (!ALLOWED.has(method)) throw new Error(`"${method}" isn't available to the window`);
+  if (method === "agents.stopAll") return stopAgents("a window's Stop");
   if (method === "voice.start") return startVoice("button");
   if (method === "voice.say") return sayWithSarvam(params?.text);
   if (method === "voice.streamOpen") return sarvamReady().then(() => call("voice.streamOpen", {}));
   if (method === "voice.streamSay") return sayStreamed(params?.stream, params?.text);
+  // A preference one window changes reaches every window and the tray (the card reads "voice.speak",
+  // the tray ticks "agent"), as the tray's own changes do.
+  if (method === "prefs.set")
+    return call(method, params ?? {}).then((r) => {
+      if (r?.prefs) {
+        prefs = r.prefs;
+        broadcast({ event: "prefs.updated", prefs: r.prefs });
+        refreshTray();
+      }
+      return r;
+    });
   return call(method, params ?? {});
 });
 
@@ -1109,6 +1130,7 @@ function notificationStatus() {
 
 /** macOS: whether this app may take pictures of the screen. Other systems don't ask. */
 function screenStatus() {
+  if (waylandAsks()) return wl && waylandToken.saved() ? "granted" : "not-determined";
   if (!isMac) return "granted";
   try {
     return systemPreferences.getMediaAccessStatus("screen");
@@ -1211,6 +1233,9 @@ function ownWindowAt(x, y) {
     const w = shown.find(hit);
     return w ? ownName(w) : isMac ? "menu bar icon" : "window";
   }
+  // Wayland: a window doesn't know where it is on the screen, so this can't tell. Instead, every
+  // window of Dune Bot's lets clicks through while it uses the pointer, and presses nothing (guard).
+  if (wayland) return null;
   const w = shown.find(hit);
   return w ? ownName(w) : null;
 }
@@ -1227,7 +1252,7 @@ function refuseOwn(x, y, verb) {
 function keyboardIsOurs() {
   const focused = BrowserWindow.getFocusedWindow();
   if (focused && !focused.isDestroyed()) return `Dune Bot's own ${ownName(focused)} has the keyboard`;
-  if (inputAddon?.frontmostPid && inputAddon.frontmostPid() === process.pid) return "Dune Bot is the app in front";
+  if (!wayland && inputAddon?.frontmostPid && inputAddon.frontmostPid() === process.pid) return "Dune Bot is the app in front";
   return null;
 }
 
@@ -1243,6 +1268,8 @@ function refuseKeyboard() {
  * list opens for the user, the first time with macOS's box). Linux: X11 only. */
 function needAccess() {
   const addon = inputAddon;
+  // Wayland: GNOME asks in its own box when the helper first opens (electron/wayland.mjs).
+  if (wl) return;
   if (!addon?.pointerGlide) throw new Error("Using the mouse and keyboard for the user isn't available on this system yet. Tell the user what to do instead.");
   if (wayland || (process.platform === "linux" && !process.env.DISPLAY))
     throw new Error("This Linux desktop runs Wayland, which doesn't let apps move the pointer or type into other apps. Tell the user what to do instead.");
@@ -1255,11 +1282,82 @@ function needAccess() {
   );
 }
 
+// ---------- Wayland (GNOME): the screen, mouse and keyboard through dunebot-wayland ----------
+// GNOME's OK (a restore token) is locked like the voice keys: by the system's secret store, in Dune
+// Bot's folder, and handed to the helper over its stdin only. With no secret store it's kept in
+// memory only, so GNOME asks again after each restart.
+const waylandToken = (() => {
+  const where = () => path.join(app.getPath("userData"), "gnome-screen.bin");
+  let kept = null;
+  return {
+    load() {
+      if (kept) return kept;
+      if (!keyCanLock() || !fs.existsSync(where())) return null;
+      kept = safeStorage.decryptString(fs.readFileSync(where()));
+      return kept;
+    },
+    save(t) {
+      if (t === kept) return;
+      kept = t;
+      if (snapshot || selfcheck || !keyCanLock()) return;
+      const f = where();
+      fs.writeFileSync(`${f}.part`, safeStorage.encryptString(t), { mode: 0o600 });
+      fs.renameSync(`${f}.part`, f);
+      log("wayland: GNOME's OK saved, locked by the system's secret store");
+    },
+    forget() {
+      kept = null;
+      fs.rmSync(where(), { force: true });
+    },
+    saved: () => !!kept || fs.existsSync(where()),
+  };
+})();
+function waylandHelper() {
+  if (process.env.DUNEBOT_WAYLAND) return process.env.DUNEBOT_WAYLAND;
+  if (app.isPackaged) return path.join(process.resourcesPath, "core", "dunebot-wayland");
+  return path.join(root, "wayland", "target", "release", "dunebot-wayland");
+}
+// The desktop by name, for what the user is told: GNOME and KDE ask in boxes of their own.
+const waylandDesktop = /gnome/i.test(process.env.XDG_CURRENT_DESKTOP ?? "") ? "GNOME" : /kde/i.test(process.env.XDG_CURRENT_DESKTOP ?? "") ? "KDE" : "Your desktop";
+const wl =
+  wayland && !snapshot && !selfcheck
+    ? createWayland({ binary: waylandHelper(), log, token: waylandToken, desktop: waylandDesktop, onStopped: () => stopAgents("the desktop's screen-sharing stop", { keepSession: true }) })
+    : null;
+function waylandAsks() {
+  return !!wl || (snapshot && process.env.DUNEBOT_SNAPSHOT_WAYLAND === "1");
+}
+// GNOME on Wayland: the bar's key and the stop key are shortcuts in GNOME's own settings, added
+// when the user says yes in setup (electron/gnome-keys.mjs). Set at startup.
+let gnome = null;
+async function startGnomeKeys() {
+  if (!wl || !(await onGnome())) return;
+  const command = [process.execPath, ...(app.isPackaged ? [] : [app.getAppPath()]), ...(process.argv.includes("--no-sandbox") ? ["--no-sandbox"] : [])];
+  gnome = gnomeKeys({ command, log });
+  await gnome.follow().catch((e) => log(`keys: couldn't read GNOME's shortcuts (${e.message})`));
+}
+
+/** Every agent stops (the tray, the stop key, GNOME's top bar, a window's Stop all). On Wayland the
+ * steps under way end at their next move and the screen session closes. */
+function stopAgents(why, { keepSession = false } = {}) {
+  log(`stop: ${why}`);
+  hushCaption();
+  if (wl && !keepSession) wl.stop();
+  return call("agents.stopAll").catch(() => {});
+}
+
+/** Wayland: Dune Bot's windows while an agent uses the pointer (electron/pass-clicks.mjs): clicks let
+ * through where GNOME honours it, and every page shielded, so a click that still lands on one presses
+ * nothing and the step says so. The card's click-through has its own rule (applyCaptionMouse). */
+const guard = wayland ? createGuard({ ipcMain, windows: () => BrowserWindow.getAllWindows(), ownRule: (w) => w === caption, name: ownName }) : null;
+// The pages ask on Linux as they load (preload.cjs); off Wayland the answer is always no.
+if (!guard) ipcMain.on("guard:state", (e) => (e.returnValue = false));
+
 // Requests the core gave up on (the turn stopped, or it waited too long): typing stops at the next key.
 const inputCancelled = new Set();
 
 const input = createInput({
-  addon: () => inputAddon,
+  addon: () => (wl ? wl.addon : inputAddon),
+  platform: wl ? "wayland" : process.platform,
   screen,
   refuseOwn,
   refuseKeyboard,
@@ -1272,6 +1370,7 @@ const INPUTS = { click: input.clickAt, scroll: input.scrollAt, drag: input.dragF
 
 async function inputForCore(m) {
   try {
+    wl?.begin();
     const run = INPUTS[m.kind];
     if (!run) throw new Error(`Dune Bot can't do "${m.kind}".`);
     const nums = ["x", "y", "x1", "y1", "x2", "y2"].filter((k) => k in m);
@@ -1283,19 +1382,31 @@ async function inputForCore(m) {
     for (const k of nums) args[k] = Number(m[k]);
     // The answer card may sit over the point: it lets this click through to what's under it.
     const pointer = ["click", "scroll", "drag"].includes(m.kind);
-    if (pointer) {
-      pointerBusy++;
-      applyCaptionMouse();
-    }
+    const since = Date.now();
     let done;
+    let busy = false;
     try {
+      if (pointer) {
+        pointerBusy++;
+        busy = true;
+        applyCaptionMouse();
+        const deaf = guard ? await guard.raise() : [];
+        if (deaf.length)
+          throw new Error(`Dune Bot's own ${deaf[0]} didn't answer in time, so Dune Bot can't be sure the ${m.kind} wouldn't land on it, and didn't do it. Try again.`);
+      }
       done = await run(args);
     } finally {
-      if (pointer) {
+      if (busy) {
         pointerBusy--;
         applyCaptionMouse();
+        if (guard && !pointerBusy) guard.lower();
       }
     }
+    const own = pointer && guard ? await guard.hitSince(since) : null;
+    if (own)
+      throw new Error(
+        `That point is on Dune Bot's own ${own} (on Wayland Dune Bot can't tell where its windows are), so the ${m.kind} went to it and nothing in it was pressed. Nothing else was ${m.kind === "click" ? "clicked" : m.kind === "drag" ? "dragged" : "scrolled"}. Ask the user to move it out of the way, then look again.`,
+      );
     // A step answers a line for the log, or that and a note for the agent (what a click landed on).
     const said = typeof done === "string" ? { log: done, note: "" } : done;
     log(`input: ${said.log}`);
@@ -1326,6 +1437,16 @@ async function takeScreenshot() {
     return { data: img.toPNG().toString("base64"), mime: "image/png", ...size, display: d.bounds, pointer };
   }
   if (snapshot || selfcheck) throw new Error("Pictures of the screen are off in this test run.");
+  // Wayland: from GNOME's screen share (the screen Dune Bot last pointed at, else the main one).
+  // Wayland doesn't say where the pointer is, so the picture doesn't either.
+  if (wl) {
+    const f = await wl.frame();
+    const img = nativeImage.createFromBitmap(f.data.subarray(0, f.width * f.height * 4), { width: f.width, height: f.height });
+    if (img.isEmpty()) throw new Error("Dune Bot couldn't take a picture of the screen.");
+    const k = Math.min(1, SHOT_EDGE / Math.max(f.width, f.height));
+    const out = k < 1 ? img.resize({ width: Math.round(f.width * k), height: Math.round(f.height * k), quality: "good" }) : img;
+    return { data: out.toJPEG(75).toString("base64"), mime: "image/jpeg", ...out.getSize(), display: f.display };
+  }
   if (screenStatus() !== "granted") {
     openSetup("screen");
     throw new Error(
@@ -1357,6 +1478,7 @@ function askScreen() {
 
 async function captureForCore(requestId) {
   try {
+    wl?.begin();
     const shot = await takeScreenshot();
     log(`screen: picture ${shot.width}x${shot.height}, ${Math.round((shot.data.length * 0.75) / 1024)} KB`);
     await call("screen.result", { requestId, ...shot });
@@ -1377,6 +1499,8 @@ async function setupStatus() {
     notifications: notificationStatus(),
     folders: folderAnswers(),
     screen: screenStatus(),
+    wayland: waylandAsks() ? (snapshot ? "GNOME" : waylandDesktop) : null,
+    gnomeKeys: gnome?.status() ?? (snapshot && process.env.DUNEBOT_SNAPSHOT_WAYLAND === "1" ? { added: false, bar: null, stop: null } : null),
     voice,
     done: prefs["setup.done"] === "1",
   };
@@ -1445,6 +1569,12 @@ ipcMain.handle("setup:ask", async (e, what) => {
     case "mic":
       if (isMac) await systemPreferences.askForMediaAccess("microphone");
       break;
+    case "gnome-keys":
+      if (!gnome) throw new Error("This desktop isn't GNOME.");
+      await gnome.add();
+      hotkey = gnome.barKey();
+      refreshTray();
+      break;
     case "mic-test":
       // The core records, not this app: check that sound actually reaches it.
       return call("voice.test");
@@ -1480,6 +1610,11 @@ ipcMain.handle("setup:ask", async (e, what) => {
       await call("voice.prepare");
       break;
     case "screen":
+      // Wayland: GNOME's box, answered here (the page waits for it).
+      if (wl) {
+        await wl.ensure({ wait: true });
+        break;
+      }
       // The first time, macOS's own box (it has an "Open System Settings" button); after that only
       // System Settings changes it, and macOS then offers Quit & Reopen.
       if (isMac && screenStatus() !== "granted") {
@@ -1572,7 +1707,7 @@ function refreshTray() {
       ...(need ? [{ label: `${need} waiting for your OK`, click: () => showWaiting() }] : []),
       { label: "Show last answer       ↑ in the bar", enabled: !!lastAsked, click: () => showLastAnswer() },
       ...(busy.size
-        ? [{ label: busy.size > 1 ? `Stop all ${busy.size} agents` : "Stop the agent", click: () => (hushCaption(), call("agents.stopAll").catch(() => {})) }]
+        ? [{ label: busy.size > 1 ? `Stop all ${busy.size} agents` : "Stop the agent", click: () => stopAgents("the tray") }]
         : []),
       { type: "separator" },
       { label: "Chats & activity…", click: () => openMain("chat") },
@@ -1722,6 +1857,11 @@ function onCoreEvent(m) {
 // Windows/Linux only; macOS uses the ⌥⌘ chord (no key combo that other apps already use).
 function registerHotkey() {
   if (isMac) return;
+  // GNOME on Wayland takes apps' keys and never sends them: its own shortcuts stand in (gnome-keys.mjs).
+  if (gnome) {
+    hotkey = gnome.barKey();
+    return;
+  }
   const choices = ["Control+Alt+Space", "Alt+Shift+Space", "Control+Shift+Space"];
   for (const k of choices) {
     try {
@@ -1832,7 +1972,12 @@ async function takeSnapshot(win) {
 // settings to Dune Bot's (core/src/main.rs); Electron has made its new folder by now, so its old
 // browser cache stays behind.
 app.setName("Dunebot");
-app.on("second-instance", () => showBar({ focus: true }));
+// Another launch: the GNOME shortcuts run `dunebot --bar` and `dunebot --stop`; anything else opens the bar.
+app.on("second-instance", (_e, argv) => {
+  if (argv.includes("--stop")) return void stopAgents("the stop key");
+  if (argv.includes("--bar")) return toggleBar();
+  showBar({ focus: true });
+});
 nativeTheme.on("updated", () => {
   log(`system switched to ${nativeTheme.shouldUseDarkColors ? "dark" : "light"}${bar && addon ? `; bar window ${addon.windowAppearance(bar.getNativeWindowHandle())}` : ""}`);
   if (setupWin && !setupWin.isDestroyed() && !isMac) setupWin.setBackgroundColor(GLASS_PAPER());
@@ -1859,13 +2004,25 @@ async function runSelfcheck() {
   const inputFns = ["postEventAccess", "pointerGlide", "pointerPress", "pointerButton", "scrollAt", "keyText", "keyCode", "frontmostPid"];
   r.clicks = inputFns.every((f) => typeof inputAddon?.[f] === "function") ? "found" : `missing ${inputFns.filter((f) => typeof inputAddon?.[f] !== "function").join(", ")}`;
   r.glass = isMac ? (liquidGlass ? "loaded" : "not loaded") : "not used here";
+  // Linux: the Wayland helper is there and starts (its libraries found); with stdin closed it ends.
+  r.wayland = process.platform !== "linux" ? "not used here" : await new Promise((resolve) => {
+    const f = waylandHelper();
+    if (!fs.existsSync(f)) return resolve(`missing: ${f}`);
+    const c = spawn(f, [], { stdio: ["pipe", "ignore", "pipe"] });
+    let said = "";
+    c.stderr.on("data", (d) => (said += d));
+    const t = setTimeout(() => (c.kill(), resolve("no answer in 5000 ms")), 5000);
+    c.on("error", (e) => (clearTimeout(t), resolve(`won't start: ${e.message}`)));
+    c.on("exit", (code) => (clearTimeout(t), resolve(code === 0 ? "found" : `exited ${code}: ${said.trim().slice(0, 200)}`)));
+    c.stdin.end();
+  });
   const icons = [...Object.values(ICONS).map((f) => path.join(here, "assets", f)), ...(WINDOW_ICON.icon ? [WINDOW_ICON.icon] : [])];
   r.trayIcons = icons.every((f) => fs.existsSync(f) && !nativeImage.createFromPath(f).isEmpty()) ? "found" : `missing: ${icons.join(", ")}`;
   r.userData = app.getPath("userData");
   r.dataDir = process.env.DUNEBOT_DATA_DIR;
   const temp = (p) => !!p && path.resolve(p).startsWith(fs.realpathSync(os.tmpdir())) || !!p && path.resolve(p).startsWith(os.tmpdir());
   r.tempFolders = temp(r.userData) && temp(r.dataDir);
-  r.ok = r.pages === "found" && r.coreAnswered.startsWith("version") && r.trayIcons === "found" && r.tempFolders && r.clicks === "found" && (!isMac || (!!addon && !!liquidGlass));
+  r.ok = r.pages === "found" && r.coreAnswered.startsWith("version") && r.trayIcons === "found" && r.tempFolders && r.clicks === "found" && (!isMac || (!!addon && !!liquidGlass)) && (process.platform !== "linux" || !app.isPackaged || r.wayland === "found");
   console.log(`selfcheck ${JSON.stringify(r)}`);
   core?.stdin.end();
   app.exit(r.ok ? 0 : 1);
@@ -1888,9 +2045,10 @@ app.whenReady().then(async () => {
   tray = new Tray(nativeImage.createFromPath(path.join(here, "assets", ICONS.idle)));
   // Windows/Linux: a left click opens the bar (macOS shows the menu).
   if (!isMac) tray.on("click", () => showBar({ focus: true }));
+  await startGnomeKeys();
   registerHotkey();
   createCaption();
-  log(`menu bar ready; ${isMac ? `chord ${keysLabel()}` : `hotkey ${hotkey ?? "none (taken, or blocked by the desktop)"}`}${process.platform === "linux" ? `; ${wayland ? "Wayland (keys via the desktop's shortcut portal)" : "X11"}` : ""}`);
+  log(`menu bar ready; ${isMac ? `chord ${keysLabel()}` : `hotkey ${hotkey ?? "none (taken, or blocked by the desktop)"}`}${process.platform === "linux" ? `; ${gnome ? `Wayland on GNOME (keys: GNOME's own shortcuts, ${gnome.status().added ? "added" : "not added yet"})` : wayland ? "Wayland (keys via the desktop's shortcut portal)" : "X11"}` : ""}`);
   createBar();
   refreshTray();
   sarvamImport();
@@ -1921,6 +2079,7 @@ app.on("window-all-closed", () => {
 });
 app.on("will-quit", () => globalShortcut.unregisterAll());
 app.on("before-quit", () => {
+  wl?.quit();
   clearInterval(followTimer);
   followTimer = null;
   core?.stdin.end();

@@ -70,3 +70,31 @@ contextBridge.exposeInMainWorld("dunebot", {
     testShow: (threadId) => ipcRenderer.send("caption:test-show", String(threadId)),
   },
 });
+
+// Wayland, while an agent uses the pointer: this page takes no mouse input (electron/pass-clicks.mjs).
+// Wayland never says where Dune Bot's windows are, so an agent's click can land on one; it's
+// swallowed here, before the page's own handlers, and reported, so nothing in Dune Bot is pressed.
+let guarded = false;
+const swallow = (e) => {
+  if (!guarded) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  if (e.type === "pointerdown" || e.type === "mousedown" || e.type === "wheel") ipcRenderer.send("guard:hit", e.type);
+};
+// Clicks: always listened for (first, before any page script), acting only while guarded.
+for (const type of ["pointerdown", "pointerup", "mousedown", "mouseup", "click", "dblclick", "auxclick", "contextmenu"])
+  window.addEventListener(type, swallow, { capture: true });
+// Wheel and touch only while guarded: a listener that may cancel them makes every scroll wait for it.
+const blocking = ["wheel", "touchstart", "touchend"];
+const guard = (on) => {
+  if (!!on !== guarded) for (const type of blocking) window[on ? "addEventListener" : "removeEventListener"](type, swallow, { capture: true, passive: false });
+  guarded = !!on;
+};
+ipcRenderer.on("guard", (_e, on, n) => {
+  guard(on);
+  if (n) ipcRenderer.send("guard:ack", n);
+});
+// A page that loads while an agent's step is under way starts guarded. Only on Wayland, as main.mjs
+// decides it (main answers there before any window exists; a page with no answer would hang).
+const onWayland = process.platform === "linux" && (process.env.XDG_SESSION_TYPE === "wayland" || !!process.env.WAYLAND_DISPLAY);
+if (onWayland) guard(ipcRenderer.sendSync("guard:state") === true);
