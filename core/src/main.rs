@@ -18,6 +18,7 @@ mod sarvam;
 mod speak_stream;
 mod schedule;
 mod store;
+mod team;
 mod tools;
 mod undo;
 mod voice;

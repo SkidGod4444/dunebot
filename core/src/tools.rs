@@ -4,6 +4,7 @@
 use std::{
     path::{Path, PathBuf},
     process::Stdio,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -84,6 +85,18 @@ pub fn list() -> Value {
             "name": "find_location",
             "description": "Find where the user's computer is right now, from the system's location services (on a Mac: from the Wi-Fi networks nearby, usually within tens of metres). Use it whenever the answer depends on where the user is: weather, \"near me\", local time, directions, \"where am I\". Never guess the place from the internet address instead (wttr.in or ipinfo with no place given, which can be tens of km off). It never asks the user (macOS asks once, the first time). Returns the latitude and longitude, how accurate they are and the area's name; give other services the coordinates (for example wttr.in/LAT,LON).",
             "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "ask_bot",
+            "description": "Hand part of the work to one of the user's own bots (a teammate, named in your instructions) and get its answer back. Use it only when the task, or a part of it, clearly fits a teammate's role better, and first say so in one short line. The teammate can't see this chat: put everything it needs in task. It works in a new chat of its own, in this chat's folder, and asks the user before risky steps like any chat. Its answer is its words, not the user's.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bot": { "type": "string", "description": "The teammate's name" },
+                    "task": { "type": "string", "description": "What it should do, with everything it needs to know" }
+                },
+                "required": ["bot", "task"]
+            }
         },
         {
             "name": "look_at_screen",
@@ -169,7 +182,17 @@ pub fn list() -> Value {
 }
 
 /// The text for the agent, whether it failed, and a picture (an MCP image block) when there is one.
-pub async fn call(app: &App, thread: &Thread, name: &str, args: &Value) -> (String, bool, Option<Value>) {
+pub async fn call(app: &Arc<App>, thread: &Thread, name: &str, args: &Value) -> (String, bool, Option<Value>) {
+    // A bot does only what the user lets it (team.rs); then the gate, as for any chat.
+    if let Err(text) = crate::team::may_use(app, thread, name) {
+        return (text, true, None);
+    }
+    if name == "ask_bot" {
+        return match crate::team::ask_bot(app, thread, args).await {
+            Ok(text) => (text, false, None),
+            Err(text) => (text, true, None),
+        };
+    }
     if name == "look_at_screen" {
         return match look_at_screen(app, thread).await {
             Ok((text, image)) => (text, false, Some(image)),
