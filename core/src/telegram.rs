@@ -109,7 +109,8 @@ impl Default for Phone {
 enum Op {
     Say { chat: i64, text: String },
     Private { chat: i64 },
-    Card { chat: i64, approval: String, text: String },
+    /// `buttons`: Yes/No the phone may answer (only when the user let their phone run actions).
+    Card { chat: i64, approval: String, text: String, buttons: bool },
     Close { chat: i64, approval: String, text: String },
     Answer { query: String, text: String },
 }
@@ -524,7 +525,13 @@ fn send_loop(app: &Arc<App>, rx: mpsc::Receiver<Op>) {
             Op::Private { chat } => {
                 phone.deliver("sendMessage", &json!({ "chat_id": chat, "text": PRIVATE }));
             }
-            Op::Card { chat, approval, text } => {
+            Op::Card { chat, approval: _, text, buttons: false } => {
+                if paired == Some(chat) {
+                    let body = json!({ "chat_id": chat, "text": clip(&text, 3500), "link_preview_options": preview_off });
+                    phone.deliver("sendMessage", &body);
+                }
+            }
+            Op::Card { chat, approval, text, buttons: true } => {
                 if paired != Some(chat) {
                     continue;
                 }
@@ -566,15 +573,21 @@ fn trouble(f: &Fail) -> String {
 fn poll_loop(app: &Arc<App>, rt: &Handle) {
     let phone = &app.phone;
     let mut asked_about: Option<u64> = None;
+    let mut asked_at = Instant::now();
     let mut fails = 0u32;
     loop {
         if phone.stopped() {
             return;
         }
         let Some(era) = phone.wait_for_token() else { continue };
-        if asked_about != Some(era) {
+        // The bot's name: for each token, and again now and then until Telegram has told it.
+        let unnamed = phone.bot.lock().unwrap().is_none() && asked_at.elapsed() > Duration::from_secs(30);
+        if asked_about != Some(era) || unnamed {
+            if asked_about != Some(era) {
+                fails = 0;
+            }
             asked_about = Some(era);
-            fails = 0;
+            asked_at = Instant::now();
             match phone.api("getMe", &json!({}), Duration::from_secs(20)) {
                 Ok(me) => {
                     *phone.bot.lock().unwrap() = me.get("username").and_then(Value::as_str).map(|u| format!("@{u}"));
@@ -591,10 +604,8 @@ fn poll_loop(app: &Arc<App>, rt: &Handle) {
         let body = json!({ "offset": offset, "timeout": POLL_SECS, "allowed_updates": ["message", "callback_query"] });
         match phone.api("getUpdates", &body, Duration::from_secs(POLL_SECS + 15)) {
             Ok(list) => {
-                if fails > 0 {
-                    fails = 0;
-                    phone.set_problem(app, None);
-                }
+                fails = 0;
+                phone.set_problem(app, None);
                 for u in list.as_array().map(Vec::as_slice).unwrap_or_default() {
                     if phone.generation() != era || phone.stopped() {
                         break;
@@ -732,7 +743,7 @@ async fn watch(app: Arc<App>, thread_id: String, user_msg: String, chat: i64) {
         if !busy {
             break;
         }
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        tokio::time::sleep(Duration::from_millis(150)).await;
     }
     if !relay.said {
         app.phone.post(Op::Say { chat, text: "No answer.".into() });
@@ -773,7 +784,11 @@ impl Relay {
                     let status = m.meta.get("status").and_then(Value::as_str).unwrap_or("");
                     match self.cards.get(id).copied() {
                         None if status == "pending" => {
-                            app.phone.post(Op::Card { chat, approval: id.to_string(), text: card_text(m) });
+                            // With "Let my phone run actions" off, no card is the phone's to answer
+                            // (one can still come up for a read Permissions say to ask about).
+                            let buttons = actions_on(app);
+                            let text = if buttons { card_text(m) } else { format!("{}\n\nThis needs your OK at the computer.", card_text(m).trim_end_matches("Allow it?").trim_end()) };
+                            app.phone.post(Op::Card { chat, approval: id.to_string(), text, buttons });
                             self.cards.insert(id.to_string(), false);
                             self.said = true;
                         }
@@ -1026,13 +1041,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// How many messages the user has sent in the current Phone chat.
+    fn asked(app: &App) -> usize {
+        let Some(t) = setting(app, THREAD) else { return 0 };
+        app.db(|d| d.messages(&t)).unwrap_or_default().iter().filter(|m| m.role == "user").count()
+    }
+
     /// A message from the phone, then everything the phone was sent until the turn ended.
     async fn ask(app: &Arc<App>, mock: &Mock, text: &str) -> Vec<String> {
-        let before = mock.texts_to(ME).len();
+        let (before, n) = (mock.texts_to(ME).len(), asked(app));
         mock.message(ME, ME, "private", Some(text));
-        until("the turn to start", 10, || setting(app, THREAD).is_some_and(|t| app.busy.lock().unwrap().contains(&t))).await;
+        until("the turn to start", 10, || asked(app) > n).await;
         let t = setting(app, THREAD).unwrap();
         until("the turn to end", 20, || !app.busy.lock().unwrap().contains(&t)).await;
+        until("the answer", 10, || mock.texts_to(ME).len() > before).await;
         tokio::time::sleep(Duration::from_millis(400)).await;
         mock.texts_to(ME)[before..].to_vec()
     }
@@ -1150,6 +1172,24 @@ mod tests {
         assert!(r.is_ok());
         until("the computer's turn", 10, || !app.busy.lock().unwrap().contains(&t)).await;
         assert!(app.db(|d| d.ledger_list(5)).unwrap().iter().any(|r| r.decision == "allowed (always)"));
+
+        // A read Permissions say to ask about still asks, but only the computer can answer it.
+        std::fs::write(elsewhere.join("note.txt"), "hi").unwrap();
+        app.set_mode("read-file", "ask").unwrap();
+        mock.message(ME, ME, "private", Some(&format!("read {}", elsewhere.join("note.txt").display())));
+        until("the card on the phone", 10, || mock.texts_to(ME).iter().any(|t| t.contains("Read a file"))).await;
+        let card = mock.sent().into_iter().rev().find(|(m, b)| m == "sendMessage" && b["text"].as_str().is_some_and(|t| t.contains("Read a file"))).unwrap().1;
+        assert!(card.get("reply_markup").is_none() && card["text"].as_str().unwrap().ends_with("This needs your OK at the computer."), "{card}");
+        let pending = app.db(|d| d.messages(&t)).unwrap().into_iter().rev().find(|m| m.role == "approval").unwrap();
+        let id = pending.meta["approvalId"].as_str().unwrap().to_string();
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        mock.tap(ME, ME, &format!("y:{id}"));
+        until("the tap's answer", 10, || mock.sent().iter().any(|(m, _)| m == "answerCallbackQuery")).await;
+        let said = mock.sent().into_iter().find(|(m, _)| m == "answerCallbackQuery").unwrap().1;
+        assert_eq!(said["text"], json!("That's no longer waiting."));
+        assert!(app.busy.lock().unwrap().contains(&t), "still waiting for the computer");
+        app.respond(&id, "deny").unwrap();
+        until("the turn to end", 20, || !app.busy.lock().unwrap().contains(&t)).await;
         let _ = std::fs::remove_dir_all(&elsewhere);
         done(&app, &dir);
     }
