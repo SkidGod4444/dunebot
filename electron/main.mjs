@@ -187,6 +187,17 @@ ipcMain.handle("core:call", (e, method, params) => {
   if (method === "voice.say") return sayWithSarvam(params?.text);
   if (method === "voice.streamOpen") return sarvamReady().then(() => call("voice.streamOpen", {}));
   if (method === "voice.streamSay") return sayStreamed(params?.stream, params?.text);
+  // A preference one window changes reaches every window and the tray (the card reads "voice.speak",
+  // the tray ticks "agent"), as the tray's own changes do.
+  if (method === "prefs.set")
+    return call(method, params ?? {}).then((r) => {
+      if (r?.prefs) {
+        prefs = r.prefs;
+        broadcast({ event: "prefs.updated", prefs: r.prefs });
+        refreshTray();
+      }
+      return r;
+    });
   return call(method, params ?? {});
 });
 
