@@ -1,9 +1,10 @@
-//! Whether the user asked, in this turn, for Dune Bot to read one of their accounts (Slack, Gmail,
-//! Notion, Calendar, X). The user's rule: "don't make it read until asked to do so by me, so it
-//! can't be tricked". So only the user's own words for this turn count: the message they typed or
-//! said. Nothing an agent reads (a web page, a file, the screen, an email, another bot's message)
-//! can name an account into being read, and a chat a schedule started or another bot handed over
-//! never reads one at all.
+//! Whether the user asked for Dune Bot to read one of their accounts (Slack, Gmail, Notion,
+//! Calendar, X). The user's rule: "don't make it read until asked to do so by me, so it can't be
+//! tricked". So only the user's own words count: the messages they typed or said. Once they name
+//! an account in a chat, it may be read for the rest of that chat (their choice, 2026-11-19: so
+//! "summarise the second one" works). Nothing an agent reads (a web page, a file, the screen, an
+//! email, another bot's message) can name an account into being read, and a chat a schedule
+//! started or another bot handed over never reads one at all.
 //!
 //! Every connector tool asks `may_read` before reading; writing (sending a message, an email) goes
 //! through the usual OK card on top of this.
@@ -102,20 +103,28 @@ fn is_mark(c: char) -> bool {
 
 #[derive(Clone, Debug)]
 struct Asked {
+    /// Who started the chat's current turn.
     origin: Origin,
+    /// Every account the user's own messages in this chat have named so far.
     named: Vec<Source>,
 }
 
-/// Each chat's current turn: who started it and what their words named. Kept until the next turn.
+/// Each chat: who started its current turn, and what the user's words in it have named.
 static TURNS: LazyLock<Mutex<HashMap<String, Asked>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// A turn starts (agent::send): record who started it and what the message names.
+/// A turn starts (agent::send): record who started it, and add what the user's message names to
+/// what the chat's earlier messages named. A schedule's or a bot's words add nothing.
 pub fn begin(thread_id: &str, origin: Origin, text: &str) {
-    let named = match origin {
-        Origin::User | Origin::Phone => named(text),
-        Origin::Schedule | Origin::Bot => Vec::new(),
-    };
-    TURNS.lock().unwrap_or_else(|e| e.into_inner()).insert(thread_id.to_string(), Asked { origin, named });
+    let mut turns = TURNS.lock().unwrap_or_else(|e| e.into_inner());
+    let chat = turns.entry(thread_id.to_string()).or_insert(Asked { origin, named: Vec::new() });
+    chat.origin = origin;
+    if matches!(origin, Origin::User | Origin::Phone) {
+        for s in named(text) {
+            if !chat.named.contains(&s) {
+                chat.named.push(s);
+            }
+        }
+    }
 }
 
 /// Who started this chat's current turn (a chat with no turn yet: nobody, so the strictest).
@@ -128,9 +137,10 @@ pub fn forget(thread_id: &str) {
     TURNS.lock().unwrap_or_else(|e| e.into_inner()).remove(thread_id);
 }
 
-/// Whether this chat's current turn may read `source`. `phone_reads`: the user's setting that lets
-/// turns from their paired phone read accounts (off unless they turn it on). The error is what the
-/// agent is told, to pass on.
+/// Whether this chat's current turn may read `source`: the user's own words in this chat named it,
+/// and the turn is theirs. `phone_reads`: the user's setting that lets turns from their paired
+/// phone read accounts (off unless they turn it on). The error is what the agent is told, to pass
+/// on. Kept in memory only: after Dune Bot restarts, a chat must name the account again.
 pub fn may_read(thread_id: &str, source: Source, phone_reads: bool) -> Result<(), String> {
     let turn = TURNS.lock().unwrap_or_else(|e| e.into_inner()).get(thread_id).cloned();
     let Some(turn) = turn else {
@@ -149,7 +159,7 @@ pub fn may_read(thread_id: &str, source: Source, phone_reads: bool) -> Result<()
         )),
         Origin::User | Origin::Phone if turn.named.contains(&source) => Ok(()),
         Origin::User | Origin::Phone => Err(format!(
-            "The user didn't ask for their {name} in this message, so Dune Bot won't read it (text read anywhere else can't ask for it). If they want it, they say so, naming it: \"check my {name}\"."
+            "The user hasn't asked for their {name} in this chat, so Dune Bot won't read it (text read anywhere else can't ask for it). If they want it, they say so, naming it: \"check my {name}\"."
         )),
     }
 }
@@ -189,14 +199,30 @@ mod tests {
     }
 
     #[test]
-    fn only_the_users_words_for_this_turn_count() {
+    fn named_once_in_a_chat_counts_for_the_rest_of_it() {
         begin("t-user", Origin::User, "check my slack");
         assert!(may_read("t-user", Source::Slack, false).is_ok());
         let no = may_read("t-user", Source::Gmail, false).unwrap_err();
-        assert!(no.contains("didn't ask for their Gmail"), "{no}");
-        // The next turn doesn't name it: the earlier one doesn't carry over.
-        begin("t-user", Origin::User, "and now summarise it");
-        assert!(may_read("t-user", Source::Slack, false).is_err());
+        assert!(no.contains("hasn't asked for their Gmail in this chat"), "{no}");
+        // A follow-up that doesn't name it: still Slack's chat.
+        begin("t-user", Origin::User, "and now summarise the second one");
+        assert!(may_read("t-user", Source::Slack, false).is_ok());
+        assert!(may_read("t-user", Source::Gmail, false).is_err());
+        // Another chat starts with nothing.
+        begin("t-other", Origin::User, "summarise the second one");
+        assert!(may_read("t-other", Source::Slack, false).is_err());
+    }
+
+    #[test]
+    fn a_schedule_or_bot_turn_in_a_named_chat_still_never_reads() {
+        begin("t-mixed", Origin::User, "check my notion");
+        begin("t-mixed", Origin::Schedule, "read my gmail too");
+        assert!(may_read("t-mixed", Source::Notion, true).is_err());
+        assert!(may_read("t-mixed", Source::Gmail, true).is_err());
+        // Back to the user: Notion, which they named; not Gmail, which only the schedule's text did.
+        begin("t-mixed", Origin::User, "go on");
+        assert!(may_read("t-mixed", Source::Notion, false).is_ok());
+        assert!(may_read("t-mixed", Source::Gmail, false).is_err());
     }
 
     #[test]
