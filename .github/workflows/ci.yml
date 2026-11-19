@@ -151,6 +151,9 @@ jobs:
         run: |
           cargo build --release --manifest-path wayland/Cargo.toml
           bun install --frozen-lockfile
+          # The binary itself (the package may otherwise fetch it only when first started through it).
+          node node_modules/electron/install.js
+          test -x node_modules/electron/dist/electron
       - name: The box, the screen, clicks, typing, the token, a stop from GNOME's top bar; then the app's side (stop, idle, GNOME's shortcuts pressed)
         run: DUNEBOT_TEST_ELECTRON="$PWD/node_modules/electron/dist/electron" bash wayland/test/run.sh wayland/target/release/dunebot-wayland out
       - uses: actions/upload-artifact@v4

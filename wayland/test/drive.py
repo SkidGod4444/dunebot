@@ -7,6 +7,7 @@ usage: drive.py <helper binary> <out dir>"""
 import hashlib
 import json
 import os
+import tempfile
 import queue
 import struct
 import subprocess
@@ -194,7 +195,8 @@ def frame(h, node, name):
     return r
 
 
-LEDS = os.path.join(OUT, "leds")
+# Outside OUT: CI uploads OUT, and a light's real name ("input9::capslock") has colons it refuses.
+LEDS = tempfile.mkdtemp(prefix="dunebot-leds-")
 
 
 def main():
