@@ -299,6 +299,8 @@ impl App {
         crate::agent::close_session(self, id).await;
         self.tokens.lock().unwrap().remove(id);
         self.grants.lock().unwrap().retain(|(t, _)| t != id);
+        // The accounts this chat named (asked.rs) go with it.
+        crate::asked::forget(id);
         self.db(|d| d.delete_thread(id))?;
         crate::history::remove(self, id);
         self.out.event("thread.deleted", json!({ "id": id }));
@@ -433,27 +435,20 @@ impl App {
     ) -> Result<(), String> {
         let mut why: Option<String> = None;
         // A turn from the user's paired phone (telegram.rs), or a teammate's working for one (team.rs),
-        // is a remote way in: it never sends or changes anything in an account, nor looks at the
-        // screen, clicks, types, runs commands or changes files unless they turned on "Let my phone
-        // run actions" in Settings › Phone; then each one asks, every time ("for this chat" from an
-        // earlier card doesn't count), whatever Permissions says ("Never" still means never).
-        let from_phone = matches!(
-            action,
-            Action::RunCommand
-                | Action::WriteFile
-                | Action::LookScreen
-                | Action::Click
-                | Action::Type
-                | Action::SlackWrite
-                | Action::GmailWrite
-                | Action::NotionWrite
-                | Action::CalendarWrite
-                | Action::XPost
-        )
-            && crate::team::works_for(self, thread_id) == crate::asked::Origin::Phone;
-        if from_phone && self.mode(action) != Mode::Never && !crate::telegram::actions_on(self) {
-            self.ledger(thread_id, action, target, "blocked (from your phone)", detail);
-            return Err(crate::telegram::REFUSED.into());
+        // is a remote way in. Reading files, looking inside folders, searching past chats and finding
+        // the computer need "Read my files from my phone"; looking at the screen, clicking, typing,
+        // running commands, changing files and sending or changing anything in an account need "Let my
+        // phone run actions" (telegram::switch_for). With the switch off it's refused; on, each one
+        // asks, every time ("for this chat" from an earlier card doesn't count), whatever Permissions
+        // says ("Never" still means never).
+        let phone_switch = crate::telegram::switch_for(action)
+            .filter(|_| crate::team::works_for(self, thread_id) == crate::asked::Origin::Phone);
+        let from_phone = phone_switch.is_some();
+        if let Some(key) = phone_switch {
+            if self.mode(action) != Mode::Never && !crate::telegram::switch_on(self, key) {
+                self.ledger(thread_id, action, target, "blocked (from your phone)", detail);
+                return Err(crate::telegram::refused(key).into());
+            }
         }
         let mode = match self.mode(action) {
             Mode::Always | Mode::Auto | Mode::Ask if from_phone => {

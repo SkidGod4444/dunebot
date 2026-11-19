@@ -8,6 +8,7 @@ export type PhoneStatus = {
   code: string | null;
   paired: { name: string } | null;
   reads: boolean;
+  files: boolean;
   actions: boolean;
   problem: string | null;
 };
@@ -41,7 +42,7 @@ export function PhoneSettings() {
       setProblem((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
     }
   };
-  const flip = (k: "reads" | "actions", on: boolean) => run(() => call<PhoneStatus>("phone.set", { key: k, on }), setPh);
+  const flip = (k: "reads" | "files" | "actions", on: boolean) => run(() => call<PhoneStatus>("phone.set", { key: k, on }), setPh);
   return (
     <div className="divide-y divide-line rounded-2xl border border-line">
       <TokenRow st={key} phone={ph} onKey={setKey} />
@@ -75,13 +76,23 @@ export function PhoneSettings() {
         hint="Slack, Gmail, Notion, Calendar and X, once you've named one in the Phone chat (named once, it counts until that chat has been quiet for 2 hours). Off: messages from your phone never read them."
       />
       <SwitchRow
+        title="Read my files from my phone"
+        on={!!ph?.files}
+        onPick={(v) => flip("files", v)}
+        hint={
+          ph?.files
+            ? "From your phone, Dune Bot may read files, look inside folders, search your past chats and find where your computer is, and each one asks first, every time. What it reads goes to your phone through Telegram."
+            : "Off: from your phone, Dune Bot never reads files, looks inside folders, searches past chats or finds where your computer is."
+        }
+      />
+      <SwitchRow
         title="Let my phone run actions"
         on={!!ph?.actions}
         onPick={(v) => flip("actions", v)}
         hint={
           ph?.actions
             ? "From your phone, Dune Bot may look at the screen, click, type, run commands, change files and send or change things in your accounts, and each one asks first, every time. Answer Yes or No on your phone or here."
-            : "Off: from your phone, Dune Bot never looks at the screen, clicks, types, runs commands, changes files or sends anything from your accounts. It can still answer, read files and look inside folders, as Permissions allow."
+            : "Off: from your phone, Dune Bot never looks at the screen, clicks, types, runs commands, changes files or sends anything from your accounts."
         }
       />
       {problem && <p className="px-4 py-2.5 text-[13px] font-medium text-ink">{problem}</p>}
