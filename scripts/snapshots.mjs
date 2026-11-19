@@ -58,6 +58,10 @@ const SHOTS = [
   ["schedules", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "schedules.js") }],
   ["permissions", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions.js") }],
   ["permissions-voice", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-voice.js") }],
+  // Permissions › Phone (the Telegram bot): no token; then drawn with a pairing code, and paired.
+  ["permissions-phone", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-phone.js") }],
+  ["permissions-phone-code", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-phone-code.js") }],
+  ["permissions-phone-paired", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-phone-paired.js") }],
 ];
 const problems = [];
 // DUNEBOT_SNAPSHOT_ONLY=caption,caption-stream: just those views.
@@ -151,6 +155,16 @@ for (const theme of ["light", "dark"])
       const done = log.indexOf("card done with the answer");
       if (read < 0 || done < 0 || done < read) problems.push(`${name} ${theme}: reading over at ${read}, card done at ${done} (done must come after)\n${log.split("\n").filter((l) => /speech|card |turn/.test(l)).slice(-8).join("\n")}`);
       else note += " waited for the reading to end";
+    }
+    if (name.startsWith("permissions-phone")) {
+      // { found, code, paired, switches }: the section is there with both switches, and the state asked for.
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      const want = { "permissions-phone": [false, false], "permissions-phone-code": [true, false], "permissions-phone-paired": [false, true] }[name];
+      if (!res?.found || res.switches !== 2 || res.code !== want[0] || res.paired !== want[1]) problems.push(`${name} ${theme}: Phone section ${JSON.stringify(res)}`);
+      else note += res.code ? " pairing code shown" : res.paired ? " paired, Unpair shown" : " token box and two switches";
     }
     if (name === "caption-first-line") {
       // "On it." read while the command still ran, then "Done." after it.

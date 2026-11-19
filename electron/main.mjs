@@ -168,6 +168,7 @@ const ALLOWED = new Set([
   "hello", "threads.list", "threads.create", "threads.get", "threads.delete", "threads.send",
   "threads.cancel", "threads.changes", "threads.undo", "agents.stopAll", "fixes.list", "fixes.add", "fixes.set", "fixes.delete",
   "schedules.list", "schedules.add", "schedules.set", "schedules.delete", "schedules.run", "approvals.respond", "settings.get", "settings.set", "prefs.set", "agents.list", "ledger.list",
+  "phone.status", "phone.set", "phone.unpair",
   "voice.status", "voice.start", "voice.stop", "voice.cancel", "voice.say",
   "voice.streamOpen", "voice.streamSay", "voice.streamClose",
 ]);
@@ -966,6 +967,9 @@ function lockedKey({ id, name, file, pattern, method }) {
 }
 const sarvamKey = lockedKey({ id: "sarvam", name: "Sarvam", file: "sarvam-key.bin", pattern: /^[A-Za-z0-9_-]{10,200}$/, method: "voice.key" });
 const deepgramKey = lockedKey({ id: "deepgram", name: "Deepgram", file: "deepgram-key.bin", pattern: /^[A-Za-z0-9_-]{20,200}$/, method: "voice.deepgramKey" });
+// Settings › Phone: the user's Telegram bot token, locked the same way. The core polls Telegram with
+// it from the start (core/src/telegram.rs), so it's handed over as soon as the core runs.
+const telegramKey = lockedKey({ id: "telegram", name: "Telegram bot", file: "telegram-token.bin", pattern: /^\d{5,15}:[A-Za-z0-9_-]{30,60}$/, method: "phone.token" });
 /** Both keys with the core before anything is heard or read aloud. */
 const sarvamReady = () => Promise.all([sarvamKey.ready(), deepgramKey.ready()]);
 
@@ -1008,7 +1012,7 @@ async function sarvamImport() {
   }
 }
 
-for (const [id, store] of [["sarvam", sarvamKey], ["deepgram", deepgramKey]]) {
+for (const [id, store] of [["sarvam", sarvamKey], ["deepgram", deepgramKey], ["telegram", telegramKey]]) {
   for (const what of ["status", "save", "remove"]) {
     ipcMain.handle(`${id}:${what}`, (e, arg) => {
       if (!fromOurPage(e)) throw new Error("refused");
@@ -2030,6 +2034,7 @@ app.whenReady().then(async () => {
     takeSnapshot(win);
     return;
   }
+  telegramKey.ready(); // the phone's bot answers from the start (Settings › Phone)
   if (isMac) app.dock?.hide();
   tray = new Tray(nativeImage.createFromPath(path.join(here, "assets", ICONS.idle)));
   // Windows/Linux: a left click opens the bar (macOS shows the menu).
