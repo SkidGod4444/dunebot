@@ -78,6 +78,8 @@ pub struct App {
     /// Each chat's latest picture of the screen: where it lies on the screen, so a click can be given
     /// as a point in it.
     pub shots: Mutex<HashMap<String, crate::tools::Shot>>,
+    /// The user's connected accounts (connectors/).
+    pub connectors: crate::connectors::Connectors,
 }
 
 pub fn new_id() -> String {
@@ -117,6 +119,7 @@ impl App {
             locations: Mutex::new(HashMap::new()),
             inputs: Mutex::new(HashMap::new()),
             shots: Mutex::new(HashMap::new()),
+            connectors: Default::default(),
         }
     }
 

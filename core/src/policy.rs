@@ -17,10 +17,16 @@ pub enum Action {
     Click,
     /// Typing or a key or shortcut, into whatever app has the keyboard (never Dune Bot itself).
     Type,
+    /// Sending or changing something in the user's connected accounts (connectors/), one each.
+    SlackWrite,
+    GmailWrite,
+    NotionWrite,
+    CalendarWrite,
+    XPost,
 }
 
 impl Action {
-    pub const ALL: [Action; 9] = [
+    pub const ALL: [Action; 14] = [
         Action::RunCommand,
         Action::WriteFile,
         Action::ReadFile,
@@ -30,6 +36,11 @@ impl Action {
         Action::Click,
         Action::Type,
         Action::FindLocation,
+        Action::SlackWrite,
+        Action::GmailWrite,
+        Action::NotionWrite,
+        Action::CalendarWrite,
+        Action::XPost,
     ];
 
     pub fn key(self) -> &'static str {
@@ -43,6 +54,11 @@ impl Action {
             Action::FindLocation => "find-location",
             Action::Click => "click",
             Action::Type => "type",
+            Action::SlackWrite => "slack-write",
+            Action::GmailWrite => "gmail-write",
+            Action::NotionWrite => "notion-write",
+            Action::CalendarWrite => "calendar-write",
+            Action::XPost => "x-post",
         }
     }
 
@@ -57,6 +73,11 @@ impl Action {
             Action::FindLocation => "Find where you are",
             Action::Click => "Click, scroll and drag on your screen",
             Action::Type => "Type and press keys",
+            Action::SlackWrite => "Send or change things in Slack",
+            Action::GmailWrite => "Draft or change email in Gmail",
+            Action::NotionWrite => "Create or change Notion pages",
+            Action::CalendarWrite => "Add or change calendar events",
+            Action::XPost => "Post on X",
         }
     }
 
@@ -75,6 +96,8 @@ impl Action {
             // And typing and shortcuts without asking too (2026-11-18), though they can do whatever a
             // person at the keyboard can.
             Action::Type => Mode::Always,
+            // Anything sent or changed in an account asks first (connectors/).
+            Action::SlackWrite | Action::GmailWrite | Action::NotionWrite | Action::CalendarWrite | Action::XPost => Mode::Ask,
         }
     }
 

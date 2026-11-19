@@ -113,7 +113,7 @@ async fn one(app: &Arc<App>, thread_id: &str, m: Value) -> Option<Value> {
             "instructions": "Dune Bot's tools act on the user's own computer. Some ask the user first; a declined action must not be retried.",
         }),
         "ping" => json!({}),
-        "tools/list" => json!({ "tools": tools::list() }),
+        "tools/list" => json!({ "tools": tools::list_for(app) }),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));

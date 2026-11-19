@@ -5,6 +5,7 @@
 
 mod agent;
 mod asked;
+mod connectors;
 mod fixes;
 mod keys;
 mod lookonly;
