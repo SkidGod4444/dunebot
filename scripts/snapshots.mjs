@@ -48,6 +48,15 @@ const SHOTS = [
     DUNEBOT_INPUT_STUB: "1",
     DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-click.js"),
   }],
+  // Dictation: words as if just said (no microphone) typed through the app's stand-in keyboard; then
+  // with Dune Bot's own window holding the keyboard, nothing typed and the card says why.
+  ["caption-dictation", "caption", { DUNEBOT_INPUT_STUB: "1", DUNEBOT_DICTATION_TEST: "1", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-dictation.js") }],
+  ["caption-dictation-refused", "caption", {
+    DUNEBOT_INPUT_STUB: "1",
+    DUNEBOT_DICTATION_TEST: "1",
+    DUNEBOT_SNAPSHOT_KEYBOARD: "ours",
+    DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-dictation.js"),
+  }],
   ["bar-held", "bar", { DUNEBOT_SNAPSHOT_HELD: "1", DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bar-held.js") }],
   ["setup", "setup", {}],
   ["main", "main", {}],
@@ -144,6 +153,29 @@ for (const theme of ["light", "dark"])
       } catch {}
       if (missing.length) problems.push(`${name} ${theme}: the app didn't take ${missing.map(String).join(", ")}; steps ${JSON.stringify(res)}\n${log.split("\n").filter((l) => /input|screen|turn/.test(l)).slice(-10).join("\n")}`);
       else note += " clicked, scrolled, dragged, typed and pressed keys (stand-ins)";
+    }
+    if (name.startsWith("caption-dictation")) {
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      const states = (res?.states ?? []).map((s) => s.state).join(",");
+      const typed = /input: stand-in typing, 19 characters/.test(log);
+      const why = [];
+      if (!res?.listening) why.push("the card never said Listening…");
+      if (name === "caption-dictation") {
+        if (!typed) why.push("the app never typed (stand-in) the 19 characters");
+        if (states !== "typing,typed") why.push(`the card was told ${states || "nothing"}`);
+        if (!/dictation typed, 19 characters/.test(log)) why.push("no \"dictation typed\" line in the log");
+      } else {
+        if (typed) why.push("it typed, though Dune Bot's own window had the keyboard");
+        if (!/input: type: Dune Bot's own window has the keyboard/.test(log)) why.push("typeText's refusal isn't in the log");
+        if (states !== "typing,refused") why.push(`the card was told ${states || "nothing"}`);
+        if (!/own windows/.test(res?.note ?? "")) why.push(`the card showed "${res?.note ?? ""}"`);
+      }
+      if (/Hello from Dune Bot/.test(log)) why.push("the words are in the log");
+      if (why.length) problems.push(`${name} ${theme}: ${why.join("; ")} (${JSON.stringify(res)})\n${log.split("\n").filter((l) => /dictation|input/.test(l)).slice(-8).join("\n")}`);
+      else note += name === "caption-dictation" ? ` typed (stand-in)${res.typingShown ? ", \"Typing…\" shown" : ""}` : " refused, the card said why";
     }
     if (name === "caption-held-read") {
       // The held question goes only after the answer has been read: "speech:" (reading over) first.
