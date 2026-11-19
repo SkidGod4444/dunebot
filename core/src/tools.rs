@@ -165,11 +165,18 @@ pub fn list() -> Value {
             }
         }));
     }
+    tools.as_array_mut().expect("a list").extend(teach::list());
     tools
 }
 
+/// Teaching: point_at and clear_pointer (tools/teach.rs).
+mod teach;
+
 /// The text for the agent, whether it failed, and a picture (an MCP image block) when there is one.
 pub async fn call(app: &App, thread: &Thread, name: &str, args: &Value) -> (String, bool, Option<Value>) {
+    if let Some(r) = teach::call(app, thread, name, args).await {
+        return r;
+    }
     if name == "look_at_screen" {
         return match look_at_screen(app, thread).await {
             Ok((text, image)) => (text, false, Some(image)),

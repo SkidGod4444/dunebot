@@ -230,7 +230,15 @@ fn instructions(thread: &Thread) -> String {
              them ask the user. When the user says to click something, click it: never a shortcut in its place. Aim \
              at the middle of the target, clear of icons or buttons in or beside it. A click's answer says what was \
              under the pointer: if that isn't what you meant, it missed, so look again and click again. Never \
-             do these through run_command (osascript, cliclick, xdotool, PowerShell): that asks the user every time."
+             do these through run_command (osascript, cliclick, xdotool, PowerShell): that asks the user every time. \
+             When the user wants to learn how to do something (\"show me how to…\", \"how do I … here?\", \"teach me\", \
+             \"where's the …\"), guide them instead of doing it: look_at_screen, then point_at the one control they \
+             should use next (its middle and size in that picture's pixels, and a label of a few words), and say that \
+             one step in one short sentence (\"Click Share, at the top right.\"). Then stop and let them do it. When \
+             they say done or next, or ask again, look again and point at the next step; if the screen isn't what you \
+             expected, point again and say what to look for. While teaching, never click, type or press keys for \
+             them unless they ask you to. Call clear_pointer when the lesson is over or they move on to something \
+             else. If point_at isn't available, say where the control is in words."
         } else {
             ""
         }
@@ -568,7 +576,8 @@ pub const ENGLISH_NOTE: &str = "<dunebot-language>The user asked in Hindi or Hin
 
 /// The test agent: `run <command>`, `ls <folder>`, `read <file>`, `write <file>` + newline + content,
 /// `look`, `where`, `click <x> <y> [what]` (a point in the latest picture), `scroll <x> <y> <direction>`,
-/// `drag <x1> <y1> <x2> <y2>`, `type <text>`, `keys <shortcut> [times]`, `search [words]`, `pause <words>`.
+/// `drag <x1> <y1> <x2> <y2>`, `type <text>`, `keys <shortcut> [times]`, `search [words]`, `pause <words>`,
+/// `point <x> <y> [<width> <height>] <label>` and `unpoint` (tools/teach.rs).
 async fn echo_turn(app: &Arc<App>, thread: &Thread, text: &str, turn: &mut Turn) -> (&'static str, Option<String>) {
     let (head, rest) = text.split_once(char::is_whitespace).unwrap_or((text, ""));
     let rest = rest.trim();
@@ -606,6 +615,17 @@ async fn echo_turn(app: &Arc<App>, thread: &Thread, text: &str, turn: &mut Turn)
             Some(("press_keys", json!({ "keys": keys, "times": times, "what": "a test" })))
         }
         "search" => Some(("search_chats", if rest.is_empty() { json!({}) } else { json!({ "query": rest }) })),
+        "point" => {
+            let w: Vec<&str> = rest.split_whitespace().collect();
+            let n: Vec<f64> = w.iter().take(4).map_while(|v| v.parse().ok()).collect();
+            let label = |from: usize| w.get(from..).unwrap_or_default().join(" ");
+            match n.len() {
+                4 => Some(("point_at", json!({ "x": n[0], "y": n[1], "width": n[2], "height": n[3], "label": label(4) }))),
+                2 | 3 => Some(("point_at", json!({ "x": n[0], "y": n[1], "label": label(2) }))),
+                _ => None,
+            }
+        }
+        "unpoint" => Some(("clear_pointer", json!({}))),
         "stream" | "markdown" => {
             // A long reply in the rhythm a real agent streams (measured from Claude Code through
             // codemax): a burst of pieces at once, a few 50 ms apart, then a short pause.
