@@ -1262,7 +1262,7 @@ mod tests {
         assert_eq!(switch(true).await.unwrap()["reads"], json!(true));
         assert!(crate::asked::check(&app, &t, Source::Calendar).is_ok());
         let no = crate::asked::check(&app, &t, Source::Gmail).unwrap_err();
-        assert!(no.contains("hasn't asked for their Gmail in this chat"), "{no}");
+        assert!(no.contains("hasn't asked for their Gmail in this conversation"), "{no}");
         // Named earlier in this Phone chat: a later phone message may read it too.
         ask(&app, &mock, "and now summarise the second one").await;
         assert!(crate::asked::check(&app, &t, Source::Calendar).is_ok());

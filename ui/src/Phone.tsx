@@ -72,7 +72,7 @@ export function PhoneSettings() {
         title="Read my accounts from my phone"
         on={!!ph?.reads}
         onPick={(v) => flip("reads", v)}
-        hint="Slack, Gmail, Notion, Calendar and X, once you've named one in the Phone chat (named once, it counts for the rest of that chat). Off: messages from your phone never read them."
+        hint="Slack, Gmail, Notion, Calendar and X, once you've named one in the Phone chat (named once, it counts until that chat has been quiet for 2 hours). Off: messages from your phone never read them."
       />
       <SwitchRow
         title="Let my phone run actions"

@@ -243,6 +243,24 @@ pub fn may_use(app: &App, thread: &Thread, tool: &str) -> Result<(), String> {
 
 // ---------- where a chat stands in a handoff ----------
 
+/// Who the work in a chat is for: its own turn's origin, or, for a teammate's chat, the turn that
+/// handed the work over (followed up every handoff). The phone's rule (App::gate) follows a handoff
+/// this way, so a phone turn can't have a teammate do what the phone itself may not.
+pub fn works_for(app: &App, chat: &str) -> Origin {
+    let mut id = chat.to_string();
+    for _ in 0..8 {
+        let o = crate::asked::origin(&id);
+        if o != Origin::Bot {
+            return o;
+        }
+        match parent_of(app, &id) {
+            Some(up) => id = up,
+            None => return Origin::Bot,
+        }
+    }
+    Origin::Bot
+}
+
 fn parent_of(app: &App, chat: &str) -> Option<String> {
     app.db(|d| d.get_setting(&format!("team.from.{chat}"))).ok().flatten().filter(|s| !s.is_empty())
 }
@@ -888,6 +906,30 @@ mod tests {
         assert_ne!(req["threadId"], run.id.as_str());
         r.call("approvals.respond", json!({ "id": req["approvalId"], "decision": "deny" })).await.unwrap();
         ended(&r.app, &run.id).await;
+    }
+
+    #[tokio::test]
+    async fn a_teammate_working_for_the_phone_keeps_the_phones_rule() {
+        let mut r = Rig::new();
+        r.app.set_mode("run-command", "always").unwrap();
+        let lead = r.bot("Lead", "Plans").await;
+        let ops = r.bot("Ops", "Runs commands carefully").await;
+        let chat = r.chat(&lead.id);
+        let n = r.seen.len();
+        crate::agent::send(r.app.clone(), &chat.id, "ask Ops run echo from-the-phone", false, Origin::Phone).await.unwrap();
+        ended(&r.app, &chat.id).await;
+        let o = r.chats_of(&ops).remove(0);
+        assert_eq!(asked::origin(&o.id), Origin::Bot);
+        assert_eq!(works_for(&r.app, &o.id), Origin::Phone, "the teammate works for the phone");
+        r.drain();
+        assert!(!r.seen[n..].iter().any(|m| m["event"] == "approval.request"), "refused, not asked");
+        let ledger = r.app.db(|d| d.ledger_list(20)).unwrap();
+        assert!(ledger.iter().any(|l| l.decision == "blocked (from your phone)" && l.action == "run-command"), "the teammate's command was blocked as the phone's");
+        assert!(!ledger.iter().any(|l| l.action == "run-command" && l.decision.starts_with("allowed")));
+        // The same handoff from the computer runs (Always).
+        crate::agent::send(r.app.clone(), &chat.id, "ask Ops run echo from-the-computer", false, Origin::User).await.unwrap();
+        ended(&r.app, &chat.id).await;
+        assert!(r.app.db(|d| d.ledger_list(20)).unwrap().iter().any(|l| l.action == "run-command" && l.decision == "allowed (always)"));
     }
 
     #[tokio::test]
