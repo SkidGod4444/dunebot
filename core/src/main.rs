@@ -4,6 +4,7 @@
 //! Agent tools: a loopback MCP endpoint, one bearer token per chat (see mcp.rs).
 
 mod agent;
+mod asked;
 mod fixes;
 mod keys;
 mod lookonly;

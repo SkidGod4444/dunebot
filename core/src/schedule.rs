@@ -118,7 +118,7 @@ pub async fn run(app: &Arc<App>, s: &Schedule) -> anyhow::Result<Value> {
     app.db(|d| d.schedule_ran(s.id, &t.id))?;
     let _ = app.db(|d| d.ledger_add(Some(&t.id), "schedule", &s.title, "started", &s.prompt));
     app.out.event("schedule.ran", json!({ "scheduleId": s.id, "threadId": t.id, "title": s.title }));
-    agent::send(app.clone(), &t.id, &s.prompt, false).await?;
+    agent::send(app.clone(), &t.id, &s.prompt, false, crate::asked::Origin::Schedule).await?;
     Ok(json!({ "threadId": t.id }))
 }
 

@@ -400,7 +400,8 @@ impl Turn {
     }
 }
 
-pub async fn send(app: Arc<App>, thread_id: &str, text: &str, spoken: bool) -> anyhow::Result<Value> {
+/// `origin`: who started this turn; only the user's own words may ask for their accounts (asked.rs).
+pub async fn send(app: Arc<App>, thread_id: &str, text: &str, spoken: bool, origin: crate::asked::Origin) -> anyhow::Result<Value> {
     let text = text.trim();
     if text.is_empty() {
         bail!("empty message");
@@ -410,6 +411,7 @@ pub async fn send(app: Arc<App>, thread_id: &str, text: &str, spoken: bool) -> a
         bail!("this chat is still working on the last message");
     }
     app.cancelled.lock().unwrap().remove(&thread.id);
+    crate::asked::begin(&thread.id, origin, text);
     // A Hindi or Hinglish question: its answer is read aloud in Hinglish (speak_stream.rs).
     app.sarvam.set_question(text);
     let msg = app.add_message(&thread.id, "user", text, json!({}))?;

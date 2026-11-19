@@ -104,7 +104,7 @@ async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<Value
         "threads.send" => {
             // From the bar: the answer is spoken and shown as a caption by the pointer (agent::SPOKEN_NOTE).
             let spoken = p.get("spoken").and_then(Value::as_bool).unwrap_or(false);
-            agent::send(app.clone(), s(p, "id")?, s(p, "text")?, spoken).await?
+            agent::send(app.clone(), s(p, "id")?, s(p, "text")?, spoken, crate::asked::Origin::User).await?
         }
         "threads.cancel" => {
             agent::cancel(app, s(p, "id")?).await?;
