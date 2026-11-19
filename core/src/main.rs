@@ -4,6 +4,7 @@
 //! Agent tools: a loopback MCP endpoint, one bearer token per chat (see mcp.rs).
 
 mod agent;
+mod dictation;
 mod fixes;
 mod keys;
 mod lookonly;
@@ -69,6 +70,8 @@ async fn main() -> anyhow::Result<()> {
             rt.spawn(async move { on_chord(&app, fire) });
         });
         app.out.event("chord.ready", serde_json::json!({ "available": on, "keys": keys::chosen().1 }));
+        // Dictation: Right ⌥ held alone types what you say (dictation.rs), watched beside the chord.
+        dictation::start(&app);
     }
     app.out.event(
         "ready",

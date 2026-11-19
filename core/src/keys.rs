@@ -160,8 +160,9 @@ pub fn step(state: State, s: Sample, chord: Chord) -> (State, Option<Fire>) {
     }
 }
 
+/// Also read by dictation.rs (Right ⌥ held alone), which polls the same state on its own thread.
 #[cfg(target_os = "macos")]
-mod mac {
+pub(crate) mod mac {
     #[link(name = "CoreGraphics", kind = "framework")]
     unsafe extern "C" {
         fn CGEventSourceFlagsState(state: i32) -> u64;
