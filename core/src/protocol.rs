@@ -273,6 +273,8 @@ async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<Value
             app.db(|d| d.fix_delete(id))?;
             json!({ "ok": true })
         }
+        // The app only: Right ⌥ let go or used for a shortcut, and a test's words (dictation.rs).
+        m if m.starts_with("dictation.") => crate::dictation::handle(app, m, p).await?,
         "" => bail!("missing \"method\""),
         _ => bail!("unknown method \"{method}\""),
     })

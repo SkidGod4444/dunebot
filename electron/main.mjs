@@ -15,6 +15,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { createInput } from "./input.mjs";
+import { createDictation } from "./dictation.mjs";
 import { createWayland } from "./wayland.mjs";
 import { gnomeKeys, onGnome } from "./gnome-keys.mjs";
 import { createGuard } from "./pass-clicks.mjs";
@@ -1060,6 +1061,24 @@ function onChord(kind) {
   }
 }
 
+// Dictation (macOS): Right ⌥ held alone, its words typed where the text cursor is (electron/dictation.mjs).
+const dictation = createDictation({
+  call,
+  log,
+  emit,
+  micStatus,
+  openSetup,
+  startVoice,
+  showListening: () => {
+    hushCaption(); // the mic mustn't hear Dune Bot
+    if (!captionWaits()) showCaption(null);
+  },
+  hideListening: () => captionThread === null && hideCaption(),
+  savePref: (key, value) => savePref(key, value).then(() => broadcast({ event: "prefs.updated", prefs })),
+  refreshTray: () => refreshTray(),
+  test: snapshot && process.env.DUNEBOT_DICTATION_TEST === "1" ? { ipcMain, from: (sender) => !!caption && sender === caption.webContents } : undefined,
+});
+
 // ---------- the history window ----------
 let mainWin = null;
 
@@ -1255,6 +1274,8 @@ function refuseOwn(x, y, verb) {
 
 /** Why Dune Bot mustn't type now (one of its own windows, or Dune Bot itself, has the keyboard). */
 function keyboardIsOurs() {
+  // Hidden-window checks only: snapshot windows never have the keyboard, so a check can say one does.
+  if (snapshot && process.env.DUNEBOT_SNAPSHOT_KEYBOARD === "ours") return "Dune Bot's own window has the keyboard";
   const focused = BrowserWindow.getFocusedWindow();
   if (focused && !focused.isDestroyed()) return `Dune Bot's own ${ownName(focused)} has the keyboard`;
   if (!wayland && inputAddon?.frontmostPid && inputAddon.frontmostPid() === process.pid) return "Dune Bot is the app in front";
@@ -1709,6 +1730,7 @@ function refreshTray() {
           ? { label: "Ask Dune Bot", accelerator: hotkey, registerAccelerator: false, click: () => showBar({ focus: true }) }
           : { label: "Ask Dune Bot (no hotkey: all choices taken)", click: () => showBar({ focus: true }) },
       { label: isMac && chord ? `Talk                       hold ${keysLabel()}` : "Talk: hold the mic button in the bar", enabled: false },
+      ...dictation.hint(),
       ...(voiceNote ? [{ label: voiceNote, enabled: false }] : []),
       ...(need ? [{ label: `${need} waiting for your OK`, click: () => showWaiting() }] : []),
       { label: "Show last answer       ↑ in the bar", enabled: !!lastAsked, click: () => showLastAnswer() },
@@ -1724,7 +1746,7 @@ function refreshTray() {
         submenu: BAR_PLACES.map(([k, label]) => ({ label, type: "radio", checked: barPlace() === k, click: () => setBarPlace(k) })),
       },
       ...(isMac && chord
-        ? [{ label: "Keys", submenu: KEYS.map(([k, label]) => ({ label, type: "radio", checked: keysName() === k, click: () => setKeys(k) })) }]
+        ? [{ label: "Keys", submenu: [...KEYS.map(([k, label]) => ({ label, type: "radio", checked: keysName() === k, click: () => setKeys(k) })), ...dictation.menu()] }]
         : []),
       { label: "Agent", submenu: agentItems.length ? agentItems : [{ label: "Looking for agents…", enabled: false }] },
       { type: "separator" },
@@ -1787,6 +1809,11 @@ function onCoreEvent(m) {
       break;
     case "chord":
       onChord(m.kind);
+      return;
+    case "dictation":
+    case "dictation.ready":
+    case "dictation.state":
+      dictation.onEvent(m);
       return;
     case "screen.capture":
       captureForCore(m.requestId);

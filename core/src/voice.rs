@@ -238,7 +238,11 @@ mod engine {
             );
         }
         let mut rec = app.voice.rec.lock().unwrap();
-        if rec.is_some() {
+        if let Some(r) = rec.as_mut() {
+            // A hold to talk (or the mic button) takes over a dictation's recording (dictation.rs).
+            if crate::dictation::takes_over(&r.source, source) {
+                r.source = source.to_string();
+            }
             return Ok(());
         }
         let (stop_tx, stop_rx) = mpsc::channel();
@@ -351,9 +355,27 @@ mod engine {
         Ok((samples, rate, hit_limit))
     }
 
-    /// Stops recording and turns it into text (emits `voice.transcript`).
+    /// Takes the recording, unless `only` names a source other than the one recording.
+    fn take(app: &App, only: Option<&str>) -> Option<Recording> {
+        let mut slot = app.voice.rec.lock().unwrap();
+        if only.is_some_and(|s| slot.as_ref().is_some_and(|r| r.source != s)) {
+            return None;
+        }
+        slot.take()
+    }
+
+    /// Stops recording and turns it into text (emits `voice.transcript`; a dictation's is typed).
     pub fn stop(app: &Arc<App>) {
-        let Some(rec) = app.voice.rec.lock().unwrap().take() else { return };
+        end(app, None)
+    }
+
+    /// Stops only a recording `source` started (dictation's keys never end a hold to talk).
+    pub fn stop_from(app: &Arc<App>, source: &str) {
+        end(app, Some(source))
+    }
+
+    fn end(app: &Arc<App>, only: Option<&str>) {
+        let Some(rec) = take(app, only) else { return };
         let _ = rec.stop.send(());
         state(app, "transcribing", json!({}));
         let app = app.clone();
@@ -366,7 +388,12 @@ mod engine {
                 .and_then(|(samples, rate)| transcribe(&app, &samples, rate).map_err(|e| e.to_string()));
             match result {
                 Ok((text, note)) => {
-                    app.out.event("voice.transcript", json!({ "text": text, "note": note, "source": rec.source }));
+                    // Dictation types what was said where the text cursor is; it never reaches the bar.
+                    if rec.source == crate::dictation::SOURCE {
+                        crate::dictation::heard(&app, text, note);
+                    } else {
+                        app.out.event("voice.transcript", json!({ "text": text, "note": note, "source": rec.source }));
+                    }
                     state(&app, "idle", json!({}));
                 }
                 Err(e) => state(&app, "error", json!({ "message": e })),
@@ -375,10 +402,18 @@ mod engine {
     }
 
     pub fn cancel(app: &Arc<App>) {
-        if let Some(rec) = app.voice.rec.lock().unwrap().take() {
+        if let Some(rec) = take(app, None) {
             let _ = rec.stop.send(());
         }
         state(app, "idle", json!({}));
+    }
+
+    /// Cancels only a recording `source` started; anything else listening carries on.
+    pub fn cancel_from(app: &Arc<App>, source: &str) {
+        if let Some(rec) = take(app, Some(source)) {
+            let _ = rec.stop.send(());
+            state(app, "idle", json!({}));
+        }
     }
 
     /// Returns the text, or "" and a note saying why there's none.
@@ -536,6 +571,8 @@ mod engine_off {
     }
     pub fn stop(_: &Arc<App>) {}
     pub fn cancel(_: &Arc<App>) {}
+    pub fn stop_from(_: &Arc<App>, _: &str) {}
+    pub fn cancel_from(_: &Arc<App>, _: &str) {}
 }
 #[cfg(not(feature = "voice"))]
 pub use engine_off::*;

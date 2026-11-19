@@ -48,7 +48,8 @@ fn min_read_time() -> Duration {
 /// `voice.speak`: "0" stops answers from being read aloud (the answer card's speaker button).
 /// `voice.engine`: "local" listens and reads aloud on this computer even when a Sarvam key is saved.
 /// `keys.chord`: the keys that tap/hold on macOS ("opt-cmd" ⌥⌘ by default, "ctrl-opt", "ctrl-cmd", "right-cmd").
-pub const PREFS: [&str; 8] = ["agent", "bar.thread", "setup.done", "setup.folders", "bar.place", "voice.speak", "voice.engine", "keys.chord"];
+/// `dictation`: "off" stops Right ⌥ held alone from typing what you say (macOS; unset is on).
+pub const PREFS: [&str; 9] = ["agent", "bar.thread", "setup.done", "setup.folders", "bar.place", "voice.speak", "voice.engine", "keys.chord", crate::dictation::PREF];
 
 pub struct App {
     pub out: Out,
@@ -392,10 +393,16 @@ impl App {
         if key == "keys.chord" && !crate::keys::CHORDS.iter().any(|(n, _, _)| *n == value) {
             bail!("unknown keys \"{value}\"");
         }
+        if key == crate::dictation::PREF {
+            crate::dictation::check(value)?;
+        }
         self.db(|d| d.set_setting(&format!("pref.{key}"), value))?;
         if key == "keys.chord" {
             let label = crate::keys::choose(Some(value));
             self.out.event("chord.keys", json!({ "name": value, "keys": label }));
+        }
+        if key == crate::dictation::PREF {
+            crate::dictation::set(self, value);
         }
         Ok(())
     }

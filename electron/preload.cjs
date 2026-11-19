@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld("dunebot", {
   note: (text) => ipcRenderer.send("page:note", String(text).slice(0, 200)),
   // Hidden-window checks only (main ignores it otherwise).
   testTranscript: (text) => ipcRenderer.send("test:transcript", String(text)),
+  // Hidden-window checks only (main ignores it otherwise): words as if just dictated, no microphone.
+  testDictate: (text) => ipcRenderer.send("test:dictate", String(text)),
   // The voice keys (Sarvam; Deepgram for English in an American voice): pages can save or remove
   // them and see whether one is saved, never read them.
   sarvam: {

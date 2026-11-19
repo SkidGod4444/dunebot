@@ -8,6 +8,7 @@ import { useSmoothText } from "./smooth";
 import { noteStream } from "./parts";
 import { useStickToBottom } from "./stick";
 import { Speaker } from "./speak";
+import { useDictation } from "./dictation";
 
 /**
  * The answer beside the pointer (HeyClicky-style): no chat, just what Dune Bot is doing now and its
@@ -42,6 +43,7 @@ export function Caption() {
   };
   const [fading, setFading] = useState(false);
   const [note, setNote] = useState<string | null>(null); // "Didn't catch that", a mic problem
+  const typing = useDictation(setNote); // Right ⌥ let go: what you said is being typed (dictation.tsx)
   // What you said has been written down and is on its way to the agent: thinking, not an empty card.
   const [asked, setAsked] = useState(false);
   const [next, setNext] = useState<string | null>(null); // said while this answer was coming: asked after it
@@ -194,14 +196,14 @@ export function Caption() {
   }, [speakPref]);
 
   // It follows the pointer until there's nothing left to do or say (main also stops it for a card).
-  const settled = !(busy || asked || !!next || !!approval || listening || transcribing || speaking);
+  const settled = !(busy || asked || !!next || !!approval || listening || transcribing || typing || speaking);
   useEffect(() => {
     if (show) window.dunebot.caption.settled(settled);
   }, [show, settled]);
 
   // Fades once there is nothing left to do or hear, after time to read what it says.
-  const active = busy || asked || !!next || !!approval || listening || transcribing || speaking || hover;
-  const empty = !id && !note && !listening && !transcribing && !asked; // a hold that ended without anything to say
+  const active = busy || asked || !!next || !!approval || listening || transcribing || typing || speaking || hover;
+  const empty = !id && !note && !listening && !transcribing && !typing && !asked; // a hold that ended without anything to say
   useEffect(() => {
     if (!show) return;
     setFading(false);
@@ -269,7 +271,11 @@ export function Caption() {
               <TypingLine />
             </div>
           ) : !id ? (
-            note ? (
+            typing ? (
+              <div className="flex h-[22.5px] items-center text-[15px]">
+                <span className="text-muted">Typing…</span>
+              </div>
+            ) : note ? (
               <p className="text-[14px] leading-[1.45] text-muted">{note}</p>
             ) : (
               asked && (
