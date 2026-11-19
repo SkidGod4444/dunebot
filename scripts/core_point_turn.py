@@ -8,7 +8,9 @@ Usage: python3 -I scripts/core_point_turn.py core/target/debug/dunebot-core "$(m
 import json, os, queue, subprocess, sys, threading, time
 
 core, data = sys.argv[1], sys.argv[2]
-env = dict(os.environ, DUNEBOT_DATA_DIR=data, DUNEBOT_POINTER_MS="2500")
+# Long enough that the second ring below always comes within the first one's time, even on a slow
+# CI machine (a Windows runner once took over 2.5 s between them).
+env = dict(os.environ, DUNEBOT_DATA_DIR=data, DUNEBOT_POINTER_MS="8000")
 p = subprocess.Popen([core], stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env, text=True, encoding="utf-8", bufsize=1)
 q = queue.Queue()
 threading.Thread(target=lambda: [q.put(json.loads(l)) for l in p.stdout], daemon=True).start()
@@ -110,7 +112,7 @@ ok(req and req.get("kind") == "unpoint" and cleared["meta"]["status"] == "done" 
 seen.clear()
 req1, _ = asked("point 100 50 60 20 one")
 req2, _ = asked("point 100 50 60 20 two")  # well within the first one's time
-clear = wait(lambda m: m.get("event") == "pointer.clear", timeout=6)
+clear = wait(lambda m: m.get("event") == "pointer.clear", timeout=14)
 time.sleep(0.8)
 wait(lambda m: False, timeout=0.3)
 clears = [m["gen"] for m in seen if m.get("event") == "pointer.clear"]
