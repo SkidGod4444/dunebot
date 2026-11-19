@@ -3,7 +3,7 @@
 //
 //   bun run package            (DUNEBOT_PACKAGE_CODEMAX=0 leaves codemax out)
 //
-// 1. Builds the release core, the macOS addon and the pages.
+// 1. Builds the release core, the addon, the pages and (Linux) the Wayland helper.
 // 2. Stages a folder with only what the app loads: electron/, dist/ui/, the addon, and the glass
 //    package with the one module it needs (the pages' libraries are already bundled into dist/ui).
 // 3. Packs it with @electron/packager: .node files stay outside the app archive; the core goes to
@@ -70,6 +70,14 @@ fs.writeFileSync(
 );
 fs.mkdirSync(path.join(res, "core"), { recursive: true });
 fs.copyFileSync(path.join(root, "core", "target", "release", `dunebot-core${exe}`), path.join(res, "core", `dunebot-core${exe}`));
+// Linux: the Wayland helper beside the core (GNOME's screen share, keyboard and pointer; wayland/).
+// Building it needs PipeWire's and xkbcommon's headers (libpipewire-0.3-dev, libxkbcommon-dev, clang).
+if (platform === "linux") {
+  run("cargo", ["build", "--release", "--manifest-path", "wayland/Cargo.toml"]);
+  const helper = path.join(res, "core", "dunebot-wayland");
+  fs.copyFileSync(path.join(root, "wayland", "target", "release", "dunebot-wayland"), helper);
+  fs.chmodSync(helper, 0o755);
+}
 // Dune Bot's license (AGPL-3.0-only) ships with every download: resources/LICENSE.
 const extraResource = [path.join(res, "core"), path.join(root, "LICENSE")];
 const codemax = process.env.DUNEBOT_CODEMAX_BIN || path.join(root, "..", "codemax-cli", "dist", `codemax${exe}`);

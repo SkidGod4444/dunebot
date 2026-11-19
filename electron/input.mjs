@@ -1,5 +1,6 @@
 // The mouse and keyboard for agents (the core's click, scroll, drag, type_text and press_keys), at a
-// person's pace, on every system: the addon posts the events (Quartz, SendInput, XTest). What may be
+// person's pace, on every system: the addon posts the events (Quartz, SendInput, XTest; on a Wayland
+// desktop, electron/wayland.mjs stands in for it with the same calls, answering promises). What may be
 // touched is decided by the hooks: main.mjs passes its checks (never Dune Bot's own windows or
 // keyboard); scripts/check_input_live.mjs drives a test window of its own on CI.
 
@@ -7,7 +8,8 @@
  * @param {object} h
  * @param {() => any} h.addon the native addon (pointerGlide, pointerPress, pointerButton, scrollAt, keyText, keyCode)
  * @param {Electron.Screen} h.screen
- * @param {string} [h.platform]
+ * @param {string} [h.platform] "wayland" on a Wayland desktop: points stay in the desktop's logical
+ *   points and keys are X keysyms
  * @param {(x: number, y: number, verb: string) => void} h.refuseOwn throws when a point is Dune Bot's own
  * @param {() => void} h.refuseKeyboard throws when Dune Bot has the keyboard
  * @param {() => void} h.needAccess throws when the system won't let it
@@ -21,7 +23,7 @@ export function createInput(h) {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const between = (lo, hi) => lo + Math.random() * (hi - lo);
   /** A point as the system's input calls count it: Electron's screen points on macOS, the desktop's
-   * physical pixels on Windows and Linux. */
+   * physical pixels on Windows and Linux (X11), its logical points on Wayland. */
   function nativePoint(x, y) {
     if (platform === "win32") return h.screen.dipToScreenPoint({ x, y });
     if (platform === "linux") {
@@ -61,29 +63,32 @@ export function createInput(h) {
       throw new Error("The app in front runs as administrator, and Windows doesn't let other apps type into it. Ask the user to type this themselves.");
   }
 
+  const STOPPED = "Stopped: the chat stopped waiting for it.";
   const TAKEN =
     "The user moved the mouse while Dune Bot was using it, so Dune Bot stopped. Don't do it again unless they ask.";
   function check(r, what) {
     if (r === 2) throw new Error(TAKEN);
+    if (r === 3) throw new Error(STOPPED);
     if (r !== 0) throw new Error(`Dune Bot couldn't ${what}.`);
   }
 
   /** The pointer glides to the point as a hand would; then, Dune Bot's windows checked again (one may
    * have come up meanwhile), the step itself. */
-  async function glideTo(x, y, verb) {
+  async function glideTo(x, y, verb, requestId) {
     const at = nativePoint(x, y);
-    check(await h.addon().pointerGlide(at.x, at.y, false), "move the pointer there");
+    check(await h.addon().pointerGlide(at.x, at.y, false, () => h.cancelled(requestId)), "move the pointer there");
     refuse(x, y, verb);
+    if (h.cancelled(requestId)) throw new Error(STOPPED);
   }
 
-  async function clickAt({ x, y, button, count }) {
+  async function clickAt({ x, y, button, count, requestId }) {
     const right = button === "right";
     const twice = count === 2 ? 2 : 1;
     refuse(x, y, "clicks");
     // Checks: a stand-in that only logs the point. A test run never touches the real screen.
     if (h.stub()) return `stand-in ${right ? "right " : ""}click ×${twice} at ${Math.round(x)},${Math.round(y)}`;
     h.needAccess();
-    await glideTo(x, y, "clicks");
+    await glideTo(x, y, "clicks", requestId);
     const at = nativePoint(x, y);
     const under = await elementAt(at);
     check(await h.addon().pointerPress(at.x, at.y, right, twice), "click there");
@@ -91,36 +96,36 @@ export function createInput(h) {
     return { log: `${right ? "right " : ""}click ×${twice} at ${Math.round(x)},${Math.round(y)}`, note: under };
   }
 
-  async function scrollAt({ x, y, dx, dy, notches }) {
+  async function scrollAt({ x, y, dx, dy, notches, requestId }) {
     refuse(x, y, "scrolls");
     const n = Math.max(1, Math.min(30, Math.round(notches) || 6));
     if (h.stub()) return `stand-in scroll ${dx},${dy} ×${n} at ${Math.round(x)},${Math.round(y)}`;
     h.needAccess();
-    await glideTo(x, y, "scrolls");
+    await glideTo(x, y, "scrolls", requestId);
     const at = nativePoint(x, y);
     check(await h.addon().scrollAt(at.x, at.y, Math.sign(dx) | 0, Math.sign(dy) | 0, n), "scroll there");
     return `scroll ${dx},${dy} ×${n}`;
   }
 
-  async function dragFrom({ x1, y1, x2, y2 }) {
+  async function dragFrom({ x1, y1, x2, y2, requestId }) {
     refuse(x1, y1, "drags");
     refuse(x2, y2, "drops onto");
     if (h.stub()) return `stand-in drag ${Math.round(x1)},${Math.round(y1)} → ${Math.round(x2)},${Math.round(y2)}`;
     h.needAccess();
-    await glideTo(x1, y1, "drags");
+    await glideTo(x1, y1, "drags", requestId);
     const from = nativePoint(x1, y1);
-    if (!h.addon().pointerButton(from.x, from.y, true)) throw new Error("Dune Bot couldn't press the mouse button.");
+    if (!(await h.addon().pointerButton(from.x, from.y, true))) throw new Error("Dune Bot couldn't press the mouse button.");
     // From here on the button is let go whatever happens: never left held down.
     try {
       await wait(between(120, 200));
       const to = nativePoint(x2, y2);
-      check(await h.addon().pointerGlide(to.x, to.y, true), "drag there");
+      check(await h.addon().pointerGlide(to.x, to.y, true, () => h.cancelled(requestId)), "drag there");
       refuse(x2, y2, "drops onto");
       await wait(between(100, 180));
     } finally {
       const now = h.screen.getCursorScreenPoint();
       const at = nativePoint(now.x, now.y);
-      h.addon().pointerButton(at.x, at.y, false);
+      await h.addon().pointerButton(at.x, at.y, false);
     }
     return "drag";
   }
@@ -167,7 +172,8 @@ export function createInput(h) {
     return X_KEYS[k];
   }
 
-  /** One key down or up (Windows: an extended key carries flag 1). */
+  /** One key down or up (Windows: an extended key carries flag 1). Awaited: Wayland's answers are
+   * promises. */
   function keyEvent(code, flags, down) {
     if (platform === "win32") return h.addon().keyCode(code & 0xff, code & EXT ? 1 : 0, down);
     return h.addon().keyCode(code, flags, down);
@@ -181,24 +187,24 @@ export function createInput(h) {
     const pressed = [];
     try {
       for (const m of held) {
-        if (!keyEvent(m, 0, true)) throw new Error("Dune Bot couldn't press that key.");
+        if (!(await keyEvent(m, 0, true))) throw new Error("Dune Bot couldn't press that key.");
         pressed.push(m);
         await wait(between(20, 40));
       }
-      if (!keyEvent(code, flags, true)) throw new Error("Dune Bot couldn't press that key.");
+      if (!(await keyEvent(code, flags, true))) throw new Error("Dune Bot couldn't press that key.");
       await wait(between(40, 80));
-      keyEvent(code, flags, false);
+      await keyEvent(code, flags, false);
     } finally {
       for (const m of pressed.reverse()) {
         await wait(between(15, 30));
-        keyEvent(m, 0, false);
+        await keyEvent(m, 0, false);
       }
     }
   }
 
   /** Before each key: not stopped, still not Dune Bot's keyboard, and the user hasn't taken the mouse. */
   function stillOurs(start, requestId) {
-    if (h.cancelled(requestId)) throw new Error("Stopped: the chat stopped waiting for it.");
+    if (h.cancelled(requestId)) throw new Error(STOPPED);
     refuseKeys();
     const now = h.screen.getCursorScreenPoint();
     if (Math.hypot(now.x - start.x, now.y - start.y) > 24) throw new Error(TAKEN);
@@ -210,6 +216,19 @@ export function createInput(h) {
     refuseKeys();
     if (h.stub()) return `stand-in typing, ${chars.length} characters`;
     h.needAccess();
+    // Wayland: every character checked against the keyboard layout in use before the first key, so
+    // nothing is half typed or typed as other characters.
+    let note = "";
+    const precheck = h.addon().missingChars;
+    if (typeof precheck === "function") {
+      const r = await precheck(chars.filter((c) => c !== "\n" && c !== "\t").join(""));
+      if (r.missing)
+        throw new Error(
+          `Nothing was typed: the keyboard layout in use (${r.layout}) has no key for ${[...r.missing].map((c) => `"${c}"`).join(", ")}. Tell the user: switching to a layout that has them, then asking again, fixes this.`,
+        );
+      if (r.state?.from === "settings" && r.state.caps == null && /[a-z]/i.test(text))
+        note = "Caps Lock couldn't be checked on this computer: if it's on, the letters came out in the other case. Look to check.";
+    }
     const start = h.screen.getCursorScreenPoint();
     // A person's pace: quicker inside words, a beat after a space or a stop; long text goes faster.
     const pace = chars.length > 200 ? 0.4 : 1;
@@ -218,14 +237,15 @@ export function createInput(h) {
       if (ch === "\n") await tapKey(keyCodeOf("enter"));
       else if (ch === "\t") await tapKey(keyCodeOf("tab"));
       else {
-        if (!h.addon().keyText(ch, true)) throw new Error("Dune Bot couldn't type that.");
+        if (!(await h.addon().keyText(ch, true))) throw new Error("Dune Bot couldn't type that.");
         await wait(between(8, 20));
-        h.addon().keyText(ch, false);
+        await h.addon().keyText(ch, false);
       }
       const after = /[.!?,;:\n]/.test(ch) ? between(120, 260) : ch === " " ? between(60, 160) : between(35, 95);
       await wait(after * pace);
     }
-    return `typing, ${chars.length} characters`;
+    const done = `typing, ${chars.length} characters`;
+    return note ? { log: done, note } : done;
   }
 
   async function pressKeys({ key, mods, times, requestId }) {

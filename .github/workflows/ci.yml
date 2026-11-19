@@ -38,11 +38,13 @@ jobs:
           workspaces: |
             core
             native
-      - name: Linux packages (sound for the mic, a virtual display for the windows)
+            wayland
+      - name: Linux packages (sound for the mic, a virtual display for the windows, the Wayland helper's build libraries)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev xvfb libgtk-3-0 libnss3 libgbm1 libxss1 libatk-bridge2.0-0 libx11-6 libxtst6
+          sudo apt-get install -y libasound2-dev xvfb libgtk-3-0 libnss3 libgbm1 libxss1 libatk-bridge2.0-0 libx11-6 libxtst6 \
+            libpipewire-0.3-dev libxkbcommon-dev clang libclang-dev
       - name: Windows, where bindgen finds clang (speech-to-text)
         if: runner.os == 'Windows'
         run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
@@ -100,6 +102,62 @@ jobs:
         with:
           name: snapshots-${{ runner.os }}
           path: snapshots/
+
+  # Wayland (GNOME 46, Ubuntu 24.04): the helper that asks GNOME for the screen and the keyboard and
+  # pointer, and the app's side of it (electron/wayland.mjs, input.mjs, gnome-keys.mjs), run against
+  # GNOME's own shell, portal, PipeWire and media-keys service in a headless session. A virtual pointer
+  # and keyboard made through GNOME's shell answer the box and press the shortcuts as a person would.
+  wayland-gnome:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: wayland
+      - uses: actions/cache@v4
+        with:
+          path: ~/apt-debs
+          key: wayland-gnome-debs-v2
+          restore-keys: wayland-gnome-debs-
+      # The azure mirror first and a time limit per try: the default mirror has stalled for 25 min.
+      - name: GNOME, the portal, PipeWire (and the helper's build libraries)
+        timeout-minutes: 14
+        run: |
+          printf 'http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\nhttp://archive.ubuntu.com/ubuntu/\tpriority:2\n' | sudo tee /etc/apt/apt-mirrors.txt
+          mkdir -p ~/apt-debs/partial
+          sudo apt-get update -o Acquire::Retries=3
+          for try in 1 2 3; do
+            timeout 240 sudo apt-get install -y --no-install-recommends -o Acquire::Retries=3 -o Acquire::http::Timeout=20 \
+              -o Dir::Cache::archives="$HOME/apt-debs" \
+              libpipewire-0.3-dev libxkbcommon-dev clang libclang-dev pkg-config \
+              gnome-shell mutter xdg-desktop-portal xdg-desktop-portal-gnome pipewire wireplumber python3-gi gir1.2-glib-2.0 \
+              gir1.2-gtk-3.0 dbus dbus-daemon libglib2.0-bin libgl1-mesa-dri libegl-mesa0 fonts-dejavu-core \
+              gnome-settings-daemon xwayland dconf-cli ibus \
+              libnss3 libasound2t64 libgbm1 libxss1 libxshmfence1 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libxkbcommon0 \
+              libxcomposite1 libxdamage1 libxrandr2 libxtst6 && break
+            echo "install try $try stalled or failed"
+          done
+          sudo chmod -R a+r ~/apt-debs
+          dpkg -l gnome-shell mutter xdg-desktop-portal-gnome | tail -3
+      - name: The helper, and Electron for the app side's own-window check
+        run: |
+          cargo build --release --manifest-path wayland/Cargo.toml
+          bun install --frozen-lockfile
+      - name: The box, the screen, clicks, typing, the token, a stop from GNOME's top bar; then the app's side (stop, idle, GNOME's shortcuts pressed)
+        run: DUNEBOT_TEST_ELECTRON="$PWD/node_modules/electron/dist/electron" bash wayland/test/run.sh wayland/target/release/dunebot-wayland out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wayland-gnome
+          path: out/
 
   same-everywhere:
     needs: build

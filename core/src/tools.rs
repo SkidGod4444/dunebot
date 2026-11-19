@@ -394,8 +394,14 @@ async fn type_text(app: &App, thread: &Thread, args: &Value) -> Result<String, S
     let detail = if lines > 0 { format!("{n} characters, pressing Return {lines}×") } else { format!("{n} characters") };
     app.gate(&thread.id, Action::Type, &what, &detail).await?;
     forget_shot(app, thread);
-    app.input(json!({ "kind": "type", "text": text }), 20 + n as u64 / 4).await?;
-    Ok(format!("Typed {n} characters into {what}. Look at the screen to check they landed where you meant."))
+    // The app may add a word the agent needs (Wayland: Caps Lock couldn't be checked).
+    let note = app.input(json!({ "kind": "type", "text": text }), 20 + n as u64 / 4).await?;
+    let mut said = format!("Typed {n} characters into {what}. Look at the screen to check they landed where you meant.");
+    if !note.is_empty() {
+        said.push(' ');
+        said.push_str(&note);
+    }
+    Ok(said)
 }
 
 #[cfg(target_os = "macos")]

@@ -68,7 +68,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev xvfb libgtk-3-0 libnss3 libgbm1 libxss1 libatk-bridge2.0-0
+          sudo apt-get install -y libasound2-dev xvfb libgtk-3-0 libnss3 libgbm1 libxss1 libatk-bridge2.0-0 libpipewire-0.3-dev libxkbcommon-dev clang libclang-dev
       - name: Windows, where bindgen finds clang (speech-to-text)
         if: runner.os == 'Windows'
         run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
