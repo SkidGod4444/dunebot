@@ -13,6 +13,7 @@ interface Window {
     glassRadius: (radius: number) => void;
     note?: (text: string) => void;
     testTranscript?: (text: string) => void;
+    testDictate?: (text: string) => void;
     sarvam: {
       status: () => Promise<SarvamStatus>;
       save: (key: string) => Promise<SarvamStatus>;

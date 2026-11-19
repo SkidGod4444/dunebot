@@ -7,6 +7,7 @@ import {
 import { AgentAvatar, ApprovalCard, AssistantBubble, failureOf, Mascot, TeachFix, ThinkingBubble, UserBubble } from "./parts";
 import { useStickToBottom } from "./stick";
 import { plainPreview } from "./reply";
+import { DictationSetting } from "./dictation";
 
 export function App() {
   const view = useStore((s) => s.view);
@@ -542,12 +543,9 @@ function Permissions() {
               </div>
             ))}
           </div>
-          {window.dunebot.platform === "darwin" && (
-            <>
-              <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Keys</h2>
-              <KeySettings />
-            </>
-          )}
+          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Keys</h2>
+          {window.dunebot.platform === "darwin" && <KeySettings />}
+          <DictationSetting />
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Voice</h2>
           <VoiceSettings />
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Always off limits</h2>
