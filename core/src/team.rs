@@ -651,10 +651,14 @@ mod tests {
     async fn a_chat_with_a_bot_runs_on_its_engine_and_stops_when_it_is_deleted() {
         let mut r = Rig::new();
         let w = r.bot("Writer", "Turns notes into a short post").await;
-        let chat = r.chat(&w.id);
+        // As the bar does it: a new chat with the picked bot, in the home folder, then the message.
+        let made = r.call("threads.create", json!({ "agent": w.id, "cwd": "~" })).await.unwrap();
+        assert_eq!(made["agent"], w.id.as_str());
+        let chat: Thread = r.app.db(|d| d.get_thread(made["id"].as_str().unwrap())).unwrap();
         r.say(&chat, "hello writer").await;
         ended(&r.app, &chat.id).await;
-        assert!(r.last_said(&chat).0.contains("Echo: hello writer"));
+        assert!(r.last_said(&chat).0.contains("Echo: hello writer"), "the test engine answered for the bot");
+        assert!(r.app.db(|d| d.messages(&chat.id)).unwrap().iter().any(|m| m.role == "user" && m.text == "hello writer"));
         r.call("bots.delete", json!({ "id": w.id })).await.unwrap();
         let e = r.call("threads.send", json!({ "id": chat.id, "text": "again" })).await.unwrap_err();
         assert!(e.contains("bot was deleted"), "{e}");
