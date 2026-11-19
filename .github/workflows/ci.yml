@@ -115,6 +115,15 @@ jobs:
   # GNOME's own shell, portal, PipeWire and media-keys service in a headless session. A virtual pointer
   # and keyboard made through GNOME's shell answer the box and press the shortcuts as a person would.
   wayland-gnome:
+    # One screen; one at 200%; two side by side at 100% and 200% (the box then asks which to share).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: one-screen, monitors: "1280x800", scales: "" }
+          - { name: hidpi, monitors: "2560x1600", scales: "2" }
+          - { name: two-screens, monitors: "1280x800 2560x1600", scales: "1,2" }
+    name: wayland-gnome (${{ matrix.name }})
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -132,7 +141,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/apt-debs
-          key: wayland-gnome-debs-v2
+          key: wayland-gnome-debs-v3
           restore-keys: wayland-gnome-debs-
       # The azure mirror first and a time limit per try: the default mirror has stalled for 25 min.
       - name: GNOME, the portal, PipeWire (and the helper's build libraries)
@@ -147,7 +156,7 @@ jobs:
               libpipewire-0.3-dev libxkbcommon-dev clang libclang-dev pkg-config \
               gnome-shell mutter xdg-desktop-portal xdg-desktop-portal-gnome pipewire wireplumber python3-gi gir1.2-glib-2.0 \
               gir1.2-gtk-3.0 dbus dbus-daemon libglib2.0-bin libgl1-mesa-dri libegl-mesa0 fonts-dejavu-core \
-              gnome-settings-daemon xwayland dconf-cli ibus \
+              gnome-settings-daemon xwayland dconf-cli ibus at-spi2-core gir1.2-atspi-2.0 \
               libnss3 libasound2t64 libgbm1 libxss1 libxshmfence1 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libxkbcommon0 \
               libxcomposite1 libxdamage1 libxrandr2 libxtst6 && break
             echo "install try $try stalled or failed"
@@ -162,11 +171,14 @@ jobs:
           node node_modules/electron/install.js
           test -x node_modules/electron/dist/electron
       - name: The box, the screen, clicks, typing, the token, a stop from GNOME's top bar; then the app's side (stop, idle, GNOME's shortcuts pressed)
+        env:
+          DUNEBOT_WL_MONITORS: ${{ matrix.monitors }}
+          DUNEBOT_WL_SCALES: ${{ matrix.scales }}
         run: DUNEBOT_TEST_ELECTRON="$PWD/node_modules/electron/dist/electron" bash wayland/test/run.sh wayland/target/release/dunebot-wayland out
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: wayland-gnome
+          name: wayland-gnome-${{ matrix.name }}
           path: out/
 
   same-everywhere:
