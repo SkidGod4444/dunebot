@@ -125,6 +125,11 @@ CREATE TABLE IF NOT EXISTS scheduled_chats(thread_id TEXT PRIMARY KEY, schedule_
 CREATE TABLE IF NOT EXISTS fixes(
   id INTEGER PRIMARY KEY AUTOINCREMENT, thread_id TEXT, failure TEXT NOT NULL, fix TEXT NOT NULL,
   created_at INTEGER NOT NULL, enabled INTEGER NOT NULL DEFAULT 1);
+-- The user's own bots (team.rs): a name, a role in their words, the engine it runs on and what it
+-- may do (action keys, comma-separated).
+CREATE TABLE IF NOT EXISTS bots(
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL, engine TEXT NOT NULL, may TEXT NOT NULL,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 ";
 
 /// Whatever was in flight when Dune Bot last closed can't finish now; say so instead of spinning.
@@ -432,6 +437,41 @@ impl Store {
 
     pub fn schedule_delete(&self, id: i64) -> rusqlite::Result<()> {
         self.conn.execute("DELETE FROM schedules WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    /// The user's bots, oldest first (team.rs).
+    pub fn bots(&self) -> rusqlite::Result<Vec<crate::team::Bot>> {
+        let mut st = self
+            .conn
+            .prepare("SELECT id, name, role, engine, may, created_at, updated_at FROM bots ORDER BY created_at, rowid")?;
+        let rows = st.query_map([], |r| {
+            let may: String = r.get(4)?;
+            Ok(crate::team::Bot {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                role: r.get(2)?,
+                engine: r.get(3)?,
+                may: may.split(',').filter(|k| !k.is_empty()).map(String::from).collect(),
+                created_at: r.get(5)?,
+                updated_at: r.get(6)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn bot_put(&self, b: &crate::team::Bot) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "INSERT INTO bots(id, name, role, engine, may, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(id) DO UPDATE SET name = excluded.name, role = excluded.role, engine = excluded.engine,
+               may = excluded.may, updated_at = excluded.updated_at",
+            params![b.id, b.name, b.role, b.engine, b.may.join(","), b.created_at, b.updated_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn bot_delete(&self, id: &str) -> rusqlite::Result<()> {
+        self.conn.execute("DELETE FROM bots WHERE id = ?1", [id])?;
         Ok(())
     }
 

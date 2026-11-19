@@ -4,6 +4,7 @@ import { useSmoothText, type StreamStats } from "./smooth";
 import { Check, ShieldAlert, ShieldCheck, ShieldX, Wrench } from "lucide-react";
 import { AGENT_LOOK, agentName, answer, call, toast, type Message } from "./store";
 import mascot from "./mascot.svg";
+import { botLook } from "./bots";
 
 /** "Teach a fix": the user writes what the agent should do instead. Kept with this failure; agents
  * read it as a note from then on (it never changes what they may do). */
@@ -69,7 +70,7 @@ export function Mascot({ size = 40 }: { size?: number }) {
 }
 
 export function AgentAvatar({ id, size = 36, dot }: { id: string; size?: number; dot?: "busy" | "waiting" }) {
-  const look = AGENT_LOOK[id] ?? { short: id.slice(0, 2) };
+  const look = AGENT_LOOK[id] ?? botLook(id) ?? { short: id.slice(0, 2) };
   return (
     <span className="relative inline-grid shrink-0 place-items-center bg-[#3a3a3c] text-[#fff]" style={{ width: size, height: size, borderRadius: size * 0.3 }}>
       <span className="font-pixel leading-none" style={{ fontSize: size * 0.46 }}>{look.short}</span>

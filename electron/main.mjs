@@ -170,6 +170,7 @@ const ALLOWED = new Set([
   "hello", "threads.list", "threads.create", "threads.get", "threads.delete", "threads.send",
   "threads.cancel", "threads.changes", "threads.undo", "agents.stopAll", "fixes.list", "fixes.add", "fixes.set", "fixes.delete",
   "schedules.list", "schedules.add", "schedules.set", "schedules.delete", "schedules.run", "approvals.respond", "settings.get", "settings.set", "prefs.set", "agents.list", "ledger.list",
+  "bots.list", "bots.save", "bots.delete",
   "voice.status", "voice.start", "voice.stop", "voice.cancel", "voice.say",
   "voice.streamOpen", "voice.streamSay", "voice.streamClose",
 ]);

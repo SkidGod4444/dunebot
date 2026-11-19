@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { botOf, loadBots } from "./bots";
 
 export type Thread = {
   id: string;
@@ -165,6 +166,13 @@ function onEvent(m: any) {
     case "prefs.updated":
       set({ prefs: m.prefs });
       break;
+    case "bots.changed": {
+      // The picked bot was deleted (the core moved the pick to its engine): show what the core says.
+      const picked = get().prefs.agent;
+      if (picked?.startsWith("bot-") && !(m.bots ?? []).some((b: { id: string }) => b.id === picked))
+        call<Settings>("settings.get").then((s) => set({ prefs: s.prefs })).catch(() => {});
+      break;
+    }
     case "chord.keys": // other keys picked in Settings
       set((s) => ({ prefs: { ...s.prefs, "keys.chord": m.name } }));
       break;
@@ -182,7 +190,7 @@ export async function boot() {
     if (view.startsWith("thread:")) openThread(view.slice(7));
     else set({ view: view as View });
   });
-  const [threads, settings] = await Promise.all([call<Thread[]>("threads.list"), call<Settings>("settings.get")]);
+  const [threads, settings] = await Promise.all([call<Thread[]>("threads.list"), call<Settings>("settings.get"), loadBots()]);
   set({ ready: true, threads, modes: settings.modes, prefs: settings.prefs });
   const asked = location.hash.match(/^#main:(.+)$/)?.[1];
   if (asked?.startsWith("thread:")) await openThread(asked.slice(7));
@@ -194,7 +202,7 @@ export async function boot() {
 /** The bar: no agent scan (that starts codemax); it goes on with its one chat (Bar.tsx). */
 export async function bootBar() {
   window.dunebot.onEvent(onEvent);
-  const [threads, settings] = await Promise.all([call<Thread[]>("threads.list"), call<Settings>("settings.get")]);
+  const [threads, settings] = await Promise.all([call<Thread[]>("threads.list"), call<Settings>("settings.get"), loadBots()]);
   set({ ready: true, threads, modes: settings.modes, prefs: settings.prefs, view: "chat", activeId: null });
   const last = settings.prefs["bar.thread"];
   if (last && barChatLive({ threads, messages: {}, busy: {}, waiting: {}, prefs: settings.prefs }, last)) await openThread(last);
@@ -205,7 +213,7 @@ let trackTurns = false;
 export async function bootCaption() {
   trackTurns = true;
   window.dunebot.onEvent(onEvent);
-  const [threads, settings] = await Promise.all([call<Thread[]>("threads.list"), call<Settings>("settings.get")]);
+  const [threads, settings] = await Promise.all([call<Thread[]>("threads.list"), call<Settings>("settings.get"), loadBots()]);
   set({ ready: true, threads, modes: settings.modes, prefs: settings.prefs, view: "chat", activeId: null });
 }
 
@@ -309,6 +317,8 @@ export const AGENT_LOOK: Record<string, { short: string }> = {
 };
 
 export function agentName(id: string) {
+  const bot = botOf(id);
+  if (bot) return bot.name;
   const a = get().agents?.find((x) => x.id === id);
   if (a) return a.name.replace(/\s*\(test, no AI\)/, "");
   return { claude: "Claude Code", codex: "Codex", echo: "Echo" }[id] ?? id;

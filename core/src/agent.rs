@@ -208,7 +208,7 @@ pub async fn close_session(app: &Arc<App>, thread_id: &str) {
     }
 }
 
-fn instructions(thread: &Thread) -> String {
+fn instructions(app: &App, thread: &Thread) -> String {
     format!(
         "You are Dune Bot, an assistant that works on the user's own computer ({os}). \
          The \"dunebot\" tools act directly on this computer: run_command, read_file, write_file and list_folder. \
@@ -219,8 +219,10 @@ fn instructions(thread: &Thread) -> String {
          say what you'd need instead. When a request needs these tools, first write one short line saying what you're \
          doing, ending with a full stop (\"Sure, checking the weather where you are.\"): it's shown and read aloud at once, \
          so the user isn't left waiting while you work. Then do the work and answer, without repeating that line. When you \
-         can answer straight away, just answer. This chat's working folder is {cwd}. Keep replies short and plain.",
+         can answer straight away, just answer. This chat's working folder is {cwd}. Keep replies short and plain.{team}",
         os = std::env::consts::OS,
+        // A bot's role, what it may not do, and its teammates (team.rs).
+        team = crate::team::instructions(app, thread),
         cwd = thread.cwd,
         click = if cfg!(any(target_os = "macos", target_os = "windows", target_os = "linux")) {
             " To use the screen for the user, take a picture with look_at_screen, then click, scroll or drag at points in \
@@ -258,8 +260,10 @@ async fn session(app: &Arc<App>, thread: &Thread) -> anyhow::Result<Arc<Codemax>
     })?;
     let cm = Codemax::spawn(&bin).await?;
     let resume = app.db(|d| d.get_setting(&format!("session.{}", thread.id)))?.filter(|s| !s.is_empty());
+    // A bot runs on its engine (team.rs).
+    let engine = crate::team::engine(app, &thread.agent).map_err(|e| anyhow!(e))?;
     let params = json!({
-        "agent": thread.agent,
+        "agent": engine,
         "cwd": thread.cwd,
         "mcp": [{
             "name": "dunebot",
@@ -271,7 +275,7 @@ async fn session(app: &Arc<App>, thread: &Thread) -> anyhow::Result<Arc<Codemax>
         }],
         "policy": "mcp-only",
         "handoff": false,
-        "instructions": instructions(thread),
+        "instructions": instructions(app, thread),
         "resume": resume,
     });
     let mut params = params;
@@ -408,16 +412,20 @@ impl Turn {
     }
 }
 
-pub async fn send(app: Arc<App>, thread_id: &str, text: &str, spoken: bool) -> anyhow::Result<Value> {
+/// `origin`: who started this turn; only the user's own words may ask for their accounts (asked.rs).
+pub async fn send(app: Arc<App>, thread_id: &str, text: &str, spoken: bool, origin: crate::asked::Origin) -> anyhow::Result<Value> {
     let text = text.trim();
     if text.is_empty() {
         bail!("empty message");
     }
     let thread = app.db(|d| d.get_thread(thread_id))?;
+    // A bot's chat runs on the bot's engine; a deleted bot's chat takes no more messages.
+    let engine = crate::team::engine(&app, &thread.agent).map_err(|e| anyhow!(e))?;
     if !app.busy.lock().unwrap().insert(thread.id.clone()) {
         bail!("this chat is still working on the last message");
     }
     app.cancelled.lock().unwrap().remove(&thread.id);
+    crate::asked::begin(&thread.id, origin, text);
     // A Hindi or Hinglish question: its answer is read aloud in Hinglish (speak_stream.rs).
     app.sarvam.set_question(text);
     let msg = app.add_message(&thread.id, "user", text, json!({}))?;
@@ -437,7 +445,7 @@ pub async fn send(app: Arc<App>, thread_id: &str, text: &str, spoken: bool) -> a
         // A crash inside the turn must still end it: otherwise the chat stays "still working" for
         // good and refuses every later message. The crash itself is printed by Rust ("panicked at").
         let ran = std::panic::AssertUnwindSafe(async {
-            if thread.agent == ECHO {
+            if engine == ECHO {
                 echo_turn(&app2, &thread, &text, &mut turn).await
             } else {
                 codemax_turn(&app2, &thread, &text, spoken, &mut turn).await
@@ -578,6 +586,8 @@ pub const ENGLISH_NOTE: &str = "<dunebot-language>The user asked in Hindi or Hin
 /// `look`, `where`, `click <x> <y> [what]` (a point in the latest picture), `scroll <x> <y> <direction>`,
 /// `drag <x1> <y1> <x2> <y2>`, `type <text>`, `keys <shortcut> [times]`, `search [words]`, `pause <words>`,
 /// `point <x> <y> [<width> <height>] <label>` and `unpoint` (tools/teach.rs).
+/// `ask <bot> <task>` (hands the task to one of the user's bots) and `team` (what a real agent is told
+/// about its role and teammates).
 async fn echo_turn(app: &Arc<App>, thread: &Thread, text: &str, turn: &mut Turn) -> (&'static str, Option<String>) {
     let (head, rest) = text.split_once(char::is_whitespace).unwrap_or((text, ""));
     let rest = rest.trim();
@@ -626,6 +636,11 @@ async fn echo_turn(app: &Arc<App>, thread: &Thread, text: &str, turn: &mut Turn)
             }
         }
         "unpoint" => Some(("clear_pointer", json!({}))),
+        "ask" => crate::team::echo_ask(rest).map(|args| ("ask_bot", args)),
+        "team" => {
+            say(turn, &format!("```\n{}\n```", crate::team::instructions(app, thread).trim())).await;
+            return ("done", None);
+        }
         "stream" | "markdown" => {
             // A long reply in the rhythm a real agent streams (measured from Claude Code through
             // codemax): a burst of pieces at once, a few 50 ms apart, then a short pause.

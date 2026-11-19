@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, Maximize2, Mic, Plus, Square } from "lucide-react";
 import { AGENT_LOOK, agentName, barChatLive, call, get, keysLabel, openThread, sendFromBar, set, toast as showToast, useStore, type Agent } from "./store";
 import { Mascot, Typing } from "./parts";
+import { botLook, useBots } from "./bots";
 import { afterTurn, cardDone, hold, READ_WAIT_MS, readWaitOver, type Held, type Step } from "./held";
 
 const mac = window.dunebot.platform === "darwin";
@@ -60,6 +61,7 @@ export function Bar() {
   const toast = useStore((s) => s.toast);
   const [text, setText] = useState("");
   const [agents, setAgents] = useState<Agent[]>([]);
+  const bots = useBots();
   const input = useRef<HTMLTextAreaElement>(null);
   const card = useRef<HTMLDivElement>(null);
   const outer = useRef<HTMLDivElement>(null);
@@ -227,7 +229,7 @@ export function Bar() {
 
   const installed = agents.filter((a) => a.installed);
   const keys = useStore((s) => keysLabel(s.prefs));
-  const look = AGENT_LOOK[agent] ?? { short: agent.slice(0, 2) };
+  const look = AGENT_LOOK[agent] ?? botLook(agent) ?? { short: agent.slice(0, 2) };
   const hint = listening
       ? "release to send · esc cancel"
       : mac
@@ -296,18 +298,40 @@ export function Bar() {
                 <Mic size={17} />
               </button>
             )}
-            <label title="Agent for new chats" className="relative flex h-8 items-center gap-1.5 rounded-full border border-line pr-2.5 pl-1 text-[12.5px] font-medium hover:border-muted/50">
+            <label title={bots.length ? "Agent or bot for new chats" : "Agent for new chats"} className="relative flex h-8 items-center gap-1.5 rounded-full border border-line pr-2.5 pl-1 text-[12.5px] font-medium hover:border-muted/50">
               <span className="grid size-6 place-items-center rounded-full bg-[#3a3a3c] font-pixel text-[11px] text-[#fff]">
                 {look.short}
               </span>
               {agentName(agent)}
-              {installed.length > 1 && (
+              {installed.length + bots.length > 1 && (
                 <select value={agent} onChange={(e) => pickAgent(e.target.value)} className="absolute inset-0 cursor-pointer opacity-0" aria-label="Agent">
-                  {installed.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
+                  {bots.length ? (
+                    <>
+                      {installed.length > 0 && (
+                        <optgroup label="Agents">
+                          {installed.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {/* The user's own bots (Settings › Bots), each on the engine it was given. */}
+                      <optgroup label="Bots">
+                        {bots.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    </>
+                  ) : (
+                    installed.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))
+                  )}
                 </select>
               )}
             </label>
