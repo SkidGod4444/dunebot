@@ -8,6 +8,29 @@ const listen = (channel) => (fn) => {
   return () => ipcRenderer.removeListener(channel, h);
 };
 
+// What a page is told about its own state (which chat the card shows, the question held for next):
+// main sends it as soon as the page has loaded, but React listens a moment later (in an effect), and
+// Electron drops a message nobody listens for. The last one that came with nobody listening is kept
+// and handed over when the page starts to. (The card once missed both, so it never said it was done
+// and a held question waited: bar-held on CI.)
+const latest = (channel) => {
+  const fns = new Set();
+  let kept = null; // { value } while one waits
+  ipcRenderer.on(channel, (_e, value) => {
+    if (fns.size) for (const f of fns) f(value);
+    else kept = { value };
+  });
+  return (fn) => {
+    fns.add(fn);
+    if (kept) {
+      const { value } = kept;
+      kept = null;
+      fn(value);
+    }
+    return () => fns.delete(fn);
+  };
+};
+
 contextBridge.exposeInMainWorld("dunebot", {
   // Snapshots may render another system's version of the pages; the app itself always uses the real one.
   platform: (process.env.DUNEBOT_SNAPSHOT && process.env.DUNEBOT_SNAPSHOT_PLATFORM) || process.platform,
@@ -67,13 +90,13 @@ contextBridge.exposeInMainWorld("dunebot", {
   caption: {
     hide: () => ipcRenderer.send("caption:hide"),
     mouse: (on) => ipcRenderer.send("caption:mouse", !!on),
-    onShow: listen("caption:show"),
+    onShow: latest("caption:show"),
     onHush: listen("caption:hush"),
-    onNext: listen("caption:next"),
+    onNext: latest("caption:next"),
     nextDone: () => ipcRenderer.send("caption:next-done"),
     // It follows the pointer (main moves it): where it sits, whether it's moving, and when it may stop.
-    onPlace: listen("caption:place"),
-    onMoving: listen("caption:moving"),
+    onPlace: latest("caption:place"),
+    onMoving: latest("caption:moving"),
     settled: (on) => ipcRenderer.send("caption:settled", !!on),
     testShow: (threadId) => ipcRenderer.send("caption:test-show", String(threadId)),
   },

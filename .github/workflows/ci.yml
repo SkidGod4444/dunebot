@@ -88,6 +88,9 @@ jobs:
           else bun scripts/check_reply_live.ts; fi
       - name: Windows drawn hidden
         run: |
+          # What main tells a page the moment it loads reaches it, though React listens a moment later.
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1440x900x24" node scripts/check_early_messages.mjs
+          else node scripts/check_early_messages.mjs; fi
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1440x900x24" node scripts/snapshots.mjs snapshots
           else node scripts/snapshots.mjs snapshots; fi
           # The Mac also draws the Windows and Linux versions of the pages, the reference for those systems.
