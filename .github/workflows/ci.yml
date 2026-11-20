@@ -68,7 +68,9 @@ jobs:
         run: node scripts/check_pointer.mjs
       # Dictation (Right ⌥ on macOS, Right Ctrl on Windows and Linux): words as if just said, a stand-in keyboard.
       - name: Dictation end to end (stand-ins)
-        run: node scripts/check_dictation.mjs
+        run: |
+          node scripts/check_dictation.mjs
+          node scripts/check_dictation_press.mjs
       - name: The mic starts before the voice keys are unlocked (a slow keychain loses nothing said)
         run: node scripts/check_voice_start.mjs
       # The Mac's self-check skips the keychain (a CI Mac would ask a person); Windows and Linux open a

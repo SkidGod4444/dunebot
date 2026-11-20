@@ -52,8 +52,11 @@ first time an agent uses the mouse or keyboard for you, or you dictate. Reopen s
   layouts. The words go in at once on macOS and Windows (up to 20 characters a key event) and about
   30 characters a second on Linux (a key each, held as IBus needs to keep them in order). Typing goes through the same checks as an agent's (never into Dune
   Bot itself; never into an app run as administrator on Windows; Accessibility asked the first time on
-  macOS). Turn it off in Permissions › Keys, or in the menu bar. Wayland: not yet (it doesn't let apps
-  see which keys are held).
+  macOS). Turn it off in Permissions › Keys, or in the menu bar. Wayland doesn't let apps see which
+  keys are held, so on GNOME dictation gets a shortcut of its own in GNOME's settings (Super+Alt+D
+  unless taken, added in setup on its own yes): press it and talk, press it again, and the words are
+  typed a moment later, once its keys are up. The stop key calls off a dictation that's listening.
+  Other Wayland desktops: not yet.
 - **Answers at once, works after.** When a request needs work, the agent first says what it's doing
   ("Sure, checking the weather where you are."). The card shows that line and reads it aloud right
   away while the work goes on, then reads the answer after it.
@@ -337,6 +340,7 @@ python3 -I scripts/check_deepgram_live.py core/target/debug/dunebot-core <.env f
 node scripts/check_follow.mjs      # where the card goes as it follows the pointer (never on it, on screen, no flapping); moving toward it holds it
 node scripts/check_dictation.mjs   # dictation: words fed to the core (no mic) typed exactly through input.mjs (fake addon); refusals type nothing
 node scripts/check_dictation_keys_live.mjs   # Windows, Linux X11: Right Ctrl pressed for real (addon), the core starts/ends/cancels a dictation
+node scripts/check_dictation_press.mjs   # Wayland's pressed shortcut: start, end a moment later, double tap, stop key, the desktop asking first
 ```
 
 `node scripts/snapshots.mjs` also runs the card on a scripted pointer (`caption-follow`): it must
@@ -374,7 +378,7 @@ on macOS, Windows and Linux. What each system forces:
 | Bar and setup surface | Apple's Liquid Glass edge (macOS 26+) around a solid dark fill, always dark | the same dark, solid | the same dark, solid |
 | Open the bar | tap ⌥⌘ (opens at the chosen place) | Ctrl+Alt+Space (or the next free of Alt+Shift+Space, Ctrl+Shift+Space) | same as Windows; on Wayland through the desktop's shortcut portal (it asks once) |
 | Talk | hold ⌥⌘ or the mic button | hold the mic button | hold the mic button |
-| Dictate (typed where you are) | hold Right ⌥ alone | hold Right Ctrl alone | hold Right Ctrl alone on X11; not yet on Wayland (no key state for apps) |
+| Dictate (typed where you are) | hold Right ⌥ alone | hold Right Ctrl alone | hold Right Ctrl alone on X11; GNOME on Wayland: press its shortcut, talk, press again (no held keys for apps); other Wayland desktops not yet |
 | Answer card | solid dark card that follows the pointer, read aloud | the same; Windows voices | the same on X11 (following not yet run on a real Linux display); the system voice needs speech-dispatcher; on Wayland it stays where it opened (Wayland doesn't tell apps where the pointer is) |
 | Clicking the answer card | while the pointer is on it | while the pointer is on it | only while a card waits for your OK (the window can't tell where the pointer is) |
 | Setup asks for | mic, notifications, Desktop/Documents/Downloads, speech model, Screen Recording | speech model (shows the mic if Windows has it off) | speech model |
