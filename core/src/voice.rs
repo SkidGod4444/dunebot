@@ -385,7 +385,14 @@ mod engine {
                 .recv_timeout(Duration::from_secs(10))
                 .map_err(|_| "the microphone didn't stop".to_string())
                 .and_then(|r| r)
-                .and_then(|(samples, rate)| transcribe(&app, &samples, rate).map_err(|e| e.to_string()));
+                .and_then(|(samples, rate)| {
+                    // The mic stopped when asked; the text waits while the app unlocks the voice keys.
+                    let waited = app.sarvam.wait_for_keys(Duration::from_secs(60));
+                    if waited.as_millis() >= 300 {
+                        eprintln!("dunebot-core: voice: waited {:.1} s for the voice keys", waited.as_secs_f32());
+                    }
+                    transcribe(&app, &samples, rate, crate::dictation::words_for(&rec.source)).map_err(|e| e.to_string())
+                });
             match result {
                 Ok((text, note)) => {
                     // Dictation types what was said where the text cursor is; it never reaches the bar.
@@ -416,8 +423,9 @@ mod engine {
         }
     }
 
-    /// Returns the text, or "" and a note saying why there's none.
-    pub fn transcribe(app: &App, samples: &[f32], rate: u32) -> anyhow::Result<(String, Option<&'static str>)> {
+    /// Returns the text, or "" and a note saying why there's none. `words`: as said, or English (dictation;
+    /// this computer's model is English-only, so its text is English either way).
+    pub fn transcribe(app: &App, samples: &[f32], rate: u32, words: crate::sarvam::Words) -> anyhow::Result<(String, Option<&'static str>)> {
         let audio = resample(samples, rate, RATE);
         match check_speech(&audio) {
             Heard::Speech => {}
@@ -430,7 +438,7 @@ mod engine {
         // Only speech gets here: silence and a blocked mic were turned back above, before any upload.
         if app.sarvam_on() {
             let t0 = std::time::Instant::now();
-            match app.sarvam.transcribe(&audio) {
+            match app.sarvam.transcribe(&audio, words) {
                 Ok((text, lang)) => {
                     // Numbers only, never words.
                     eprintln!("dunebot-core: sarvam: {:.1} s of {lang} speech in {:.1} s", audio.len() as f32 / RATE as f32, t0.elapsed().as_secs_f32());
@@ -472,7 +480,7 @@ mod engine {
         }
         let (samples, rate) = read_wav(&std::fs::read(file)?)?;
         let t0 = std::time::Instant::now();
-        let (text, note) = transcribe(app, &samples, rate)?;
+        let (text, note) = transcribe(app, &samples, rate, crate::sarvam::Words::AsSaid)?;
         println!("{}", json!({ "transcript": text, "note": note, "rate": rate, "secs": t0.elapsed().as_secs_f32() }));
         Ok(())
     }
@@ -557,7 +565,7 @@ mod engine_off {
     pub fn status(app: &App) -> serde_json::Value {
         serde_json::json!({ "available": false, "engine": if app.sarvam_on() { "sarvam" } else { "local" } })
     }
-    pub fn transcribe(_: &App, _: &[f32], _: u32) -> anyhow::Result<(String, Option<&'static str>)> {
+    pub fn transcribe(_: &App, _: &[f32], _: u32, _: crate::sarvam::Words) -> anyhow::Result<(String, Option<&'static str>)> {
         anyhow::bail!("this build of Dune Bot has no voice")
     }
     pub fn start(_: &Arc<App>, _: &str) -> anyhow::Result<()> {

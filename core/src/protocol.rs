@@ -163,6 +163,12 @@ pub(crate) async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::R
             crate::voice::cancel(app);
             json!({ "ok": true })
         }
+        // The app only (never a page): it's unlocking the voice keys (true) or done (false); a
+        // recording's text waits for them (sarvam.rs).
+        "voice.keysComing" => {
+            app.sarvam.keys_coming(p.get("on").and_then(Value::as_bool).unwrap_or(false));
+            json!({ "ok": true })
+        }
         // The app only (never a page): hands over the Sarvam key, or takes it back with null.
         "voice.key" => {
             app.sarvam.set_key(p.get("key").and_then(Value::as_str).map(String::from))?;
@@ -235,10 +241,11 @@ pub(crate) async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::R
         // The app only, for tests: a WAV file through the same path as push-to-talk.
         "voice.transcribeFile" => {
             let file = s(p, "path")?.to_string();
+            let words = crate::dictation::words_for(p.get("source").and_then(Value::as_str).unwrap_or(""));
             let app = app.clone();
             tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
                 let (samples, rate) = crate::voice::read_wav(&std::fs::read(&file)?)?;
-                let (text, note) = crate::voice::transcribe(&app, &samples, rate)?;
+                let (text, note) = crate::voice::transcribe(&app, &samples, rate, words)?;
                 Ok(json!({ "text": text, "note": note }))
             })
             .await??

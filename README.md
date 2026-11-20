@@ -42,7 +42,8 @@ first time an agent uses the mouse or keyboard for you, or you dictate. Reopen s
   type; ⌥⌘ followed by another key or a click (⌥⌘Esc, ⌥⌘D, …) is ignored. If another app wants the
   same keys, pick ⌃⌥, ⌃⌘ or Right ⌘ alone instead (Permissions › Keys, or Keys in the menu bar).
 - **Dictate.** macOS: **hold Right ⌥** on its own and talk; let go, and what you said is typed where
-  your text cursor is, in any app, like the system's dictation. It isn't sent to an agent and nothing
+  your text cursor is, in any app, like the system's dictation, in English whatever you speak (Hindi
+  said, English typed; with Sarvam). It isn't sent to an agent and nothing
   is read aloud. Read the same way as ⌥⌘ (no Input Monitoring); another key or a click while you hold
   it cancels, so ⌥ shortcuts and special characters still work. Typing goes through the same checks as
   an agent's (never into Dune Bot itself; Accessibility asked the first time). Turn it off in

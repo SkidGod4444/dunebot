@@ -53,7 +53,7 @@ export function DictationSetting() {
       </div>
       <p className="mt-1.5 text-[13px] text-muted">
         {mac
-          ? "Hold Right ⌥ on its own and talk; let go, and what you said is typed where your text cursor is, in any app. It isn't sent to an agent or read aloud. Another key or a click while you hold it cancels, so ⌥ shortcuts and special characters still work. Typing asks for Accessibility the first time."
+          ? "Hold Right ⌥ on its own and talk; let go, and what you said is typed where your text cursor is, in any app, in English (speak Hindi and it types the English). It isn't sent to an agent or read aloud. Another key or a click while you hold it cancels, so ⌥ shortcuts and special characters still work. Typing asks for Accessibility the first time."
           : platform === "win32"
             ? "Not on Windows yet: letting go of Alt opens the menu bar in many apps, and Right Alt types characters on many layouts."
             : "Not on Linux yet. On Wayland it can't work: Wayland doesn't let apps see which keys are held."}

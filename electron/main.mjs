@@ -22,6 +22,7 @@ import { createGuard } from "./pass-clicks.mjs";
 import { showWhenReady } from "./show-when-ready.mjs";
 import { passClicks, watchScales } from "./click-through.mjs";
 import { createPointer } from "./pointer.mjs";
+import { createVoiceStart } from "./voice-start.mjs";
 import { place as placeCaption, corner as captionCorner, covers, inside, heading, WIN_W as CAPTION_W, WIN_H as CAPTION_H } from "./caption-place.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -903,15 +904,15 @@ function micStatus() {
   }
 }
 
-async function startVoice(source) {
-  hushCaption(); // the mic mustn't hear Dune Bot
-  if (isMac ? micStatus() !== "granted" : isWin && micStatus() === "denied") {
-    openSetup("mic");
-    throw new Error("Allow the microphone first. Dune Bot's setup is open.");
-  }
-  await sarvamReady();
-  return call("voice.start", { source });
-}
+// The mic first, then the voice keys (electron/voice-start.mjs says why).
+const voiceStart = createVoiceStart({
+  hush: () => hushCaption(),
+  micBlocked: () => (isMac ? micStatus() !== "granted" : isWin && micStatus() === "denied"),
+  openSetup: () => openSetup("mic"),
+  call: (method, params) => call(method, params),
+  keysReady: () => sarvamReady(),
+});
+const startVoice = (source) => voiceStart.start(source);
 
 // ---------- voice keys: Sarvam and Deepgram ----------
 // The user's own keys (Settings › Voice): Sarvam AI listens and reads Hindi and other Indian languages;
@@ -964,6 +965,8 @@ function lockedKey({ id, name, file, pattern, method }) {
       log(`${id}: key removed`);
       return status();
     },
+    /** Not handed to this core yet, though there's one to hand. */
+    pending: () => !!core && given !== core && fs.existsSync(where()),
     /** Hands the key to the core the first time voice needs it (once per core start, even if it
      * fails, so a keychain that says no isn't asked again and again; voice then does without it). */
     ready() {
@@ -973,7 +976,8 @@ function lockedKey({ id, name, file, pattern, method }) {
       handing = (async () => {
         let key;
         try {
-          key = safeStorage.decryptString(fs.readFileSync(where()));
+          // Async: the keychain can ask, and the app keeps running meanwhile.
+          key = (await safeStorage.decryptStringAsync(fs.readFileSync(where()))).result;
         } catch (e) {
           return log(`${id}: couldn't unlock the key (${e.message}); voice does without it`);
         }
@@ -1050,7 +1054,15 @@ const deepgramKey = lockedKey({ id: "deepgram", name: "Deepgram", file: "deepgra
 // it from the start (core/src/telegram.rs), so it's handed over as soon as the core runs.
 const telegramKey = lockedKey({ id: "telegram", name: "Telegram bot", file: "telegram-token.bin", pattern: /^\d{5,15}:[A-Za-z0-9_-]{30,60}$/, method: "phone.token" });
 /** Both keys with the core before anything is heard or read aloud. */
-const sarvamReady = () => Promise.all([sarvamKey.ready(), deepgramKey.ready()]);
+// While the keys are unlocked (the keychain can ask), the core holds back turning a recording into text
+// (voice.keysComing), so the mic never waits for them and stops when you let go.
+function sarvamReady() {
+  const coming = sarvamKey.pending() || deepgramKey.pending();
+  if (coming) call("voice.keysComing", { on: true }).catch(() => {});
+  const all = Promise.all([sarvamKey.ready(), deepgramKey.ready()]);
+  if (coming) all.finally(() => call("voice.keysComing", { on: false }).catch(() => {}));
+  return all;
+}
 
 // Reading aloud: at most 500 characters a time and 40 times a minute, whatever a page asks.
 let sayTimes = [];
