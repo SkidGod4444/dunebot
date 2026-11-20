@@ -70,6 +70,8 @@ jobs:
       - name: Dictation end to end (stand-ins)
         if: runner.os == 'macOS'
         run: node scripts/check_dictation.mjs
+      - name: The mic starts before the voice keys are unlocked (a slow keychain loses nothing said)
+        run: node scripts/check_voice_start.mjs
       # The real pointer and keyboard of the runner's own screen. Not on the Mac runner: macOS needs
       # Accessibility switched on by a person, which a CI machine can't do.
       - name: The mouse and keyboard for real (clicks, typing, shortcuts, scrolling, a drag)

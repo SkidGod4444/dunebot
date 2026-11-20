@@ -22,6 +22,7 @@ import { createGuard } from "./pass-clicks.mjs";
 import { showWhenReady } from "./show-when-ready.mjs";
 import { passClicks, watchScales } from "./click-through.mjs";
 import { createPointer } from "./pointer.mjs";
+import { createVoiceStart } from "./voice-start.mjs";
 import { place as placeCaption, corner as captionCorner, covers, inside, heading, WIN_W as CAPTION_W, WIN_H as CAPTION_H } from "./caption-place.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -194,6 +195,7 @@ ipcMain.handle("core:call", (e, method, params) => {
   if (!ALLOWED.has(method)) throw new Error(`"${method}" isn't available to the window`);
   if (method === "agents.stopAll") return stopAgents("a window's Stop");
   if (method === "voice.start") return startVoice("button");
+  if (method === "voice.stop") return voiceStart.stop();
   if (method === "voice.say") return sayWithSarvam(params?.text);
   if (method === "voice.streamOpen") return sarvamReady().then(() => call("voice.streamOpen", {}));
   if (method === "voice.streamSay") return sayStreamed(params?.stream, params?.text);
@@ -903,15 +905,15 @@ function micStatus() {
   }
 }
 
-async function startVoice(source) {
-  hushCaption(); // the mic mustn't hear Dune Bot
-  if (isMac ? micStatus() !== "granted" : isWin && micStatus() === "denied") {
-    openSetup("mic");
-    throw new Error("Allow the microphone first. Dune Bot's setup is open.");
-  }
-  await sarvamReady();
-  return call("voice.start", { source });
-}
+// The mic first, then the voice keys (electron/voice-start.mjs says why).
+const voiceStart = createVoiceStart({
+  hush: () => hushCaption(),
+  micBlocked: () => (isMac ? micStatus() !== "granted" : isWin && micStatus() === "denied"),
+  openSetup: () => openSetup("mic"),
+  call: (method, params) => call(method, params),
+  keysReady: () => sarvamReady(),
+});
+const startVoice = (source) => voiceStart.start(source);
 
 // ---------- voice keys: Sarvam and Deepgram ----------
 // The user's own keys (Settings › Voice): Sarvam AI listens and reads Hindi and other Indian languages;
