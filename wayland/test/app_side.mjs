@@ -210,15 +210,17 @@ async function main() {
   await input.pressKeys({ key: "a", mods: ["ctrl"], times: 1, requestId: "d" });
   await input.pressKeys({ key: "backspace", mods: [], times: 1, requestId: "e" });
   check("Ctrl+A then Backspace through input.mjs clear the box", await target.wait((l) => l === "text ''", m, 5000));
-  // Dictation's words: at once (a key a character at input.mjs's pace), exactly and in order.
-  const dictated = "Dictated words, typed at once: Grüße and 42.";
+  // Dictation's words: at once (a key a character at input.mjs's pace), exactly and in order. Only
+  // characters the US layout has: one it lacks is refused before anything is typed (checked below).
+  const dictated = "Dictated words, typed at once: (a+b) = 42, OK?";
   m = target.mark();
   const t0 = Date.now();
   err = await input.typeText({ text: dictated, requestId: "c2", at_once: true }).then(() => "", (e) => e.message);
   const took = Date.now() - t0;
-  check("dictation's words through the helper arrive exactly", await target.wait((l) => l === `text '${dictated}'`, m, 10_000), err);
+  const arrived = !!(await target.wait((l) => l === `text '${dictated}'`, m, 10_000));
+  check("dictation's words through the helper arrive exactly", arrived, err);
   // A person's pace is about 75 ms a character; at once is 20 ms held and 12 apart, plus the helper.
-  check(`dictation's words come quicker than a person types (${took} ms for ${[...dictated].length})`, took < [...dictated].length * 60, `${took} ms`);
+  check(`dictation's words come quicker than a person types (${took} ms for ${[...dictated].length})`, arrived && took < [...dictated].length * 60, `${took} ms`);
   m = target.mark();
   await input.pressKeys({ key: "a", mods: ["ctrl"], times: 1, requestId: "d2" });
   await input.pressKeys({ key: "backspace", mods: [], times: 1, requestId: "e2" });
