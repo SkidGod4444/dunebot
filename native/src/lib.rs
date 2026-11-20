@@ -503,7 +503,7 @@ mod input {
         DONE
     }
 
-    pub use os::{access, activate, frontmost_pid, key_code, key_text};
+    pub use os::{access, activate, frontmost_pid, key_code, key_text, modifiers_held};
 
     #[cfg(target_os = "macos")]
     pub mod os {
@@ -626,6 +626,11 @@ mod input {
             }
         }
 
+        /// macOS: not needed (the app doesn't wait on it there).
+        pub fn modifiers_held() -> bool {
+            false
+        }
+
         pub fn frontmost_pid() -> i64 {
             use objc2::msg_send;
             use objc2::runtime::{AnyClass, AnyObject};
@@ -707,6 +712,7 @@ mod input {
         unsafe extern "system" {
             fn SendInput(count: u32, inputs: *const INPUT, size: i32) -> u32;
             fn GetCursorPos(p: *mut POINT) -> i32;
+            fn GetAsyncKeyState(vk: i32) -> i16;
             fn GetSystemMetrics(index: i32) -> i32;
             pub fn WindowFromPoint(p: POINT) -> *mut c_void;
             pub fn GetAncestor(w: *mut c_void, flags: u32) -> *mut c_void;
@@ -804,6 +810,12 @@ mod input {
             let mut pid = 0u32;
             unsafe { GetWindowThreadProcessId(w, &mut pid) };
             if pid == 0 { -1 } else { pid as i64 }
+        }
+
+        /// Shift, Ctrl, Alt or a Windows key held now (the user's), when typed characters would turn
+        /// into shortcuts.
+        pub fn modifiers_held() -> bool {
+            [0x10, 0x11, 0x12, 0x5b, 0x5c].iter().any(|&vk| unsafe { GetAsyncKeyState(vk) } as u16 & 0x8000 != 0)
         }
 
         pub fn frontmost_pid() -> i64 {
@@ -1174,6 +1186,18 @@ mod input {
             }
         }
 
+        /// Shift, Ctrl, Alt, the logo key or AltGr held now (X's modifier state, Caps and Num Lock
+        /// aside), when typed characters would turn into shortcuts or other characters.
+        pub fn modifiers_held() -> bool {
+            with(|c| unsafe {
+                let (mut r, mut ch, mut rx, mut ry, mut wx, mut wy, mut m) = (0, 0, 0, 0, 0, 0, 0);
+                let ok = (c.x.query_pointer)(c.dpy, (c.x.root)(c.dpy), &mut r, &mut ch, &mut rx, &mut ry, &mut wx, &mut wy, &mut m);
+                // ShiftMask 1, ControlMask 4, Mod1Mask 8 (Alt), Mod4Mask 64 (logo), Mod5Mask 128 (AltGr)
+                (ok != 0).then_some(m & (1 | 4 | 8 | 64 | 128) != 0)
+            })
+            .unwrap_or(false)
+        }
+
         /// The process of the active window (the window manager's _NET_ACTIVE_WINDOW), or -1.
         pub fn frontmost_pid() -> i64 {
             with(|c| unsafe {
@@ -1537,6 +1561,20 @@ pub fn key_text(text: String, down: bool) -> bool {
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = (text, down);
+        false
+    }
+}
+
+/// Windows and Linux (X11): whether the user holds Shift, Ctrl, Alt, the logo key or AltGr now, so
+/// dictation's typing waits for them (a character typed then would be a shortcut). macOS: false.
+#[napi]
+pub fn modifiers_held() -> bool {
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    {
+        input::modifiers_held()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
         false
     }
 }

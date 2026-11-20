@@ -230,6 +230,20 @@ export function createInput(h) {
     return out;
   }
 
+  /** Windows and X11: waits while the user holds Shift, Ctrl, Alt or the logo key (holding the
+   * dictation key again, say), since a character typed then would be a shortcut (Ctrl+W closes a
+   * tab). Stops after 10 s of it. The addon reads the keyboard's state; Wayland's stand-in can't. */
+  async function keysUp(requestId) {
+    const held = mac ? null : h.addon().modifiersHeld;
+    if (typeof held !== "function") return;
+    const t0 = Date.now();
+    while (held()) {
+      if (h.cancelled(requestId)) throw new Error(STOPPED);
+      if (Date.now() - t0 > 10_000) throw new Error("Stopped typing: Ctrl, Alt, Shift or the logo key stayed held, and the words would have been shortcuts.");
+      await wait(25);
+    }
+  }
+
   async function typeText({ text, requestId, at_once }) {
     const chars = [...String(text ?? "")];
     if (!chars.length) throw new Error("Nothing to type.");
@@ -260,6 +274,7 @@ export function createInput(h) {
       const many = mac || platform === "win32";
       for (const piece of many ? pieces(chars) : chars) {
         if (h.cancelled(requestId)) throw new Error(STOPPED);
+        await keysUp(requestId);
         refuseKeys();
         if (piece === "\n") await tapKey(keyCodeOf("enter"));
         else if (piece === "\t") await tapKey(keyCodeOf("tab"));

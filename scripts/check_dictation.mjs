@@ -91,7 +91,8 @@ const input = createInput({
     keyCode: (code, flags, down) => (keys.push([`#${code}`, down]), true),
   }),
   screen: { getCursorScreenPoint: () => pointer },
-  platform: "darwin",
+  // This system's typing (macOS and Windows: up to 20 characters a key event; Linux: one a key).
+  platform: process.platform,
   refuseOwn: () => {},
   // As main.mjs words them.
   refuseKeyboard: () => {
@@ -162,8 +163,9 @@ const outcome = (from) => core.wait((m) => m.event === "dictation.state" && m.st
   const typed = downs.join("");
   ok(end.state === "typed" && typed === words, `long words typed exactly (${JSON.stringify(typed)})`);
   ok(downs.every((t) => t.length <= 20 && !/^[\uDC00-\uDFFF]/.test(t) && !/[\uD800-\uDBFF]$/.test(t)), `pieces of at most 20 units, no character split (${downs.map((t) => t.length).join(",")})`);
-  // Linux: about 30 characters a second (each key held 20 ms for IBus); elsewhere well under a second.
-  const most = MANY ? 1500 : [...words].length * 40;
+  // Linux: a key a character at input.mjs's pace (20 ms held, 12 ms apart), with half again for the
+  // timers; a person's pace is about 75 ms a character. Elsewhere well under a second.
+  const most = MANY ? 1500 : [...words].length * 32 * 1.5;
   ok(ms < most, `all of it in ${ms} ms (at most ${most})`);
 }
 
