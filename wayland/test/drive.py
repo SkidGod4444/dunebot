@@ -518,11 +518,19 @@ def main():
         ended = True
     except subprocess.TimeoutExpired:
         ended = False
-    time.sleep(1.5)
+    # Mostly the box goes at once. Sometimes GNOME 46's portal backend quits over the cancel instead
+    # (mutter: "D-Bus client with active sessions vanished") and the box goes with it, 1.1-1.6 s after
+    # the helper ended (CI 2026-11-20, two runs of six; once 55 ms after a fixed 1.5 s look). It must
+    # still go by itself, within 4 s.
+    gone = time.time()
     after = portal_windows()
+    while after != 0 and time.time() - gone < 4:
+        time.sleep(0.25)
+        after = portal_windows()
+    took = round(time.time() - gone, 2)
     shot("cancelled")
     check("an unanswered box is cancelled by close (the helper ends)", r.get("ok") and a.get("error") == "cancelled" and ended, f"{round(time.time() - t, 2)} s, open said {a}")
-    check("the box goes away", before >= 1 and after == 0, f"portal windows {before} -> {after}")
+    check("the box goes away", before >= 1 and after == 0, f"portal windows {before} -> {after}, {took} s after the helper ended")
     h = Helper(f"{OUT}/helper-cancel2.err")
     r = open_with_box(h, True, "box-after-cancel")
     check("after a cancel, a new box works", r.get("devices") == 3 and r.get("hand") is True, r.get("devices", r.get("error")))
