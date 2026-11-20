@@ -39,12 +39,12 @@ jobs:
             core
             native
             wayland
-      - name: Linux packages (sound for the mic, a virtual display for the windows, the Wayland helper's build libraries)
+      - name: Linux packages (sound for the mic, a virtual display for the windows, a keychain, the Wayland helper's build libraries)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev xvfb libgtk-3-0 libnss3 libgbm1 libxss1 libatk-bridge2.0-0 libx11-6 libxtst6 \
-            libpipewire-0.3-dev libxkbcommon-dev clang libclang-dev
+            libpipewire-0.3-dev libxkbcommon-dev clang libclang-dev gnome-keyring dbus-x11
       - name: Windows, where bindgen finds clang (speech-to-text)
         if: runner.os == 'Windows'
         run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
@@ -72,6 +72,14 @@ jobs:
         run: node scripts/check_dictation.mjs
       - name: The mic starts before the voice keys are unlocked (a slow keychain loses nothing said)
         run: node scripts/check_voice_start.mjs
+      # The Mac's self-check skips the keychain (a CI Mac would ask a person); Windows and Linux open a
+      # locked key the way the app does. Linux: a desktop's secret store (GNOME's keyring, unlocked).
+      - name: The voice keys come back from the system's keychain (the async unlock)
+        if: runner.os != 'macOS'
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            dbus-run-session -- sh -c 'printf ci | gnome-keyring-daemon --unlock --components=secrets >/dev/null && XDG_CURRENT_DESKTOP=GNOME xvfb-run -a node scripts/check_keychain.mjs'
+          else node scripts/check_keychain.mjs; fi
       # The real pointer and keyboard of the runner's own screen. Not on the Mac runner: macOS needs
       # Accessibility switched on by a person, which a CI machine can't do.
       - name: The mouse and keyboard for real (clicks, typing, shortcuts, scrolling, a drag)

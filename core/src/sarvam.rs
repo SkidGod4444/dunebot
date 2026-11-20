@@ -68,6 +68,11 @@ impl Sarvam {
         self.keys_came.notify_all();
     }
 
+    /// The app is still unlocking the voice keys (the key may yet make Sarvam the listener).
+    pub fn keys_pending(&self) -> bool {
+        *self.keys_coming.lock().unwrap()
+    }
+
     /// Waits, at most `max`, while the app unlocks the voice keys. Returns how long it waited.
     pub fn wait_for_keys(&self, max: Duration) -> Duration {
         let t0 = std::time::Instant::now();
