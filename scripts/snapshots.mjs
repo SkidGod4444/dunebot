@@ -294,6 +294,8 @@ for (const theme of ["light", "dark"])
     // A check failed: the core's own complaints (a crash prints "panicked"), and the end of the log
     // as it was, whatever the check looked for.
     if (problems.length > problemsBefore) {
+      // The whole log beside the picture (CI keeps both), for what the last lines don't show.
+      fs.writeFileSync(file.replace(/\.png$/, ".log"), log);
       const lines = log.split("\n");
       const said = lines.filter((l) => /panicked|dunebot-core:/.test(l)).slice(-8);
       if (said.length) problems[problems.length - 1] += `\n  core said:\n  ${said.join("\n  ")}`;

@@ -83,6 +83,7 @@ jobs:
           bun scripts/check_reply.tsx
           bun scripts/check_speech.ts
           bun scripts/check_steps.ts
+          bun scripts/check_store_events.ts
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1440x900x24" bun scripts/check_reply_live.ts
           else bun scripts/check_reply_live.ts; fi
       - name: Windows drawn hidden

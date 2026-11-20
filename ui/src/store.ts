@@ -118,6 +118,9 @@ function onEvent(m: any) {
       const msg: Message = m.message;
       set((s) => {
         const list = s.messages[msg.threadId];
+        // Already read with the chat (fetched after it was saved): this is it as it began, and the
+        // events after it build it up again, so it takes the fetched one's place.
+        if (list?.some((x) => x.id === msg.id)) return { messages: { ...s.messages, [msg.threadId]: list.map((x) => (x.id === msg.id ? msg : x)) } };
         if (list) return { messages: { ...s.messages, [msg.threadId]: [...list, msg] } };
         // The caption keeps every turn from its start, and a turn starts with its question, which the
         // core sends just before "turn.started". Without it, a new chat's first answer has no question
@@ -264,9 +267,19 @@ export async function loadAgents() {
 
 export async function openThread(id: string) {
   set({ activeId: id, view: "chat" });
+  const had = new Set((get().messages[id] ?? []).map((m) => m.id));
   const r = await call<{ thread: Thread; messages: Message[] }>("threads.get", { id });
-  const waiting = r.messages.filter((x) => x.role === "approval" && x.meta.status === "pending").length;
-  set((s) => ({ messages: { ...s.messages, [id]: r.messages }, waiting: { ...s.waiting, [id]: waiting } }));
+  set((s) => {
+    // The core answers this in its own task: it may have read the chat before a message that came
+    // here meanwhile (a question just asked, its answer so far). Those stay as their events made
+    // them, and their events go on from there; the rest is as read.
+    const came = new Map((s.messages[id] ?? []).filter((m) => !had.has(m.id)).map((m) => [m.id, m]));
+    const list = r.messages.map((m) => came.get(m.id) ?? m);
+    const read = new Set(list.map((m) => m.id));
+    for (const m of came.values()) if (!read.has(m.id)) list.push(m);
+    const waiting = list.filter((x) => x.role === "approval" && x.meta.status === "pending").length;
+    return { messages: { ...s.messages, [id]: list }, waiting: { ...s.waiting, [id]: waiting } };
+  });
 }
 
 export async function startChat(agent: string, cwd: string | null, firstMessage: string) {
