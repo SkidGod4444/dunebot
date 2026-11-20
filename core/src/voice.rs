@@ -385,7 +385,14 @@ mod engine {
                 .recv_timeout(Duration::from_secs(10))
                 .map_err(|_| "the microphone didn't stop".to_string())
                 .and_then(|r| r)
-                .and_then(|(samples, rate)| transcribe(&app, &samples, rate, crate::dictation::words_for(&rec.source)).map_err(|e| e.to_string()));
+                .and_then(|(samples, rate)| {
+                    // The mic stopped when asked; the text waits while the app unlocks the voice keys.
+                    let waited = app.sarvam.wait_for_keys(Duration::from_secs(60));
+                    if waited.as_millis() >= 300 {
+                        eprintln!("dunebot-core: voice: waited {:.1} s for the voice keys", waited.as_secs_f32());
+                    }
+                    transcribe(&app, &samples, rate, crate::dictation::words_for(&rec.source)).map_err(|e| e.to_string())
+                });
             match result {
                 Ok((text, note)) => {
                     // Dictation types what was said where the text cursor is; it never reaches the bar.

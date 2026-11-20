@@ -163,6 +163,12 @@ pub(crate) async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::R
             crate::voice::cancel(app);
             json!({ "ok": true })
         }
+        // The app only (never a page): it's unlocking the voice keys (true) or done (false); a
+        // recording's text waits for them (sarvam.rs).
+        "voice.keysComing" => {
+            app.sarvam.keys_coming(p.get("on").and_then(Value::as_bool).unwrap_or(false));
+            json!({ "ok": true })
+        }
         // The app only (never a page): hands over the Sarvam key, or takes it back with null.
         "voice.key" => {
             app.sarvam.set_key(p.get("key").and_then(Value::as_str).map(String::from))?;

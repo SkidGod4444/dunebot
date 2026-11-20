@@ -72,14 +72,20 @@ function startCore(env) {
 // refusals main.mjs passes it, switched on and off by the test.
 const keys = [];
 let ours = false;
+let pointer = { x: 10, y: 10 };
+let mouseMoves = false; // the person moves the mouse with every key
 let accessOff = false;
 const input = createInput({
   addon: () => ({
     postEventAccess: () => true,
-    keyText: (t, down) => (keys.push([t, down]), true),
+    keyText: (t, down) => {
+      keys.push([t, down]);
+      if (mouseMoves) pointer = { x: pointer.x + 40, y: pointer.y + 30 };
+      return true;
+    },
     keyCode: (code, flags, down) => (keys.push([`#${code}`, down]), true),
   }),
-  screen: { getCursorScreenPoint: () => ({ x: 10, y: 10 }) },
+  screen: { getCursorScreenPoint: () => pointer },
   platform: "darwin",
   refuseOwn: () => {},
   // As main.mjs words them.
@@ -151,6 +157,19 @@ const outcome = (from) => core.wait((m) => m.event === "dictation.state" && m.st
   ok(end.state === "typed" && typed === words, `long words typed exactly (${JSON.stringify(typed)})`);
   ok(downs.every((t) => t.length <= 20 && !/^[\uDC00-\uDFFF]/.test(t) && !/[\uD800-\uDBFF]$/.test(t)), `pieces of at most 20 units, no character split (${downs.map((t) => t.length).join(",")})`);
   ok(ms < 1500, `all of it in ${ms} ms`);
+}
+
+// 1c. Moving the mouse while the words go in doesn't stop them: they're yours (it stops an agent).
+{
+  const words = "Moving the mouse while this goes in is fine.";
+  mouseMoves = true;
+  keys.length = 0;
+  const from = core.events.length;
+  await core.call("dictation.feed", { text: words });
+  const end = await outcome(from);
+  mouseMoves = false;
+  const typed = keys.filter(([, down]) => down).map(([t]) => t).join("");
+  ok(end.state === "typed" && typed === words, `the mouse moving doesn't stop dictation (${end.state}, ${JSON.stringify(typed)})`);
 }
 
 // 2. Dune Bot's own window has the keyboard: nothing typed, one sentence for the card.

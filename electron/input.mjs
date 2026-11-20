@@ -251,10 +251,12 @@ export function createInput(h) {
     const start = h.screen.getCursorScreenPoint();
     // Dictation (macOS): what you said appears at once, as the system's dictation puts it, not typed
     // letter by letter (that felt like typing: 23 characters took 2.3 s, 2026-11-21). Each piece is
-    // one key event carrying up to 20 characters, a few milliseconds apart.
+    // one key event carrying up to 20 characters, a few milliseconds apart. The words are yours: moving
+    // the mouse doesn't stop them (it stops an agent, as taking over); Dune Bot's own keyboard does.
     if (at_once && mac) {
       for (const piece of pieces(chars)) {
-        stillOurs(start, requestId);
+        if (h.cancelled(requestId)) throw new Error(STOPPED);
+        refuseKeys();
         if (piece === "\n") await tapKey(keyCodeOf("enter"));
         else if (piece === "\t") await tapKey(keyCodeOf("tab"));
         else {

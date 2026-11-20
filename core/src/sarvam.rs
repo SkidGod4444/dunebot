@@ -55,9 +55,27 @@ pub struct Sarvam {
     /// The question that started the latest turn was Hindi (Devanagari or Hinglish). The user's
     /// choice (2026-11-17): the answer is written in English, and read aloud in Hinglish.
     hinglish_answer: std::sync::atomic::AtomicBool,
+    /// The app is unlocking the voice keys (the keychain can ask, as long as the person takes):
+    /// turning a recording into text waits for them, so the mic never does.
+    keys_coming: Mutex<bool>,
+    keys_came: std::sync::Condvar,
 }
 
 impl Sarvam {
+    /// `voice.keysComing`: the app has started (true) or finished (false) unlocking the voice keys.
+    pub fn keys_coming(&self, on: bool) {
+        *self.keys_coming.lock().unwrap() = on;
+        self.keys_came.notify_all();
+    }
+
+    /// Waits, at most `max`, while the app unlocks the voice keys. Returns how long it waited.
+    pub fn wait_for_keys(&self, max: Duration) -> Duration {
+        let t0 = std::time::Instant::now();
+        let coming = self.keys_coming.lock().unwrap();
+        let _ = self.keys_came.wait_timeout_while(coming, max, |c| *c);
+        t0.elapsed()
+    }
+
     /// The app hands the key over (or takes it back with None).
     pub fn set_key(&self, key: Option<String>) -> anyhow::Result<()> {
         let key = key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
@@ -379,6 +397,24 @@ mod tests {
         let p = parts(&s, rate as u32, MAX_PART_SECS);
         assert!(p.len() <= 3 && p.last().unwrap().1 == s.len());
         assert!(p.windows(2).all(|w| w[0].1 == w[1].0));
+    }
+
+    #[test]
+    fn text_waits_for_keys_being_unlocked() {
+        let s = std::sync::Arc::new(Sarvam::default());
+        assert!(s.wait_for_keys(Duration::from_secs(5)) < Duration::from_millis(50), "no keys coming: no wait");
+        s.keys_coming(true);
+        let s2 = s.clone();
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            s2.keys_coming(false);
+        });
+        let waited = s.wait_for_keys(Duration::from_secs(5));
+        assert!(waited >= Duration::from_millis(250) && waited < Duration::from_secs(2), "waited {waited:?} for the keys");
+        t.join().unwrap();
+        s.keys_coming(true);
+        let waited = s.wait_for_keys(Duration::from_millis(200));
+        assert!(waited >= Duration::from_millis(190) && waited < Duration::from_secs(1), "a keychain never answered: at most the cap ({waited:?})");
     }
 
     #[test]
