@@ -1102,8 +1102,13 @@ mod tests {
         until("the turn to start", 10, || asked(app) > n).await;
         let t = setting(app, THREAD).unwrap();
         until("the turn to end", 20, || !app.busy.lock().unwrap().contains(&t)).await;
-        until("the answer", 10, || mock.texts_to(ME).len() > before).await;
-        tokio::time::sleep(Duration::from_millis(400)).await;
+        // Every part the turn said (its last once the turn has ended) and every card: all of it, not
+        // whatever came within a set time ("On it." alone, on a slow CI machine).
+        let msgs = app.db(|d| d.messages(&t)).unwrap();
+        let start = msgs.iter().rposition(|m| m.role == "user").unwrap();
+        let parts = msgs[start + 1..].iter().filter(|m| (m.role == "assistant" && !m.text.trim().is_empty()) || m.role == "approval").count();
+        until("every part of the answer", 10, || mock.texts_to(ME).len() >= before + parts.max(1)).await;
+        tokio::time::sleep(Duration::from_millis(400)).await; // and nothing more after it
         mock.texts_to(ME)[before..].to_vec()
     }
 
