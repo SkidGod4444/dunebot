@@ -83,10 +83,14 @@ jobs:
           bun scripts/check_reply.tsx
           bun scripts/check_speech.ts
           bun scripts/check_steps.ts
+          bun scripts/check_store_events.ts
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1440x900x24" bun scripts/check_reply_live.ts
           else bun scripts/check_reply_live.ts; fi
       - name: Windows drawn hidden
         run: |
+          # What main tells a page the moment it loads reaches it, though React listens a moment later.
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1440x900x24" node scripts/check_early_messages.mjs
+          else node scripts/check_early_messages.mjs; fi
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1440x900x24" node scripts/snapshots.mjs snapshots
           else node scripts/snapshots.mjs snapshots; fi
           # The Mac also draws the Windows and Linux versions of the pages, the reference for those systems.
@@ -115,6 +119,15 @@ jobs:
   # GNOME's own shell, portal, PipeWire and media-keys service in a headless session. A virtual pointer
   # and keyboard made through GNOME's shell answer the box and press the shortcuts as a person would.
   wayland-gnome:
+    # One screen; one at 200%; two side by side at 100% and 200% (the box then asks which to share).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: one-screen, monitors: "1280x800", scales: "" }
+          - { name: hidpi, monitors: "2560x1600", scales: "2" }
+          - { name: two-screens, monitors: "1280x800 2560x1600", scales: "1,2" }
+    name: wayland-gnome (${{ matrix.name }})
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -132,7 +145,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/apt-debs
-          key: wayland-gnome-debs-v2
+          key: wayland-gnome-debs-v3
           restore-keys: wayland-gnome-debs-
       # The azure mirror first and a time limit per try: the default mirror has stalled for 25 min.
       - name: GNOME, the portal, PipeWire (and the helper's build libraries)
@@ -147,7 +160,7 @@ jobs:
               libpipewire-0.3-dev libxkbcommon-dev clang libclang-dev pkg-config \
               gnome-shell mutter xdg-desktop-portal xdg-desktop-portal-gnome pipewire wireplumber python3-gi gir1.2-glib-2.0 \
               gir1.2-gtk-3.0 dbus dbus-daemon libglib2.0-bin libgl1-mesa-dri libegl-mesa0 fonts-dejavu-core \
-              gnome-settings-daemon xwayland dconf-cli ibus \
+              gnome-settings-daemon xwayland dconf-cli ibus at-spi2-core gir1.2-atspi-2.0 \
               libnss3 libasound2t64 libgbm1 libxss1 libxshmfence1 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libxkbcommon0 \
               libxcomposite1 libxdamage1 libxrandr2 libxtst6 && break
             echo "install try $try stalled or failed"
@@ -162,11 +175,51 @@ jobs:
           node node_modules/electron/install.js
           test -x node_modules/electron/dist/electron
       - name: The box, the screen, clicks, typing, the token, a stop from GNOME's top bar; then the app's side (stop, idle, GNOME's shortcuts pressed)
+        env:
+          DUNEBOT_WL_MONITORS: ${{ matrix.monitors }}
+          DUNEBOT_WL_SCALES: ${{ matrix.scales }}
         run: DUNEBOT_TEST_ELECTRON="$PWD/node_modules/electron/dist/electron" bash wayland/test/run.sh wayland/target/release/dunebot-wayland out
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: wayland-gnome
+          name: wayland-gnome-${{ matrix.name }}
+          path: out/
+
+  wayland-fedora:
+    # Fedora 43, GNOME 49 (Mutter's logical layout: a 200% screen is half as many points as pixels),
+    # in a container. The same three layouts as wayland-gnome.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: one-screen, monitors: "1280x800", scales: "" }
+          - { name: hidpi, monitors: "2560x1600", scales: "2" }
+          - { name: two-screens, monitors: "1280x800 2560x1600", scales: "1,2" }
+    name: wayland-fedora (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Electron for the app side's own-window check
+        run: |
+          bun install --frozen-lockfile
+          node node_modules/electron/install.js
+          test -x node_modules/electron/dist/electron
+      - name: GNOME 49 on Fedora 43 - the box, the screen, clicks, typing; then the app's side
+        env:
+          DUNEBOT_WL_MONITORS: ${{ matrix.monitors }}
+          DUNEBOT_WL_SCALES: ${{ matrix.scales }}
+        run: bash wayland/test/fedora.sh node_modules/electron/dist out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wayland-fedora-${{ matrix.name }}
           path: out/
 
   same-everywhere:

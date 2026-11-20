@@ -13,6 +13,8 @@ import { fileURLToPath } from "node:url";
 import { createWayland } from "../../electron/wayland.mjs";
 import { createInput } from "../../electron/input.mjs";
 import { createGuard } from "../../electron/pass-clicks.mjs";
+import { showWhenReady } from "../../electron/show-when-ready.mjs";
+import { passClicks, watchScales } from "../../electron/click-through.mjs";
 
 const PRELOAD = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../electron/preload.cjs");
 
@@ -50,17 +52,23 @@ function makeWindow(title, colour, o) {
 // click-through rule, set around the step below.
 let win = null;
 let card = null;
+watchScales(ipcMain); // as main.mjs, before any window
 const guard = createGuard({ ipcMain, windows: () => [win, card].filter(Boolean), ownRule: (w) => w === card, name: (w) => w.getTitle() });
 
 app.whenReady().then(async () => {
   // A plain window (the bar, the chats window) and one like the answer card (never focused).
   win = makeWindow("dunebot-guard", "#ff0000", { width: 480, height: 320 });
   card = makeWindow("dunebot-card", "#00ff00", { width: 300, height: 200, focusable: false, alwaysOnTop: true });
-  await Promise.all([win, card].map((w) => new Promise((r) => w.once("ready-to-show", r))));
-  win.show();
-  card.showInactive();
+  // Shown as main.mjs shows its windows: once painted, or after 3 s if GNOME never lets them paint.
+  const late = [];
+  await Promise.all(
+    [
+      [win, () => win.show()],
+      [card, () => card.showInactive()],
+    ].map(([w, show]) => new Promise((r) => showWhenReady(w, () => (show(), r()), { late: () => late.push(w.getTitle()) }))),
+  );
   await sleep(800);
-  say({ ready: true });
+  say({ ready: true, late });
 
   const lines = createInterface({ input: process.stdin });
   for await (const line of lines) {
@@ -90,7 +98,7 @@ app.whenReady().then(async () => {
         // As main.mjs's inputForCore does around a pointer step: the card's own rule, then the guard.
         let deaf = [];
         if (m.guard) {
-          card.setIgnoreMouseEvents(true, { forward: true });
+          passClicks(card, true, { forward: true }, { wayland: true });
           deaf = await guard.raise();
         }
         const since = Date.now();
@@ -102,7 +110,7 @@ app.whenReady().then(async () => {
         }
         let hit = null;
         if (m.guard) {
-          card.setIgnoreMouseEvents(false);
+          passClicks(card, false, undefined, { wayland: true });
           guard.lower();
           hit = await guard.hitSince(since);
         }
@@ -144,7 +152,10 @@ app.whenReady().then(async () => {
         // As main.mjs's takeScreenshot: the helper's BGRA into a nativeImage, then JPEG.
         const f = await wl.frame();
         const img = nativeImage.createFromBitmap(f.data.subarray(0, f.width * f.height * 4), { width: f.width, height: f.height });
-        const px = [...img.crop({ x: m.pixel[0], y: m.pixel[1], width: 1, height: 1 }).toBitmap()];
+        // The point is in the desktop's coordinates; the picture's pixels may be more (200%).
+        const k = f.width / f.display.width;
+        const at = { x: Math.round((m.pixel[0] - f.display.x) * k), y: Math.round((m.pixel[1] - f.display.y) * k) };
+        const px = [...img.crop({ ...at, width: 1, height: 1 }).toBitmap()];
         say({ pixel: px, size: img.getSize(), jpeg: img.toJPEG(75).length });
       } else if (m.quit) {
         wl?.quit();

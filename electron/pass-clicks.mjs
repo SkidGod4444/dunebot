@@ -11,7 +11,11 @@
 //    GNOME may still give that window the keyboard (a plain one says so, and typing is then refused;
 //    the card, never focusable, gets no keys).
 //
-// wayland/test/app_side.mjs checks each of these in real Electron on GNOME 46.
+// (On GNOME 49 at 200%, taking clicks again needs a nudge: click-through.mjs.)
+//
+// wayland/test/app_side.mjs checks each of these in real Electron on GNOME 46 and 49.
+
+import { passClicks } from "./click-through.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -54,7 +58,7 @@ export function createGuard({ ipcMain, windows, ownRule = () => false, name = ()
   const set = (on, n, which = live()) => {
     for (const w of which) {
       w.webContents.send("guard", on, n);
-      if (!ownRule(w)) w.setIgnoreMouseEvents(on);
+      if (!ownRule(w)) passClicks(w, on, undefined, { wayland: true });
       // A window holding still draws nothing, and its new input region waits for a frame.
       w.webContents.invalidate();
     }

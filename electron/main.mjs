@@ -19,6 +19,8 @@ import { createDictation } from "./dictation.mjs";
 import { createWayland } from "./wayland.mjs";
 import { gnomeKeys, onGnome } from "./gnome-keys.mjs";
 import { createGuard } from "./pass-clicks.mjs";
+import { showWhenReady } from "./show-when-ready.mjs";
+import { passClicks, watchScales } from "./click-through.mjs";
 import { createPointer } from "./pointer.mjs";
 import { place as placeCaption, corner as captionCorner, covers, inside, heading, WIN_W as CAPTION_W, WIN_H as CAPTION_H } from "./caption-place.mjs";
 
@@ -633,7 +635,7 @@ function updateFollow() {
     captionMoving = moving;
     if (caption && !caption.isDestroyed()) {
       caption.webContents.send("caption:moving", moving);
-      if (moving) caption.setIgnoreMouseEvents(true, { forward: true });
+      if (moving) passClicks(caption, true, { forward: true }, { wayland });
     }
   }
   const tick = captionOpen && (moving || followTest);
@@ -729,7 +731,7 @@ function createCaption() {
     caption.setAlwaysOnTop(true, "floating");
     caption.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   }
-  caption.setIgnoreMouseEvents(true, { forward: true });
+  passClicks(caption, true, { forward: true }, { wayland });
   harden(caption);
   caption.loadURL(pageUrl("caption"));
   return caption;
@@ -755,7 +757,7 @@ function showCaption(threadId, { speak = true, corner = false, held = false } = 
   if (caption.webContents.isLoading()) caption.webContents.once("did-finish-load", tell);
   else tell();
   caption.setBounds({ x: Math.round(x), y: Math.round(y), width: CAPTION_W, height: CAPTION_H });
-  caption.setIgnoreMouseEvents(true, { forward: true });
+  passClicks(caption, true, { forward: true }, { wayland });
   if (!snapshot) caption.showInactive();
   captionMoving = null; // tell the page again
   updateFollow();
@@ -782,7 +784,7 @@ let pointerBusy = 0; // Dune Bot is using the mouse for an agent
  * user's: while Dune Bot clicks, scrolls or drags, clicks go through the card to what's under it. */
 function applyCaptionMouse() {
   if (!caption || caption.isDestroyed()) return;
-  caption.setIgnoreMouseEvents(!(captionWantsMouse && !captionMoving && !pointerBusy), { forward: true });
+  passClicks(caption, !(captionWantsMouse && !captionMoving && !pointerBusy), { forward: true }, { wayland });
 }
 
 ipcMain.on("caption:mouse", (e, on) => {
@@ -1178,11 +1180,17 @@ function openMain(view = "chat") {
   });
   harden(mainWin);
   setLook(mainWin, { name: "history", radius: 16, opaque: true, style: "sidebar" }, "sidebar");
-  if (!snapshot)
-    mainWin.once("ready-to-show", () => {
-      mainWin.show();
-      if (isMac) app.focus({ steal: true });
-    });
+  if (!snapshot) {
+    const w = mainWin;
+    showWhenReady(
+      w,
+      () => {
+        w.show();
+        if (isMac) app.focus({ steal: true });
+      },
+      { late: () => log("main window shown before it painted (ready-to-show never came)") },
+    );
+  }
   mainWin.on("closed", () => (mainWin = null));
   mainWin.loadURL(pageUrl(`main:${view}`));
   return mainWin;
@@ -1443,6 +1451,7 @@ function stopAgents(why, { keepSession = false } = {}) {
 /** Wayland: Dune Bot's windows while an agent uses the pointer (electron/pass-clicks.mjs): clicks let
  * through where GNOME honours it, and every page shielded, so a click that still lands on one presses
  * nothing and the step says so. The card's click-through has its own rule (applyCaptionMouse). */
+if (wayland) watchScales(ipcMain);
 const guard = wayland ? createGuard({ ipcMain, windows: () => BrowserWindow.getAllWindows(), ownRule: (w) => w === caption, name: ownName }) : null;
 // The pages ask on Linux as they load (preload.cjs); off Wayland the answer is always no.
 if (!guard) ipcMain.on("guard:state", (e) => (e.returnValue = false));
@@ -1636,13 +1645,19 @@ function openSetup(step = "") {
   });
   harden(setupWin);
   setLook(setupWin, { name: "setup", radius: 26, style: GLASS_STYLE, tint: true }, "under-window");
-  if (!snapshot)
-    setupWin.once("ready-to-show", () => {
-      setupWin.center();
-      setupWin.show();
-      setupWin.focus();
-      if (isMac) app.focus({ steal: true });
-    });
+  if (!snapshot) {
+    const w = setupWin;
+    showWhenReady(
+      w,
+      () => {
+        w.center();
+        w.show();
+        w.focus();
+        if (isMac) app.focus({ steal: true });
+      },
+      { late: () => log("setup window shown before it painted (ready-to-show never came)") },
+    );
+  }
   setupWin.on("closed", () => (setupWin = null));
   setupWin.loadURL(pageUrl(`setup${step ? ":" + step : ""}`));
   return setupWin;

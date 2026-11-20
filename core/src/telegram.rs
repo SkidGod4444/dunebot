@@ -10,7 +10,10 @@
 //! computer. So a phone turn never looks at the screen, clicks, types, runs a command or changes a
 //! file unless the user turns on "Let my phone run actions" (the rule is in `App::gate`); when on,
 //! each of those asks, every time, and the card can be answered with Yes/No buttons on the phone as
-//! well as at the computer. Account reads stay off unless `phone.reads` is on (asked.rs).
+//! well as at the computer. Reading files, looking inside folders, searching past chats and finding
+//! where the computer is have their own switch, "Read my files from my phone" (off by default; on,
+//! each asks the same way); which switch covers which action is `switch_for`. Account reads stay
+//! off unless `phone.reads` is on (asked.rs).
 //!
 //! The token is handed over by the app on stdin (never an environment variable or a command line)
 //! and kept in memory only. Telegram's URLs carry it, so every error and log line goes through
@@ -777,8 +780,10 @@ async fn watch(app: Arc<App>, thread_id: String, user_msg: String, chat: i64) {
     let mut relay = Relay::default();
     loop {
         let busy = app.busy.lock().unwrap().contains(&thread_id);
-        relay.pass(&app, &thread_id, &user_msg, chat, busy);
-        if !busy {
+        // A newer message started another turn (its own watch follows it): this one is over, even
+        // if the chat never looked idle in between.
+        let over = relay.pass(&app, &thread_id, &user_msg, chat, busy);
+        if !busy || over {
             break;
         }
         tokio::time::sleep(Duration::from_millis(150)).await;
@@ -797,10 +802,16 @@ struct Relay {
 }
 
 impl Relay {
-    fn pass(&mut self, app: &App, thread_id: &str, user_msg: &str, chat: i64, busy: bool) {
-        let Ok(msgs) = app.db(|d| d.messages(thread_id)) else { return };
-        let Some(start) = msgs.iter().position(|m| m.id == user_msg) else { return };
+    /// Sends what's new in this turn: what follows its message, up to the next one the user sent.
+    /// True once a next one has started another turn (this one is over then).
+    fn pass(&mut self, app: &App, thread_id: &str, user_msg: &str, chat: i64, busy: bool) -> bool {
+        let Ok(msgs) = app.db(|d| d.messages(thread_id)) else { return false };
+        let Some(start) = msgs.iter().position(|m| m.id == user_msg) else { return false };
         let after = &msgs[start + 1..];
+        let end = after.iter().position(|m| m.role == "user").unwrap_or(after.len());
+        let over = end < after.len();
+        let after = &after[..end];
+        let busy = busy && !over;
         for (i, m) in after.iter().enumerate() {
             match m.role.as_str() {
                 "assistant" => {
@@ -846,6 +857,7 @@ impl Relay {
                 _ => {}
             }
         }
+        over
     }
 }
 
@@ -1093,8 +1105,13 @@ mod tests {
         until("the turn to start", 10, || asked(app) > n).await;
         let t = setting(app, THREAD).unwrap();
         until("the turn to end", 20, || !app.busy.lock().unwrap().contains(&t)).await;
-        until("the answer", 10, || mock.texts_to(ME).len() > before).await;
-        tokio::time::sleep(Duration::from_millis(400)).await;
+        // Every part the turn said (its last once the turn has ended) and every card: all of it, not
+        // whatever came within a set time ("On it." alone, on a slow CI machine).
+        let msgs = app.db(|d| d.messages(&t)).unwrap();
+        let start = msgs.iter().rposition(|m| m.role == "user").unwrap();
+        let parts = msgs[start + 1..].iter().filter(|m| (m.role == "assistant" && !m.text.trim().is_empty()) || m.role == "approval").count();
+        until("every part of the answer", 10, || mock.texts_to(ME).len() >= before + parts.max(1)).await;
+        tokio::time::sleep(Duration::from_millis(400)).await; // and nothing more after it
         mock.texts_to(ME)[before..].to_vec()
     }
 
@@ -1240,6 +1257,26 @@ mod tests {
         app.respond(&id, "deny").unwrap();
         until("the turn to end", 20, || !app.busy.lock().unwrap().contains(&t)).await;
         let _ = std::fs::remove_dir_all(&elsewhere);
+        done(&app, &dir);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_turn_s_relay_stops_where_the_next_turn_starts() {
+        // A message sent the moment a turn ends starts the next before that turn's watch sees the
+        // chat idle: that watch must not send the next turn's words too (the phone got everything
+        // twice, two cards for one OK).
+        let (app, mock, dir) = paired("relay").await;
+        let t = app.create_thread(crate::agent::ECHO, "Phone", Some("~")).unwrap();
+        let first = app.add_message(&t.id, "user", "one", json!({})).unwrap();
+        app.add_message(&t.id, "assistant", "answer one", json!({})).unwrap();
+        app.add_message(&t.id, "user", "two", json!({})).unwrap();
+        app.add_message(&t.id, "assistant", "answer two", json!({})).unwrap();
+        let mut relay = Relay::default();
+        let over = relay.pass(&app, &t.id, &first.id, ME, true);
+        assert!(over, "a newer message means this turn is over");
+        until("the first answer", 5, || mock.texts_to(ME).iter().any(|x| x == "answer one")).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(!mock.texts_to(ME).iter().any(|x| x == "answer two"), "{:?}", mock.texts_to(ME));
         done(&app, &dir);
     }
 
