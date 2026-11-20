@@ -66,9 +66,8 @@ jobs:
         run: node scripts/check_input.mjs
       - name: The teaching highlight (fake windows)
         run: node scripts/check_pointer.mjs
-      # Dictation is macOS only (Right ⌥ held alone); words as if just said, a stand-in keyboard.
+      # Dictation (Right ⌥ on macOS, Right Ctrl on Windows and Linux): words as if just said, a stand-in keyboard.
       - name: Dictation end to end (stand-ins)
-        if: runner.os == 'macOS'
         run: node scripts/check_dictation.mjs
       - name: The mic starts before the voice keys are unlocked (a slow keychain loses nothing said)
         run: node scripts/check_voice_start.mjs
@@ -82,12 +81,15 @@ jobs:
           else node scripts/check_keychain.mjs; fi
       # The real pointer and keyboard of the runner's own screen. Not on the Mac runner: macOS needs
       # Accessibility switched on by a person, which a CI machine can't do.
-      - name: The mouse and keyboard for real (clicks, typing, shortcuts, scrolling, a drag)
+      - name: The mouse and keyboard for real (clicks, typing, shortcuts, scrolling, a drag; dictation's key held)
         if: runner.os != 'macOS'
         run: |
           node scripts/native.mjs
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1440x900x24" node scripts/check_input_live.mjs
           else node scripts/check_input_live.mjs; fi
+          # Dictation's key held for real: Right Ctrl pressed from outside the core, as a keyboard would.
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1440x900x24" node scripts/check_dictation_keys_live.mjs
+          else node scripts/check_dictation_keys_live.mjs; fi
       - name: Replies render safely (every partial state, the reply tags, attacks in the real windows) and are spoken as plain words
         run: |
           bun scripts/check_reply.tsx

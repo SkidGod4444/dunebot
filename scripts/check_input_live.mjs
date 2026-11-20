@@ -148,6 +148,18 @@ app.whenReady().then(async () => {
     s = await state();
     ok(s.value === "", `Backspace ×2 empties it (got ${JSON.stringify(s.value)})`);
 
+    // Dictation's words, at once (Windows: up to 20 characters a key event; Linux: a key each, quickly).
+    const said = "Dictated at once, with more than twenty characters: Grüße 🙂 and done.";
+    const t0 = Date.now();
+    await step("type at once (dictation)", () => input.typeText({ text: said, requestId: "e", at_once: true }));
+    const took = Date.now() - t0;
+    s = await state();
+    ok(s.value === said, `dictation's words arrive exactly, in order (got ${JSON.stringify(s.value)})`);
+    const most = process.platform === "win32" ? 1500 : [...said].length * 60;
+    ok(took < most, `and quickly: ${took} ms for ${[...said].length} characters (at most ${most})`);
+    await step("select all", () => input.pressKeys({ key: "a", mods: ["ctrl"], times: 1, requestId: "f" }));
+    await step("clear", () => input.pressKeys({ key: "backspace", mods: [], times: 1, requestId: "g" }));
+
     const list = await centre("s");
     await step("scroll down", () => input.scrollAt({ x: list.x, y: list.y, dx: 0, dy: -1, notches: 4 }));
     s = await state();

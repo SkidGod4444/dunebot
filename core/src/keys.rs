@@ -12,6 +12,12 @@ const MODS: u64 = CMD | OPT | CTRL | SHIFT;
 /// would simply never fire, rather than fire for either ⌘).
 pub const LEFT_CMD: u64 = 0x08;
 pub const RIGHT_CMD: u64 = 0x10;
+/// Which Ctrl is down (IOLLEvent.h: NX_DEVICELCTLKEYMASK, NX_DEVICERCTLKEYMASK). Windows and Linux put
+/// what they read in macOS's bits (`Held`), so one set of rules (`step`) serves every system.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+pub const LEFT_CTRL: u64 = 0x01;
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+pub const RIGHT_CTRL: u64 = 0x2000;
 
 /// The keys that tap or hold: these modifiers and no others, plus device bits that must (`need`) or
 /// mustn't (`forbid`) be there.
@@ -156,6 +162,265 @@ pub fn step(state: State, s: Sample, chord: Chord) -> (State, Option<Fire>) {
             } else {
                 (state, None)
             }
+        }
+    }
+}
+
+/// What one poll on Windows or Linux (X11) saw held: the modifiers, Ctrl by side, and whether any
+/// other key or a mouse button is down, never which. The other keys are only looked at while a
+/// modifier is held (a key or a click with it means a shortcut, so nothing starts).
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Held {
+    pub shift: bool,
+    pub left_ctrl: bool,
+    pub right_ctrl: bool,
+    pub alt: bool,
+    /// The Windows key, Super.
+    pub logo: bool,
+    pub other_key: bool,
+    pub button: bool,
+}
+
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+impl Held {
+    pub fn any_modifier(&self) -> bool {
+        self.shift || self.left_ctrl || self.right_ctrl || self.alt || self.logo
+    }
+
+    /// In macOS's bits: Ctrl by side, Alt as ⌥, the Windows key / Super as ⌘.
+    pub fn flags(&self) -> u64 {
+        let mut f = 0;
+        if self.shift {
+            f |= SHIFT;
+        }
+        if self.left_ctrl {
+            f |= CTRL | LEFT_CTRL;
+        }
+        if self.right_ctrl {
+            f |= CTRL | RIGHT_CTRL;
+        }
+        if self.alt {
+            f |= OPT;
+        }
+        if self.logo {
+            f |= CMD;
+        }
+        f
+    }
+}
+
+/// Turns what's held into `Sample`s: "since the last key / click" is how long ago another key or a
+/// button was last seen down (macOS tells it directly; Windows and Linux only say what's down now).
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+#[derive(Default)]
+pub struct Polls {
+    last_key: u64,
+    last_button: u64,
+}
+
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+impl Polls {
+    pub fn sample(&mut self, now: u64, held: Held) -> Sample {
+        if held.other_key {
+            self.last_key = now;
+        }
+        if held.button {
+            self.last_button = now;
+        }
+        let since = |t: u64| if t == 0 { u64::MAX } else { now.saturating_sub(t) };
+        Sample { now, flags: held.flags(), since_key: since(self.last_key), since_mouse: since(self.last_button) }
+    }
+}
+
+/// Windows: the keys' state as GetAsyncKeyState gives it (no keyboard hook, nothing typed is seen).
+#[cfg(target_os = "windows")]
+pub(crate) mod win {
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetAsyncKeyState(vk: i32) -> i16;
+    }
+
+    fn down(vk: i32) -> bool {
+        unsafe { (GetAsyncKeyState(vk) as u16) & 0x8000 != 0 }
+    }
+
+    /// Mouse buttons (left, right, middle, the two side buttons).
+    const BUTTONS: [i32; 5] = [0x01, 0x02, 0x04, 0x05, 0x06];
+
+    /// Not "another key": buttons, modifiers (both the either-side and the sided codes), and
+    /// VK_PACKET (characters typed by an app, Dune Bot's own included).
+    fn counted(vk: i32) -> bool {
+        !matches!(vk, 0x01..=0x07 | 0x10..=0x12 | 0xA0..=0xA5 | 0x5B | 0x5C | 0xE7 | 0xFF)
+    }
+
+    pub fn held() -> super::Held {
+        let mut h = super::Held {
+            shift: down(0xA0) || down(0xA1),
+            left_ctrl: down(0xA2),
+            right_ctrl: down(0xA3),
+            alt: down(0xA4) || down(0xA5),
+            logo: down(0x5B) || down(0x5C),
+            ..Default::default()
+        };
+        if h.any_modifier() {
+            h.button = BUTTONS.iter().any(|vk| down(*vk));
+            h.other_key = (0x08..=0xFE).filter(|vk| counted(*vk)).any(down);
+        }
+        h
+    }
+}
+
+/// Linux on X11: the keyboard's state as the X server gives it (XQueryKeymap, no grab, nothing typed
+/// is seen), with each key's role read from the keyboard map (refreshed now and then: layouts change).
+/// Never inside a Wayland session: there the X server only sees keys meant for X apps.
+#[cfg(target_os = "linux")]
+pub(crate) mod x11 {
+    use std::ffi::{c_char, c_int, c_uint, c_ulong, c_void};
+
+    type Display = c_void;
+    struct X {
+        _lib: libloading::Library,
+        root: unsafe extern "C" fn(*mut Display) -> c_ulong,
+        query_keymap: unsafe extern "C" fn(*mut Display, *mut c_char) -> c_int,
+        query_pointer: unsafe extern "C" fn(*mut Display, c_ulong, *mut c_ulong, *mut c_ulong, *mut c_int, *mut c_int, *mut c_int, *mut c_int, *mut c_uint) -> c_int,
+        display_keycodes: unsafe extern "C" fn(*mut Display, *mut c_int, *mut c_int) -> c_int,
+        get_keyboard_mapping: unsafe extern "C" fn(*mut Display, u8, c_int, *mut c_int) -> *mut c_ulong,
+        free: unsafe extern "C" fn(*mut c_void) -> c_int,
+    }
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum Role {
+        Other,
+        Shift,
+        LeftCtrl,
+        RightCtrl,
+        Alt,
+        Logo,
+    }
+
+    /// A keysym's role (X11/keysymdef.h). Lock keys count as other keys.
+    fn role(sym: c_ulong) -> Option<Role> {
+        Some(match sym {
+            0xffe1 | 0xffe2 => Role::Shift,
+            0xffe3 => Role::LeftCtrl,
+            0xffe4 => Role::RightCtrl,
+            // Alt, Meta, AltGr (ISO_Level3_Shift, Mode_switch, ISO_Level5_Shift)
+            0xffe9 | 0xffea | 0xffe7 | 0xffe8 | 0xfe03 | 0xff7e | 0xfe11 => Role::Alt,
+            // Super, Hyper
+            0xffeb | 0xffec | 0xffed | 0xffee => Role::Logo,
+            _ => return None,
+        })
+    }
+
+    pub struct Keyboard {
+        x: X,
+        dpy: *mut Display,
+        roles: [Role; 256],
+        mapped: std::time::Instant,
+    }
+
+    pub fn in_wayland() -> bool {
+        std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty()) || std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("wayland")
+    }
+
+    impl Keyboard {
+        /// The X display (DISPLAY), when there is one and this isn't a Wayland session.
+        pub fn open() -> Option<Self> {
+            if in_wayland() {
+                return None;
+            }
+            unsafe {
+                let lib = libloading::Library::new("libX11.so.6").ok()?;
+                macro_rules! f {
+                    ($name:literal) => {
+                        *lib.get($name).ok()?
+                    };
+                }
+                let open: unsafe extern "C" fn(*const c_char) -> *mut Display = f!(b"XOpenDisplay\0");
+                let x = X {
+                    root: f!(b"XDefaultRootWindow\0"),
+                    query_keymap: f!(b"XQueryKeymap\0"),
+                    query_pointer: f!(b"XQueryPointer\0"),
+                    display_keycodes: f!(b"XDisplayKeycodes\0"),
+                    get_keyboard_mapping: f!(b"XGetKeyboardMapping\0"),
+                    free: f!(b"XFree\0"),
+                    _lib: lib,
+                };
+                let dpy = open(std::ptr::null());
+                if dpy.is_null() {
+                    return None;
+                }
+                let mut k = Keyboard { x, dpy, roles: [Role::Other; 256], mapped: std::time::Instant::now() };
+                k.map();
+                Some(k)
+            }
+        }
+
+        /// Reads which key is which modifier from the keyboard map.
+        fn map(&mut self) {
+            unsafe {
+                let (mut lo, mut hi) = (0, 0);
+                (self.x.display_keycodes)(self.dpy, &mut lo, &mut hi);
+                if lo < 8 || hi > 255 || hi < lo {
+                    return;
+                }
+                let count = hi - lo + 1;
+                let mut per = 0;
+                let syms = (self.x.get_keyboard_mapping)(self.dpy, lo as u8, count, &mut per);
+                if syms.is_null() || per <= 0 {
+                    return;
+                }
+                let mut roles = [Role::Other; 256];
+                for i in 0..count as usize {
+                    // The first group's two levels name the key (a later group may be another layout).
+                    for l in 0..(per as usize).min(2) {
+                        if let Some(r) = role(*syms.add(i * per as usize + l)) {
+                            roles[lo as usize + i] = r;
+                            break;
+                        }
+                    }
+                }
+                (self.x.free)(syms as *mut c_void);
+                self.roles = roles;
+                self.mapped = std::time::Instant::now();
+            }
+        }
+
+        /// Whether the map names a Right Ctrl key at all (a layout may turn it into Compose).
+        pub fn has_right_ctrl(&self) -> bool {
+            self.roles.contains(&Role::RightCtrl)
+        }
+
+        pub fn held(&mut self) -> super::Held {
+            if self.mapped.elapsed().as_secs() >= 5 {
+                self.map();
+            }
+            let mut keys = [0 as c_char; 32];
+            unsafe { (self.x.query_keymap)(self.dpy, keys.as_mut_ptr()) };
+            let mut h = super::Held::default();
+            for code in 8..256usize {
+                if (keys[code / 8] as u8) & (1 << (code % 8)) == 0 {
+                    continue;
+                }
+                match self.roles[code] {
+                    Role::Shift => h.shift = true,
+                    Role::LeftCtrl => h.left_ctrl = true,
+                    Role::RightCtrl => h.right_ctrl = true,
+                    Role::Alt => h.alt = true,
+                    Role::Logo => h.logo = true,
+                    Role::Other => h.other_key = true,
+                }
+            }
+            if !h.any_modifier() {
+                h.other_key = false; // looked at only while a modifier is held
+            } else {
+                let (mut r, mut c, mut rx, mut ry, mut wx, mut wy, mut mask) = (0, 0, 0, 0, 0, 0, 0u32);
+                unsafe { (self.x.query_pointer)(self.dpy, (self.x.root)(self.dpy), &mut r, &mut c, &mut rx, &mut ry, &mut wx, &mut wy, &mut mask) };
+                // Button1Mask..Button3Mask (4 and 5 are the wheel)
+                h.button = mask & (0b111 << 8) != 0;
+            }
+            h
         }
     }
 }

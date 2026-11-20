@@ -1,19 +1,24 @@
-//! Dictation (macOS): hold Right ⌥ on its own and talk; let go, and what you said is typed into the
-//! app in front, at its text cursor. It's never sent to an agent and nothing is read aloud.
+//! Dictation: hold one key on its own and talk; let go, and what you said is typed into the app in
+//! front, at its text cursor. It's never sent to an agent and nothing is read aloud.
 //!
-//! The keys are read like the chord's (keys.rs): by polling the modifier state and "time since the
-//! last key/mouse press", so it needs no Input Monitoring permission and never sees what's typed. Right
-//! ⌥ held alone past `keys::HOLD_MS` starts listening; another key or a click while it's held means it
-//! was an ⌥ shortcut or a special character (⌥E, ⌥-click): cancelled, nothing typed. A quick tap does
-//! nothing, and Left ⌥ never counts.
+//! The key: Right ⌥ on macOS, Right Ctrl on Windows and Linux (X11). Right Alt isn't used there: let go
+//! on its own it opens the menu bar in many apps (the words would land in the menu), and on many
+//! layouts it is AltGr, which types characters. Right Ctrl does nothing on its own.
+//!
+//! The keys are read by polling, never by watching keystrokes: macOS gives the modifier state and
+//! "time since the last key/mouse press" (no Input Monitoring permission); Windows (GetAsyncKeyState)
+//! and X11 (XQueryKeymap) give what's down now, and the other keys are only looked at while a modifier
+//! is held, for whether one is down, never which (keys::Held). The key held alone past
+//! `keys::HOLD_MS` starts listening; another key or a click while it's held means it was a shortcut
+//! or a special character (⌥E, Ctrl+C, a Ctrl-click): cancelled, nothing typed. A quick tap does
+//! nothing, and the left-hand key never counts.
 //!
 //! The words are typed by the app (`App::input`, kind "type"), the same way and with the same refusals
-//! as an agent's type_text: never into Dune Bot's own windows, and macOS's Accessibility asked for the
-//! same way. What was said is never logged, only how long it was.
+//! as an agent's type_text: never into Dune Bot's own windows, never into an app run as administrator
+//! on Windows, and macOS's Accessibility asked for the same way. What was said is never logged, only
+//! how long it was.
 //!
-//! Windows and Linux: off. Right Alt typed alone opens the menu bar in many apps when it's let go (a
-//! poller can't swallow that, so the words would land in the menu), and it is AltGr on many layouts.
-//! Wayland doesn't let apps see which keys are held at all.
+//! Wayland doesn't let apps see which keys are held, so there's no key to hold there.
 
 use std::sync::{
     Arc,
@@ -24,7 +29,7 @@ use anyhow::bail;
 use serde_json::{Value, json};
 
 use crate::app::App;
-use crate::keys::{self, Chord, Fire, OPT, Sample, State};
+use crate::keys::{self, Chord, Fire, Sample, State};
 
 /// What a dictation's recording is started as (voice.rs): its words are typed, not sent.
 pub const SOURCE: &str = "dictation";
@@ -32,9 +37,20 @@ pub const SOURCE: &str = "dictation";
 /// these out of the modifier state, dictation would simply never start, rather than start for either ⌥.
 pub const LEFT_OPT: u64 = 0x20;
 pub const RIGHT_OPT: u64 = 0x40;
-/// Right ⌥ and nothing else.
-pub const KEYS: Chord = Chord { mods: OPT, need: RIGHT_OPT, forbid: LEFT_OPT };
+/// macOS: Right ⌥ and nothing else.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub const MAC_KEYS: Chord = Chord { mods: keys::OPT, need: RIGHT_OPT, forbid: LEFT_OPT };
+/// Windows and Linux: Right Ctrl and nothing else (keys::Held puts Ctrl's side in macOS's bits).
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+pub const CTRL_KEYS: Chord = Chord { mods: keys::CTRL, need: keys::RIGHT_CTRL, forbid: keys::LEFT_CTRL };
+#[cfg(target_os = "macos")]
+pub const KEYS: Chord = MAC_KEYS;
+#[cfg(target_os = "macos")]
 pub const LABEL: &str = "Right ⌥";
+#[cfg(not(target_os = "macos"))]
+pub const KEYS: Chord = CTRL_KEYS;
+#[cfg(not(target_os = "macos"))]
+pub const LABEL: &str = "Right Ctrl";
 /// Settings › Keys and the menu bar's Keys: "on" (unset is on) or "off".
 pub const PREF: &str = "dictation";
 /// What a recording from `source` becomes (voice.rs): a dictation types English whatever you speak
@@ -73,7 +89,7 @@ fn ready(app: &App) {
     app.out.event("dictation.ready", json!({ "available": WATCHING.load(SeqCst), "on": on(), "keys": LABEL }));
 }
 
-/// Starts watching Right ⌥ (the desktop app on macOS; never in tests) and tells the app.
+/// Starts watching the key (the desktop app; never in tests) and tells the app.
 pub fn start(app: &Arc<App>) {
     let saved = app.db(|d| d.get_setting(&format!("pref.{PREF}"))).ok().flatten();
     ON.store(saved.as_deref() != Some("off"), SeqCst);
@@ -97,51 +113,80 @@ pub fn kind(fire: Fire) -> Option<&'static str> {
     }
 }
 
-/// One poll of the Right ⌥ detector: the chord's rules (keys::step) with Right ⌥ alone as the keys,
-/// and a tap doing nothing.
+/// One poll of the detector: the chord's rules (keys::step) with this system's key alone as the
+/// keys, and a tap doing nothing.
 pub fn step(state: State, s: Sample) -> (State, Option<Fire>) {
-    let (next, fire) = keys::step(state, s, KEYS);
+    step_with(state, s, KEYS)
+}
+
+pub fn step_with(state: State, s: Sample, keys: Chord) -> (State, Option<Fire>) {
+    let (next, fire) = keys::step(state, s, keys);
     (next, fire.filter(|f| *f != Fire::Tap))
 }
 
-/// Polls on its own thread (macOS only). `on_fire` runs on that thread.
 #[cfg(target_os = "macos")]
 fn watch(on_fire: impl Fn(Fire) + Send + 'static) -> bool {
-    use std::time::Duration;
+    std::thread::Builder::new().name("dunebot-dictation".into()).spawn(move || poll(on_fire, keys::mac::sample)).is_ok()
+}
+
+#[cfg(target_os = "windows")]
+fn watch(on_fire: impl Fn(Fire) + Send + 'static) -> bool {
+    let mut polls = keys::Polls::default();
     std::thread::Builder::new()
         .name("dunebot-dictation".into())
-        .spawn(move || {
-            let start = std::time::Instant::now();
-            let mut state = State::default();
-            loop {
-                let holding = matches!(state, State::Down { holding: true, .. });
-                // Off: a hold under way ends without typing. While Dune Bot types or clicks (for an
-                // agent, or what you just said), nothing new starts: what's held is part of its keys.
-                if !on() || (keys::input_busy() && !holding) {
-                    if holding && !on() {
-                        on_fire(Fire::HoldCancel);
-                    }
-                    state = State::Spoiled;
-                    std::thread::sleep(Duration::from_millis(if on() { 30 } else { 200 }));
-                    continue;
-                }
-                let now = start.elapsed().as_millis() as u64;
-                let (next, fire) = step(state, keys::mac::sample(now));
-                state = next;
-                if let Some(f) = fire {
-                    on_fire(f);
-                }
-                // Quick while a modifier is down, relaxed otherwise.
-                let ms = if matches!(state, State::Idle { .. }) { 30 } else { 12 };
-                std::thread::sleep(Duration::from_millis(ms));
-            }
-        })
+        .spawn(move || poll(on_fire, move |now| polls.sample(now, keys::win::held())))
         .is_ok()
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Linux: X11 only (the keyboard is opened on the poller's thread, which keeps it).
+#[cfg(target_os = "linux")]
+fn watch(on_fire: impl Fn(Fire) + Send + 'static) -> bool {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let spawned = std::thread::Builder::new().name("dunebot-dictation".into()).spawn(move || {
+        let Some(mut kb) = keys::x11::Keyboard::open().filter(|k| k.has_right_ctrl()) else {
+            let _ = tx.send(false);
+            return;
+        };
+        let _ = tx.send(true);
+        let mut polls = keys::Polls::default();
+        poll(on_fire, move |now| polls.sample(now, kb.held()));
+    });
+    spawned.is_ok() && rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap_or(false)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn watch(_on_fire: impl Fn(Fire) + Send + 'static) -> bool {
     false
+}
+
+/// The poller's loop, on its own thread. `on_fire` runs on that thread.
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+fn poll(on_fire: impl Fn(Fire), mut sample: impl FnMut(u64) -> Sample) {
+    use std::time::Duration;
+    let start = std::time::Instant::now();
+    let mut state = State::default();
+    loop {
+        let holding = matches!(state, State::Down { holding: true, .. });
+        // Off: a hold under way ends without typing. While Dune Bot types or clicks (for an agent, or
+        // what you just said), nothing new starts: what's held is part of its keys.
+        if !on() || (keys::input_busy() && !holding) {
+            if holding && !on() {
+                on_fire(Fire::HoldCancel);
+            }
+            state = State::Spoiled;
+            std::thread::sleep(Duration::from_millis(if on() { 30 } else { 200 }));
+            continue;
+        }
+        let now = start.elapsed().as_millis() as u64;
+        let (next, fire) = step(state, sample(now));
+        state = next;
+        if let Some(f) = fire {
+            on_fire(f);
+        }
+        // Quick while a modifier is down, relaxed otherwise.
+        let ms = if matches!(state, State::Idle { .. }) { 30 } else { 12 };
+        std::thread::sleep(Duration::from_millis(ms));
+    }
 }
 
 /// Whether `voice::start`, asked for `asked` while the microphone already records for `current`, hands
@@ -236,11 +281,106 @@ pub async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<V
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keys::{CMD, CTRL, SHIFT};
+    use crate::keys::{CMD, CTRL, OPT, SHIFT};
 
     const LONG: u64 = 1_000_000;
     const RIGHT: u64 = OPT | RIGHT_OPT;
     const LEFT: u64 = OPT | LEFT_OPT;
+
+    /// Windows and Linux: polls of what's held (time ms, held), through Polls and Right Ctrl's rules.
+    fn run_held(polls: &[(u64, keys::Held)]) -> Vec<Fire> {
+        let mut p = keys::Polls::default();
+        let mut state = State::default();
+        let mut out = vec![];
+        for &(now, held) in polls {
+            let (next, fire) = step_with(state, p.sample(now, held), CTRL_KEYS);
+            state = next;
+            out.extend(fire);
+        }
+        out
+    }
+
+    const NONE: keys::Held = keys::Held { shift: false, left_ctrl: false, right_ctrl: false, alt: false, logo: false, other_key: false, button: false };
+    const RCTRL: keys::Held = keys::Held { right_ctrl: true, ..NONE };
+
+    /// Right Ctrl held from `from` to `to` (ms), polled every 12 ms, nothing else.
+    fn hold(from: u64, to: u64) -> Vec<(u64, keys::Held)> {
+        let mut v = vec![(from - 30, NONE)];
+        v.extend((from..to).step_by(12).map(|t| (t, RCTRL)));
+        v.push((to, NONE));
+        v
+    }
+
+    #[test]
+    fn right_ctrl_held_alone_starts_and_stops() {
+        assert_eq!(run_held(&hold(1000, 2000)), vec![Fire::HoldStart, Fire::HoldEnd]);
+        let mut twice = hold(1000, 2000);
+        twice.extend(hold(3000, 4000));
+        assert_eq!(run_held(&twice), vec![Fire::HoldStart, Fire::HoldEnd, Fire::HoldStart, Fire::HoldEnd], "again, as often as you like");
+    }
+
+    #[test]
+    fn right_ctrl_tapped_does_nothing() {
+        assert_eq!(run_held(&hold(1000, 1200)), vec![]);
+    }
+
+    #[test]
+    fn left_ctrl_never_counts() {
+        let left = keys::Held { left_ctrl: true, ..NONE };
+        let v: Vec<_> = (1000..2000).step_by(12).map(|t| (t, left)).chain([(2000, NONE)]).collect();
+        assert_eq!(run_held(&v), vec![]);
+        let both = keys::Held { left_ctrl: true, right_ctrl: true, ..NONE };
+        let v: Vec<_> = (1000..2000).step_by(12).map(|t| (t, both)).chain([(2000, NONE)]).collect();
+        assert_eq!(run_held(&v), vec![], "both Ctrls");
+    }
+
+    #[test]
+    fn a_ctrl_shortcut_types_nothing() {
+        // Ctrl+C after the hold started: cancelled (nothing typed), and the C doesn't start another.
+        let mut v = hold(1000, 1600);
+        v.insert(50, (1590, keys::Held { other_key: true, ..RCTRL }));
+        v.retain(|(t, _)| *t <= 1590 || *t == 1600);
+        assert_eq!(run_held(&v), vec![Fire::HoldStart, Fire::HoldCancel]);
+        // Ctrl+C quickly: nothing at all.
+        let quick = vec![(970, NONE), (1000, RCTRL), (1012, keys::Held { other_key: true, ..RCTRL }), (1024, RCTRL), (1500, RCTRL), (1600, NONE)];
+        assert_eq!(run_held(&quick), vec![]);
+    }
+
+    #[test]
+    fn a_key_held_before_right_ctrl_spoils_it() {
+        let a = keys::Held { other_key: false, ..NONE };
+        let v = vec![(900, a), (1000, keys::Held { other_key: true, ..RCTRL }), (1012, keys::Held { other_key: true, ..RCTRL }), (1500, RCTRL), (1600, NONE)];
+        assert_eq!(run_held(&v), vec![], "holding a letter, then Right Ctrl: Ctrl+letter");
+    }
+
+    #[test]
+    fn a_ctrl_click_while_held_cancels() {
+        let v = vec![(970, NONE), (1000, RCTRL), (1400, RCTRL), (1500, keys::Held { button: true, ..RCTRL }), (1600, RCTRL), (1700, NONE)];
+        assert_eq!(run_held(&v), vec![Fire::HoldStart, Fire::HoldCancel], "a Ctrl-click");
+    }
+
+    #[test]
+    fn altgr_and_other_modifiers_never_count() {
+        // AltGr on Windows is Left Ctrl + Alt; Ctrl+Shift, Ctrl+Alt and Ctrl+Win are shortcuts.
+        for other in [
+            keys::Held { left_ctrl: true, alt: true, ..NONE },
+            keys::Held { shift: true, ..RCTRL },
+            keys::Held { alt: true, ..RCTRL },
+            keys::Held { logo: true, ..RCTRL },
+        ] {
+            let v: Vec<_> = [(970, NONE)].into_iter().chain((1000..2000).step_by(12).map(|t| (t, other))).chain([(2000, NONE)]).collect();
+            assert_eq!(run_held(&v), vec![], "{other:?}");
+        }
+    }
+
+    #[test]
+    fn other_keys_count_only_while_a_modifier_is_held() {
+        // Typing, then Right Ctrl after the last key is up: starts as usual.
+        let typing = keys::Held { other_key: true, ..NONE };
+        let mut v = vec![(900, typing), (950, NONE)];
+        v.extend(hold(1000, 1600).into_iter().skip(1));
+        assert_eq!(run_held(&v), vec![Fire::HoldStart, Fire::HoldEnd]);
+    }
 
     #[test]
     fn dictation_types_english_and_talk_keeps_your_words() {
@@ -258,7 +398,7 @@ mod tests {
         let mut state = State::default();
         let mut out = vec![];
         for &(now, flags, since_key, since_mouse) in samples {
-            let (next, fire) = step(state, Sample { now, flags, since_key, since_mouse });
+            let (next, fire) = step_with(state, Sample { now, flags, since_key, since_mouse }, MAC_KEYS);
             state = next;
             out.extend(fire);
         }
@@ -383,8 +523,9 @@ mod tests {
 
     #[test]
     fn nothing_heard_says_which_keys() {
-        assert_eq!(nothing_note(Some("Hold the keys while you talk.")), "Hold Right ⌥ while you talk.");
-        assert_eq!(nothing_note(None), "Didn't catch that. Hold Right ⌥ and try again.");
+        let key = if cfg!(target_os = "macos") { "Right ⌥" } else { "Right Ctrl" };
+        assert_eq!(nothing_note(Some("Hold the keys while you talk.")), format!("Hold {key} while you talk."));
+        assert_eq!(nothing_note(None), format!("Didn't catch that. Hold {key} and try again."));
         assert_eq!(nothing_note(Some("Didn't hear anything.")), "Didn't hear anything.");
     }
 

@@ -124,8 +124,9 @@ function startCore() {
   }
   const env = { ...process.env };
   delete env.DUNEBOT_SARVAM_ENV; // a developer's one-time import (below); agents inherit the core's env
-  // macOS: the core listens for the ⌥⌘ chord (tap opens the bar, hold talks).
-  if (isMac && !snapshot && !selfcheck) env.DUNEBOT_CHORD = "1";
+  // The core watches the keys: on macOS the ⌥⌘ chord (tap opens the bar, hold talks) and Right ⌥ for
+  // dictation; on Windows and Linux (X11) Right Ctrl for dictation (core/src/dictation.rs).
+  if (!snapshot && !selfcheck) env.DUNEBOT_CHORD = "1";
   const cm = codemaxBinary();
   if (cm) env.DUNEBOT_CODEMAX = cm;
   core = spawn(bin, [], { env, stdio: ["pipe", "pipe", "inherit"] });
@@ -893,6 +894,11 @@ function hideVoiceBarSoon(ms) {
 
 // ---------- voice: the mic opens only once it's allowed ----------
 // Opening it before would put the system's permission box up mid-sentence and lose what you said.
+/** The system says no to the microphone (macOS: not yet allowed; Windows: turned off). */
+function micBlocked() {
+  return isMac ? micStatus() !== "granted" : isWin && micStatus() === "denied";
+}
+
 function micStatus() {
   // Snapshots draw the same page on every system: CI's Windows machines have no microphone ("Off").
   if (snapshot) return "granted";
@@ -907,7 +913,7 @@ function micStatus() {
 // The mic first, then the voice keys (electron/voice-start.mjs says why).
 const voiceStart = createVoiceStart({
   hush: () => hushCaption(),
-  micBlocked: () => (isMac ? micStatus() !== "granted" : isWin && micStatus() === "denied"),
+  micBlocked,
   openSetup: () => openSetup("mic"),
   call: (method, params) => call(method, params),
   keysReady: () => sarvamReady(),
@@ -1143,12 +1149,13 @@ function onChord(kind) {
   }
 }
 
-// Dictation (macOS): Right ⌥ held alone, its words typed where the text cursor is (electron/dictation.mjs).
+// Dictation: Right ⌥ (macOS) or Right Ctrl (Windows, Linux on X11) held alone, its words typed where
+// the text cursor is (electron/dictation.mjs).
 const dictation = createDictation({
   call,
   log,
   emit,
-  micStatus,
+  micBlocked,
   openSetup,
   startVoice,
   showListening: () => {
@@ -1842,7 +1849,9 @@ function refreshTray() {
       },
       ...(isMac && chord
         ? [{ label: "Keys", submenu: [...KEYS.map(([k, label]) => ({ label, type: "radio", checked: keysName() === k, click: () => setKeys(k) })), ...dictation.menu()] }]
-        : []),
+        : isMac
+          ? []
+          : dictation.menu()),
       { label: "Agent", submenu: agentItems.length ? agentItems : [{ label: "Looking for agents…", enabled: false }] },
       { type: "separator" },
       { label: "Quit Dune Bot", accelerator: isMac ? "Command+Q" : undefined, click: () => app.quit() },

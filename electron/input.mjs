@@ -210,7 +210,8 @@ export function createInput(h) {
     if (Math.hypot(now.x - start.x, now.y - start.y) > 24) throw new Error(TAKEN);
   }
 
-  /** Dictation's words in pieces of at most 20 UTF-16 units (macOS takes no more in one key event),
+  /** Dictation's words in pieces of at most 20 UTF-16 units (macOS and the addon on Windows take no
+   * more in one go),
    * never splitting a character; a line break or tab is a piece of its own (a key). */
   function pieces(chars) {
     const out = [];
@@ -249,22 +250,25 @@ export function createInput(h) {
         note = "Caps Lock couldn't be checked on this computer: if it's on, the letters came out in the other case. Look to check.";
     }
     const start = h.screen.getCursorScreenPoint();
-    // Dictation (macOS): what you said appears at once, as the system's dictation puts it, not typed
-    // letter by letter (that felt like typing: 23 characters took 2.3 s, 2026-11-21). Each piece is
-    // one key event carrying up to 20 characters, a few milliseconds apart. The words are yours: moving
-    // the mouse doesn't stop them (it stops an agent, as taking over); Dune Bot's own keyboard does.
-    if (at_once && mac) {
-      for (const piece of pieces(chars)) {
+    // Dictation: what you said appears at once, as the system's dictation puts it, not typed at a
+    // person's pace (that felt like typing: 23 characters took 2.3 s, 2026-11-21). macOS and Windows
+    // take up to 20 characters in one key event, a few milliseconds apart. Linux types a character a
+    // key (X11 and Wayland have nothing else), each held 20 ms and a little apart, as IBus needs to
+    // keep them in order (ibus#2486): about 30 a second. The words are yours: moving the mouse doesn't stop them (it stops
+    // an agent, as taking over); Dune Bot's own keyboard, an administrator's app or a stop does.
+    if (at_once) {
+      const many = mac || platform === "win32";
+      for (const piece of many ? pieces(chars) : chars) {
         if (h.cancelled(requestId)) throw new Error(STOPPED);
         refuseKeys();
         if (piece === "\n") await tapKey(keyCodeOf("enter"));
         else if (piece === "\t") await tapKey(keyCodeOf("tab"));
         else {
           if (!(await h.addon().keyText(piece, true))) throw new Error("Dune Bot couldn't type that.");
-          await wait(2);
+          await wait(many ? 2 : 20);
           await h.addon().keyText(piece, false);
         }
-        await wait(6);
+        await wait(many ? 6 : 12);
       }
       return `typing at once, ${chars.length} characters`;
     }

@@ -34,6 +34,8 @@ const latest = (channel) => {
 contextBridge.exposeInMainWorld("dunebot", {
   // Snapshots may render another system's version of the pages; the app itself always uses the real one.
   platform: (process.env.DUNEBOT_SNAPSHOT && process.env.DUNEBOT_SNAPSHOT_PLATFORM) || process.platform,
+  // A Wayland desktop (no held keys for apps: dictation has no key there). Snapshots draw X11's pages.
+  wayland: !process.env.DUNEBOT_SNAPSHOT && process.platform === "linux" && (process.env.XDG_SESSION_TYPE === "wayland" || !!process.env.WAYLAND_DISPLAY),
   call: (method, params) => ipcRenderer.invoke("core:call", method, params),
   pickFolder: () => ipcRenderer.invoke("pick-folder"),
   onEvent: listen("core:event"),
