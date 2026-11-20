@@ -37,6 +37,13 @@ pub const KEYS: Chord = Chord { mods: OPT, need: RIGHT_OPT, forbid: LEFT_OPT };
 pub const LABEL: &str = "Right ⌥";
 /// Settings › Keys and the menu bar's Keys: "on" (unset is on) or "off".
 pub const PREF: &str = "dictation";
+/// What a recording from `source` becomes (voice.rs): a dictation types English whatever you speak
+/// (Hindi said, English typed: the user's choice, 2026-11-21); talking to Dune Bot keeps your words
+/// as said. A dictation taken over by a hold to talk (`takes_over`) is talk's from then on.
+pub fn words_for(source: &str) -> crate::sarvam::Words {
+    if source == SOURCE { crate::sarvam::Words::English } else { crate::sarvam::Words::AsSaid }
+}
+
 /// Longer than a minute of speech ever is (a recording stops itself at 60 s).
 const MAX_CHARS: usize = 4000;
 
@@ -234,6 +241,17 @@ mod tests {
     const LONG: u64 = 1_000_000;
     const RIGHT: u64 = OPT | RIGHT_OPT;
     const LEFT: u64 = OPT | LEFT_OPT;
+
+    #[test]
+    fn dictation_types_english_and_talk_keeps_your_words() {
+        use crate::sarvam::Words;
+        assert_eq!(words_for(SOURCE), Words::English);
+        assert_eq!(words_for(SOURCE).mode(), "translate");
+        for talk in ["chord", "button", "bar", ""] {
+            assert_eq!(words_for(talk), Words::AsSaid, "{talk}");
+            assert_eq!(words_for(talk).mode(), "codemix", "{talk}");
+        }
+    }
 
     /// Runs samples (time ms, flags, ms since last key, ms since last click) and collects what fired.
     fn run(samples: &[(u64, u64, u64, u64)]) -> Vec<Fire> {

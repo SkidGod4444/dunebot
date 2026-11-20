@@ -17,6 +17,24 @@ pub const STT_URL: &str = "https://api.sarvam.ai/speech-to-text";
 pub const TTS_URL: &str = "https://api.sarvam.ai/text-to-speech";
 pub const TRANSLATE_URL: &str = "https://api.sarvam.ai/translate";
 pub const STT_MODEL: &str = "saaras:v4";
+
+/// What a recording becomes. Talking to Dune Bot keeps your words as said (Hindi in Devanagari,
+/// English words as English); dictation types English whatever you speak (Sarvam's speech-to-English).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Words {
+    AsSaid,
+    English,
+}
+
+impl Words {
+    /// saaras's `mode` for it.
+    pub fn mode(self) -> &'static str {
+        match self {
+            Words::AsSaid => "codemix",
+            Words::English => "translate",
+        }
+    }
+}
 pub const TTS_MODEL: &str = "bulbul:v4-flash";
 /// An English-Hindi voice: reads English, Hindi and the two mixed.
 /// Sarvam takes up to 30 s per request; longer recordings go in parts, cut where it's quietest.
@@ -77,15 +95,15 @@ impl Sarvam {
         self.key.lock().unwrap().clone().ok_or_else(|| anyhow!("no Sarvam key"))
     }
 
-    /// Text for 16 kHz mono audio. Returns the text and the language Sarvam heard.
-    pub fn transcribe(&self, audio: &[f32]) -> anyhow::Result<(String, String)> {
+    /// Text for 16 kHz mono audio, as `words` asks. Returns the text and the language Sarvam heard.
+    pub fn transcribe(&self, audio: &[f32], words: Words) -> anyhow::Result<(String, String)> {
         let key = self.key()?;
         let mut text = Vec::new();
         let mut lang = String::new();
         for (a, b) in parts(audio, crate::voice::RATE, MAX_PART_SECS) {
             let boundary = format!("dunebot{}", crate::app::new_id());
             let wav = wav_pcm16(&audio[a..b], crate::voice::RATE);
-            let fields = [("model", STT_MODEL), ("mode", "codemix"), ("language_code", "unknown"), ("keyterms", KEYTERMS)];
+            let fields = [("model", STT_MODEL), ("mode", words.mode()), ("language_code", "unknown"), ("keyterms", KEYTERMS)];
             let body = multipart(&boundary, &fields, "speech.wav", "audio/wav", &wav);
             let reply = post(&key, STT_URL, &format!("multipart/form-data; boundary={boundary}"), body)?;
             let part = reply.get("transcript").and_then(Value::as_str).unwrap_or("").trim().to_string();

@@ -235,10 +235,11 @@ pub(crate) async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::R
         // The app only, for tests: a WAV file through the same path as push-to-talk.
         "voice.transcribeFile" => {
             let file = s(p, "path")?.to_string();
+            let words = crate::dictation::words_for(p.get("source").and_then(Value::as_str).unwrap_or(""));
             let app = app.clone();
             tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
                 let (samples, rate) = crate::voice::read_wav(&std::fs::read(&file)?)?;
-                let (text, note) = crate::voice::transcribe(&app, &samples, rate)?;
+                let (text, note) = crate::voice::transcribe(&app, &samples, rate, words)?;
                 Ok(json!({ "text": text, "note": note }))
             })
             .await??
