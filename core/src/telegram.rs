@@ -10,7 +10,10 @@
 //! computer. So a phone turn never looks at the screen, clicks, types, runs a command or changes a
 //! file unless the user turns on "Let my phone run actions" (the rule is in `App::gate`); when on,
 //! each of those asks, every time, and the card can be answered with Yes/No buttons on the phone as
-//! well as at the computer. Account reads stay off unless `phone.reads` is on (asked.rs).
+//! well as at the computer. Reading files, looking inside folders, searching past chats and finding
+//! where the computer is have their own switch, "Read my files from my phone" (off by default; on,
+//! each asks the same way); which switch covers which action is `switch_for`. Account reads stay
+//! off unless `phone.reads` is on (asked.rs).
 //!
 //! The token is handed over by the app on stdin (never an environment variable or a command line)
 //! and kept in memory only. Telegram's URLs carry it, so every error and log line goes through
