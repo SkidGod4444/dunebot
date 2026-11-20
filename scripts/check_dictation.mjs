@@ -128,9 +128,29 @@ const outcome = (from) => core.wait((m) => m.event === "dictation.state" && m.st
   const typed = keys.filter(([, down]) => down).map(([t]) => t).join("");
   ok(asked.length === 1 && asked[0].kind === "type" && asked[0].text === words, `the app is asked to type them (${asked.length} asks)`);
   ok(typed === words, `typeText typed exactly what was said (${JSON.stringify(typed)})`);
+  const downs = keys.filter(([, down]) => down).length;
+  ok(asked[0].at_once === true && downs === Math.ceil(words.length / 20), `at once, as the system's dictation does: ${downs} key events of up to 20 characters, not one a letter`);
   ok(JSON.stringify(states) === '["typing","typed"]' && end.chars === [...words].length, `the card: typing, then typed ${end.chars} characters (${states})`);
   ok(!core.events.some((m) => m.event === "voice.transcript"), "nothing goes to the bar (no voice.transcript)");
   ok(core.events.every((m) => m.event === "input.do" || !JSON.stringify(m).includes("Hello from")), "the words are in no event but the request to type them");
+}
+
+// 1b. Long words with a character outside the basic plane: pieces of at most 20 UTF-16 units that never
+// split a character, in well under a second. (Dictation never types a line break or tab: the core
+// drops control characters from what was heard.)
+{
+  const words = "First part of a longer thought 🙂 with more words, and a second part that ends here.";
+  const from = core.events.length;
+  keys.length = 0;
+  const t0 = Date.now();
+  await core.call("dictation.feed", { text: words });
+  const end = await outcome(from);
+  const ms = Date.now() - t0;
+  const downs = keys.filter(([, down]) => down).map(([t]) => t);
+  const typed = downs.join("");
+  ok(end.state === "typed" && typed === words, `long words typed exactly (${JSON.stringify(typed)})`);
+  ok(downs.every((t) => t.length <= 20 && !/^[\uDC00-\uDFFF]/.test(t) && !/[\uD800-\uDBFF]$/.test(t)), `pieces of at most 20 units, no character split (${downs.map((t) => t.length).join(",")})`);
+  ok(ms < 1500, `all of it in ${ms} ms`);
 }
 
 // 2. Dune Bot's own window has the keyboard: nothing typed, one sentence for the card.

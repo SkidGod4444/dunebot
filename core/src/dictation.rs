@@ -171,7 +171,7 @@ pub fn heard(app: &Arc<App>, text: String, note: Option<&str>) {
     tokio::spawn(async move {
         // The app answers when it's done, or with why it couldn't (said in an agent's words: the card
         // gets one sentence for a person instead).
-        let state = match app.input(json!({ "kind": "type", "text": text }), 20 + n as u64 / 4).await {
+        let state = match app.input(json!({ "kind": "type", "text": text, "at_once": true }), 20 + n as u64 / 4).await {
             Ok(_) => json!({ "state": "typed", "chars": n }),
             Err(e) => json!({ "state": "refused", "chars": n, "message": refusal(&e) }),
         };

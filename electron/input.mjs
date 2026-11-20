@@ -210,7 +210,26 @@ export function createInput(h) {
     if (Math.hypot(now.x - start.x, now.y - start.y) > 24) throw new Error(TAKEN);
   }
 
-  async function typeText({ text, requestId }) {
+  /** Dictation's words in pieces of at most 20 UTF-16 units (macOS takes no more in one key event),
+   * never splitting a character; a line break or tab is a piece of its own (a key). */
+  function pieces(chars) {
+    const out = [];
+    let cur = "";
+    for (const ch of chars) {
+      if (ch === "\n" || ch === "\t") {
+        if (cur) out.push(cur);
+        out.push(ch);
+        cur = "";
+      } else if (cur.length + ch.length > 20) {
+        out.push(cur);
+        cur = ch;
+      } else cur += ch;
+    }
+    if (cur) out.push(cur);
+    return out;
+  }
+
+  async function typeText({ text, requestId, at_once }) {
     const chars = [...String(text ?? "")];
     if (!chars.length) throw new Error("Nothing to type.");
     refuseKeys();
@@ -230,6 +249,23 @@ export function createInput(h) {
         note = "Caps Lock couldn't be checked on this computer: if it's on, the letters came out in the other case. Look to check.";
     }
     const start = h.screen.getCursorScreenPoint();
+    // Dictation (macOS): what you said appears at once, as the system's dictation puts it, not typed
+    // letter by letter (that felt like typing: 23 characters took 2.3 s, 2026-11-21). Each piece is
+    // one key event carrying up to 20 characters, a few milliseconds apart.
+    if (at_once && mac) {
+      for (const piece of pieces(chars)) {
+        stillOurs(start, requestId);
+        if (piece === "\n") await tapKey(keyCodeOf("enter"));
+        else if (piece === "\t") await tapKey(keyCodeOf("tab"));
+        else {
+          if (!(await h.addon().keyText(piece, true))) throw new Error("Dune Bot couldn't type that.");
+          await wait(2);
+          await h.addon().keyText(piece, false);
+        }
+        await wait(6);
+      }
+      return `typing at once, ${chars.length} characters`;
+    }
     // A person's pace: quicker inside words, a beat after a space or a stop; long text goes faster.
     const pace = chars.length > 200 ? 0.4 : 1;
     for (const ch of chars) {
