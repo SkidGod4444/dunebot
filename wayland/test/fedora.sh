@@ -20,6 +20,9 @@ docker run --rm \
     install -m 755 /tmp/target/release/dunebot-wayland /usr/local/bin/dunebot-wayland
     chown dev /out
     rm -rf /run/systemd/seats; mkdir -p /run/dbus && dbus-daemon --system --fork --nopidfile
-    exec runuser -u dev -- env HOME=/home/dev PATH=/usr/bin:/bin \
+    status=0
+    runuser -u dev -- env HOME=/home/dev PATH=/usr/bin:/bin \
       DUNEBOT_WL_MONITORS="$DUNEBOT_WL_MONITORS" DUNEBOT_WL_SCALES="$DUNEBOT_WL_SCALES" DUNEBOT_WL_ONLY="$DUNEBOT_WL_ONLY" \
-      DUNEBOT_TEST_ELECTRON=/opt/electron/electron bash /home/dev/src/test/run.sh /usr/local/bin/dunebot-wayland /out'
+      DUNEBOT_TEST_ELECTRON=/opt/electron/electron bash /home/dev/src/test/run.sh /usr/local/bin/dunebot-wayland /out || status=$?
+    chmod -R a+rX /out  # readable outside the container (another user there)
+    exit $status'
