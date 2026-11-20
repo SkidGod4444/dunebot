@@ -431,7 +431,9 @@ impl Hand {
         if r.is_ok() {
             r = self.key_code(p.code - 8, true);
             if r.is_ok() {
-                tokio::time::sleep(Duration::from_millis(12)).await;
+                // Held as a quick typist holds it: a release right on the press's heels is what
+                // IBus (every key on GNOME passes through it) can put out of order (ibus#2486).
+                tokio::time::sleep(Duration::from_millis(20)).await;
                 r = self.key_code(p.code - 8, false);
             }
         }

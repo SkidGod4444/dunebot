@@ -187,7 +187,16 @@ CLEAR = ((CTRL, True), (0x61, True), (0x61, False), (CTRL, False), (BACKSPACE, T
 
 
 def type_text(h, s):
-    return [r["error"] for r in (h.call("text", ch=c) for c in s) if "error" in r]
+    """At the app's fastest pace (electron/input.mjs: long text, ~22 ms between characters), not
+    back to back: IBus, which GNOME passes every key through, can put keys out of order when they
+    come faster than it answers (ibus#2486; seen once at 200% in CI: "y@äz/{}" for "y@z/{ä}")."""
+    errs = []
+    for c in s:
+        r = h.call("text", ch=c)
+        if "error" in r:
+            errs.append(r["error"])
+        time.sleep(0.022)
+    return errs
 
 
 def layouts(*names):
