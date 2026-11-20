@@ -357,7 +357,9 @@ async function main() {
       const l = await el.wait((x) => x.startsWith("{") && key in JSON.parse(x), since, ms);
       return l ? JSON.parse(l) : null;
     };
-    if (check("electron: windows up", await next("ready", 0, 30_000))) {
+    const up = await next("ready", 0, 30_000);
+    if (up?.late?.length) console.log(`note: shown before they painted (ready-to-show never came): ${up.late.join(", ")}`);
+    if (check("electron: windows up", up)) {
       // Where GNOME put them can't be read from Electron on Wayland: the shell places them.
       ev(`global.get_window_actors().map(a => a.meta_window).forEach(w => { if (w.get_title() === 'dunebot-guard') w.move_frame(true, ${100 * target.k}, ${120 * target.k}); if (w.get_title() === 'dunebot-card') w.move_frame(true, ${760 * target.k}, ${120 * target.k}); }); 'ok'`);
       await sleep(1000);
@@ -433,6 +435,18 @@ async function main() {
           check(`electron ${title}: after a swallowed click, a key is refused or never reaches the page`, k2.focused !== null || !keyed2, JSON.stringify({ focused: k2.focused, keyed: keyed2 }));
           c = await click(title, false, 500);
           check(`electron ${title}: after the step, the window takes clicks again`, c.page && !c.under, JSON.stringify(c));
+          if (!(c.page && !c.under)) {
+            // Which parts of it take clicks now: a smaller area (input region in the wrong units), or none.
+            const [w0, h0] = (title === "dunebot-guard" ? [480, 320] : [300, 200]).map((v) => v * K);
+            const [cx, cy] = mid[title];
+            const where = [];
+            for (const f of [0.1, 0.3, 0.45, 0.6, 0.9]) {
+              const at = [Math.round(cx - w0 / 2 + w0 * f), Math.round(cy - h0 / 2 + h0 * f)];
+              const p = await click(title, false, 300, at);
+              where.push(`${f}:${p.page ? "window" : p.under ? "through" : "lost"}`);
+            }
+            console.log(`note: ${title} after the step, across its diagonal: ${where.join(" ")}`);
+          }
         }
         // Scrolling: with the pointer already on the window (the wheel shield runs), then from outside.
         for (const [label, from] of [["already on it", mid["dunebot-guard"]], ["from outside", free]]) {

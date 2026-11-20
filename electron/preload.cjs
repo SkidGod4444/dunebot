@@ -113,3 +113,11 @@ ipcRenderer.on("guard", (_e, on, n) => {
 // decides it (main answers there before any window exists; a page with no answer would hang).
 const onWayland = process.platform === "linux" && (process.env.XDG_SESSION_TYPE === "wayland" || !!process.env.WAYLAND_DISPLAY);
 if (onWayland) guard(ipcRenderer.sendSync("guard:state") === true);
+// Its scale, now and whenever it changes (another screen): main can't tell on Wayland (click-through.mjs).
+if (onWayland) {
+  const tellScale = () => {
+    ipcRenderer.send("page:scale", window.devicePixelRatio);
+    window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener("change", tellScale, { once: true });
+  };
+  tellScale();
+}

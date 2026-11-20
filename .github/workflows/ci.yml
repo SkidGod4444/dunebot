@@ -181,6 +181,43 @@ jobs:
           name: wayland-gnome-${{ matrix.name }}
           path: out/
 
+  wayland-fedora:
+    # Fedora 43, GNOME 49 (Mutter's logical layout: a 200% screen is half as many points as pixels),
+    # in a container. The same three layouts as wayland-gnome.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: one-screen, monitors: "1280x800", scales: "" }
+          - { name: hidpi, monitors: "2560x1600", scales: "2" }
+          - { name: two-screens, monitors: "1280x800 2560x1600", scales: "1,2" }
+    name: wayland-fedora (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Electron for the app side's own-window check
+        run: |
+          bun install --frozen-lockfile
+          node node_modules/electron/install.js
+          test -x node_modules/electron/dist/electron
+      - name: GNOME 49 on Fedora 43 - the box, the screen, clicks, typing; then the app's side
+        env:
+          DUNEBOT_WL_MONITORS: ${{ matrix.monitors }}
+          DUNEBOT_WL_SCALES: ${{ matrix.scales }}
+        run: bash wayland/test/fedora.sh node_modules/electron/dist out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wayland-fedora-${{ matrix.name }}
+          path: out/
+
   same-everywhere:
     needs: build
     runs-on: ubuntu-latest

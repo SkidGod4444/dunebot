@@ -126,6 +126,10 @@ struct Devices {
     mods_known: bool,
     fallback: Option<(std::time::Instant, Result<Mods, String>)>,
     regions: Vec<[f64; 5]>,
+    /// Whether the pointer has been placed since the desktop last resumed it. GNOME 49 moves a
+    /// freshly resumed pointer on one axis only for its first absolute move (asked for 200,184, it
+    /// went to 200,0), so that move is sent twice.
+    placed: bool,
 }
 
 pub struct Hand {
@@ -198,6 +202,9 @@ impl Hand {
                         s.mods_known = true;
                     }
                     EiEvent::DeviceResumed(e) => {
+                        if s.pointer.as_ref() == Some(&e.device) {
+                            s.placed = false;
+                        }
                         if !s.resumed.contains(&e.device) {
                             s.resumed.push(e.device);
                         }
@@ -268,7 +275,11 @@ impl Hand {
             return Err(format!("({x:.0}, {y:.0}) isn't on any shared screen."));
         }
         let p = d.interface::<ei::PointerAbsolute>().ok_or("The pointer can't be placed.")?;
-        self.emit(&d, |_| p.motion_absolute(x as f32, y as f32))
+        self.emit(&d, |_| p.motion_absolute(x as f32, y as f32))?;
+        if !std::mem::replace(&mut self.state.borrow_mut().placed, true) {
+            self.emit(&d, |_| p.motion_absolute(x as f32, y as f32))?;
+        }
+        Ok(())
     }
 
     pub fn button(&mut self, which: &str, down: bool) -> Result<(), String> {

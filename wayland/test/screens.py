@@ -120,16 +120,20 @@ def _press(o):
 def box(which):
     app = _box_tree()
     nodes = _all(app)
-    find = lambda role, name: next((n for n in nodes if n.get_role_name() == role and n.get_name() == name), None)
+    # The control itself, not the row around it (GNOME 49's row has the same name and no action).
+    def find(roles, name):
+        hits = [n for n in nodes if n.get_role_name() in roles and n.get_name() == name]
+        return next((n for n in reversed(hits) if n.get_n_actions() > 0), hits[-1] if hits else None)
+
     if which == "switch":
-        sw = next((n for n in nodes if n.get_name() == "Allow Remote Interaction" and n.get_role_name() in ("check box", "switch", "toggle button")), None)
+        sw = find(("check box", "switch", "toggle button"), "Allow Remote Interaction")
         if not sw:
             raise SystemExit(f"no Allow Remote Interaction switch in the box: {[(n.get_role_name(), n.get_name()) for n in nodes if n.get_name()]}")
         if not _state(sw, "CHECKED"):
             _press(sw)
         print(json.dumps({"switch": _state(sw, "CHECKED")}))
         return
-    share = find("push button", "Share")
+    share = find(("push button", "button"), "Share")  # "button" from GTK 4.20 (GNOME 49)
     if not share:
         raise SystemExit(f"no Share button in the box: {[(n.get_role_name(), n.get_name()) for n in nodes if n.get_name()]}")
     picked = []

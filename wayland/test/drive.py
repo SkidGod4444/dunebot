@@ -334,19 +334,27 @@ def main():
             h.call("key", keysym=sym, down=down)
         time.sleep(0.3)
 
-    # 4b. Caps Lock. GNOME 46 doesn't tell libei, so the helper reads the keyboard's Caps Lock light
-    # (DUNEBOT_WL_LEDS: a folder laid out like /sys/class/leds, which a container lacks; the test
-    # sets the light as a keyboard's would be). No light: said so. Light on: text arrives as asked.
+    # 4b. Caps Lock. GNOME 49.5 and later tell libei the keyboard's state (Caps Lock, the layout in
+    # use): the helper says it read it from the desktop. Before that the helper reads the keyboard's
+    # Caps Lock light (DUNEBOT_WL_LEDS: a folder laid out like /sys/class/leds, which a container
+    # lacks; the test sets the light as a keyboard's would be). No light: said so. Either way the
+    # text typed with Caps Lock on must arrive as asked.
     keys(h, *tap(CAPS))
     time.sleep(1.2)
     st = h.call("can_type", text="a").get("state", {})
-    check("Caps Lock with no keyboard light: said it can't be checked", st == {"from": "settings", "caps": None}, st)
+    exact = st.get("from") == "desktop"
+    print(f"note: keyboard state from {'the desktop (exact)' if exact else 'settings and the Caps Lock light'}", flush=True)
+    if not exact:
+        check("Caps Lock with no keyboard light: said it can't be checked", st == {"from": "settings", "caps": None}, st)
     led = os.path.join(LEDS, "input9::capslock")
     os.makedirs(led, exist_ok=True)
     open(os.path.join(led, "brightness"), "w").write("1\n")
     time.sleep(1.2)
     st = h.call("can_type", text="a").get("state", {})
-    check("Caps Lock light on: read", st.get("caps") is True, st)
+    if exact:
+        check("Caps Lock: read from the desktop, no light needed", st == {"from": "desktop"}, st)
+    else:
+        check("Caps Lock light on: read", st.get("caps") is True, st)
     m = target.mark()
     errs = type_text(h, "aB1")
     check("Caps Lock on: typed text arrives exactly", target.wait(lambda l: l == "text 'aB1'", m, 5), errs or "")
@@ -385,11 +393,19 @@ def main():
     keys(h, *CLEAR)
     clear_ru = target.wait(lambda l: l == "text ''", m, 5)
     print(f"note: Ctrl+A on the Russian layout {'cleared' if clear_ru else 'did not clear'} the box (the app's own matching)", flush=True)
-    # A layout per window: GNOME switches on focus without recording which, so text is refused.
+    # A layout per window: GNOME switches on focus without recording which. Read from the settings,
+    # the layout in use can't be told, so text is refused; told by the desktop, it can: Russian here.
     subprocess.run(["gsettings", "set", "org.gnome.desktop.input-sources", "per-window", "true"], check=False)
     time.sleep(1.5)
     r = h.call("text", ch="a")
-    check("a layout per window: text refused, saying why", "each window" in r.get("error", ""), r.get("error"))
+    if exact:
+        check("a layout per window: the layout in use is known (Russian), so a is refused naming it", "Russian" in r.get("error", ""), r.get("error"))
+        m = target.mark()
+        errs = type_text(h, "ж")
+        check("a layout per window: Cyrillic still arrives", target.wait(lambda l: l.startswith("text ") and l.endswith("ж'"), m, 5), errs or "")
+        keys(h, *CLEAR)
+    else:
+        check("a layout per window: text refused, saying why", "each window" in r.get("error", ""), r.get("error"))
     subprocess.run(["gsettings", "set", "org.gnome.desktop.input-sources", "per-window", "false"], check=False)
     time.sleep(1.5)
     use_layout(0)
@@ -408,7 +424,9 @@ def main():
     h.call("move", x=D(*pts[0])[0], y=D(*pts[0])[1])
     h.call("button", button="left", down=True)
     for x, y in pts[1:]:
-        time.sleep(0.05)
+        # Apart by more than a frame: GTK merges moves within one, and at 200% in software a frame
+        # took longer than 50 ms (GNOME 49 saw 2 of 3 moves).
+        time.sleep(0.12)
         h.call("move", x=D(x, y)[0], y=D(x, y)[1])
     h.call("button", button="left", down=False)
     pressed = target.wait(lambda l: l.startswith("press 1 "), m, 5)
