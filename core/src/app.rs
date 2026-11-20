@@ -381,6 +381,12 @@ impl App {
         self.sarvam.has_key() && !self.voice_local()
     }
 
+    /// Sarvam will listen: its key is in, or the app is still unlocking it (sarvam.rs), and the user
+    /// didn't pick this computer's voice.
+    pub fn sarvam_may_listen(&self) -> bool {
+        (self.sarvam.has_key() || self.sarvam.keys_pending()) && !self.voice_local()
+    }
+
     /// Deepgram's American voice reads English answers (deepgram.rs).
     pub fn deepgram_on(&self) -> bool {
         self.deepgram.has_key() && !self.voice_local()

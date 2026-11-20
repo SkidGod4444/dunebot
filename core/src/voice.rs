@@ -171,7 +171,7 @@ mod engine {
         source: String,
     }
 
-    fn model_path(app: &App) -> PathBuf {
+    pub(super) fn model_path(app: &App) -> PathBuf {
         app.data_dir.join("models").join(MODEL_FILE)
     }
 
@@ -227,15 +227,23 @@ mod engine {
         Ok(json!({ "heard": peak > 0.0, "peak": peak, "samples": samples.len() }))
     }
 
+    /// This computer's model is what will listen: no Sarvam key, and none on its way (the app hands
+    /// the keys over while the mic already records, sarvam.rs).
+    pub(super) fn listens_here(app: &App) -> bool {
+        !app.sarvam_may_listen()
+    }
+
+    fn getting_ready(app: &App) -> String {
+        format!("Getting voice ready: downloading the English speech model (190 MB, one time). {}% so far.", app.voice.progress.load(Ordering::SeqCst))
+    }
+
     /// Starts recording. Without Sarvam, if the speech model isn't on this computer yet, starts
-    /// getting it instead.
+    /// getting it instead. A Sarvam key still being unlocked counts as Sarvam: the first hold after
+    /// launch records (with the model missing it used to start the download and fail, 2026-11-21).
     pub fn start(app: &Arc<App>, source: &str) -> anyhow::Result<()> {
-        if !app.sarvam_on() && !model_path(app).exists() {
+        if listens_here(app) && !model_path(app).exists() {
             download(app.clone());
-            bail!(
-                "Getting voice ready: downloading the English speech model (190 MB, one time). {}% so far.",
-                app.voice.progress.load(Ordering::SeqCst)
-            );
+            bail!("{}", getting_ready(app));
         }
         let mut rec = app.voice.rec.lock().unwrap();
         if let Some(r) = rec.as_mut() {
@@ -268,21 +276,27 @@ mod engine {
         *rec = Some(Recording { stop: stop_tx, done: done_rx, source: source.to_string() });
         drop(rec);
         state(app, "listening", json!({ "source": source }));
-        // Load the model while you talk, so the text is ready sooner.
-        let app3 = app.clone();
-        tokio::task::spawn_blocking(move || {
-            let _ = model(&app3);
-        });
+        // Load the model while you talk, so the text is ready sooner (not when Sarvam will listen).
+        if listens_here(app) {
+            let app3 = app.clone();
+            tokio::task::spawn_blocking(move || {
+                let _ = model(&app3);
+            });
+        }
         Ok(())
     }
 
     /// Records until told to stop or MAX_RECORDING. Returns mono samples, their rate, and whether
     /// it stopped at the limit.
     fn record(app: &App, stop: mpsc::Receiver<()>, ok: mpsc::Sender<Result<(), String>>) -> Result<(Vec<f32>, u32, bool), String> {
-        let open = || -> Result<(cpal::Stream, Arc<Mutex<Vec<f32>>>, u32), String> {
+        let t0 = std::time::Instant::now();
+        let mut found = Duration::ZERO;
+        let mut built = Duration::ZERO;
+        let mut open = || -> Result<(cpal::Stream, Arc<Mutex<Vec<f32>>>, u32), String> {
             let host = cpal::default_host();
             let device = host.default_input_device().ok_or("no microphone found")?;
             let config = device.default_input_config().map_err(|e| format!("microphone: {e}"))?;
+            found = t0.elapsed();
             let rate = config.sample_rate();
             let channels = config.channels() as usize;
             let buf = Arc::new(Mutex::new(Vec::<f32>::with_capacity(rate as usize * 10)));
@@ -319,12 +333,25 @@ mod engine {
                 other => return Err(format!("unsupported microphone format {other:?}")),
             }
             .map_err(|e| format!("couldn't open the microphone: {e}"))?;
+            built = t0.elapsed();
             stream.play().map_err(|e| format!("couldn't start the microphone: {e}"))?;
             Ok((stream, buf, rate))
         };
         let (stream, buf, rate) = match open() {
             Ok(x) => {
                 let _ = ok.send(Ok(()));
+                // A slow open loses the start of what's said (the first after launch took ~2 s on a
+                // Mac, 2026-11-21): which step it was, in milliseconds.
+                let all = t0.elapsed();
+                if all.as_millis() >= 300 {
+                    eprintln!(
+                        "dunebot-core: microphone: open took {} ms (finding it {}, building {}, starting {})",
+                        all.as_millis(),
+                        found.as_millis(),
+                        (built - found).as_millis(),
+                        (all - built).as_millis()
+                    );
+                }
                 x
             }
             Err(e) => {
@@ -390,6 +417,11 @@ mod engine {
                     let waited = app.sarvam.wait_for_keys(Duration::from_secs(60));
                     if waited.as_millis() >= 300 {
                         eprintln!("dunebot-core: voice: waited {:.1} s for the voice keys", waited.as_secs_f32());
+                    }
+                    // The key didn't come (the keychain said no), and this computer has no model yet.
+                    if !app.sarvam_on() && !model_path(&app).exists() {
+                        download(app.clone());
+                        return Err(getting_ready(&app));
                     }
                     transcribe(&app, &samples, rate, crate::dictation::words_for(&rec.source)).map_err(|e| e.to_string())
                 });
@@ -591,6 +623,29 @@ mod tests {
 
     fn tone(rate: u32, secs: f32, hz: f32, amp: f32) -> Vec<f32> {
         (0..(rate as f32 * secs) as usize).map(|i| amp * (2.0 * std::f32::consts::PI * hz * i as f32 / rate as f32).sin()).collect()
+    }
+
+    #[cfg(feature = "voice")]
+    #[tokio::test]
+    async fn a_key_on_its_way_counts_as_sarvam() {
+        use crate::app::App;
+        use super::engine::{listens_here, model_path};
+        let dir = std::env::temp_dir().join(format!("dunebot-listens-{}", crate::app::new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = crate::store::Store::open(&dir.join("t.db")).unwrap();
+        let app = App::new(crate::protocol::Out::start(), store, dir.clone());
+        assert!(!model_path(&app).exists(), "no model on this computer");
+        assert!(listens_here(&app), "no key and none coming: this computer's model listens (so it's fetched first)");
+        app.sarvam.keys_coming(true);
+        assert!(!listens_here(&app), "a key being unlocked: record now, no download, no model loaded");
+        app.sarvam.keys_coming(false);
+        assert!(listens_here(&app), "the keychain said no: back to this computer's model");
+        app.sarvam.set_key(Some("sk_test_key".into())).unwrap();
+        assert!(!listens_here(&app), "a key in: Sarvam listens");
+        app.set_pref("voice.engine", "local").unwrap();
+        app.sarvam.keys_coming(true);
+        assert!(listens_here(&app), "this computer's voice picked: its model listens, key or not");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
