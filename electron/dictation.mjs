@@ -1,5 +1,5 @@
-// Dictation (macOS): hold Right ⌥ on its own and talk; let go, and the core types what you said into
-// the app in front. core/src/dictation.rs decides everything (the keys, what's typed, the sentence when
+// Dictation: hold Right ⌥ (macOS) or Right Ctrl (Windows, Linux on X11) on its own and talk; let go,
+// and the core types what you said into the app in front. core/src/dictation.rs decides everything (the keys, what's typed, the sentence when
 // it can't); here the microphone opens as for a hold to talk, with the "Listening…" card, and the menu
 // bar has its switch. What was said never passes through here, and the log keeps only its length.
 
@@ -8,7 +8,7 @@
  * @param {(method: string, params?: object) => Promise<any>} h.call
  * @param {(...a: any[]) => void} h.log
  * @param {(m: object) => void} h.emit an event as if from the core (windows and the tray see it)
- * @param {() => string} h.micStatus
+ * @param {() => boolean} h.micBlocked the system says no to the microphone
  * @param {(step?: string) => void} h.openSetup
  * @param {(source: string) => Promise<any>} h.startVoice
  * @param {() => void} h.showListening "Listening…" beside the pointer (a card waiting there stays)
@@ -21,14 +21,14 @@
 export function createDictation(h) {
   let hold = null; // the hold in progress: its start, so a release or cancel waits for the mic to open
   let typing = false;
-  let watching = false; // the core watches Right ⌥ (the macOS app)
+  let watching = false; // the core watches the key (the desktop app; not on Wayland)
   let on = true;
   let keys = "Right ⌥";
 
   function onKeys(kind) {
     h.log(`dictation ${kind}`);
     if (kind === "hold-start") {
-      if (h.micStatus() !== "granted") {
+      if (h.micBlocked()) {
         hold = null;
         return h.openSetup("mic");
       }
@@ -46,7 +46,7 @@ export function createDictation(h) {
     if (!was) return;
     if (kind === "hold-end") was.started.then(() => h.call("dictation.stop")).catch(() => {});
     if (kind === "hold-cancel") {
-      // Right ⌥ was part of a shortcut or a special character: nothing is typed. (While the words of a
+      // The key was part of a shortcut or a special character: nothing is typed. (While the words of a
       // recording that stopped itself at 60 s are being typed, the card stays.)
       was.started.then(() => h.call("dictation.cancel")).catch(() => {});
       if (!typing) h.hideListening();

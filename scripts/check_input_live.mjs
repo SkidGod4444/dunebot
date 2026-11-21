@@ -148,6 +148,40 @@ app.whenReady().then(async () => {
     s = await state();
     ok(s.value === "", `Backspace ×2 empties it (got ${JSON.stringify(s.value)})`);
 
+    // Dictation's words, at once (Windows: up to 20 characters a key event; Linux: a key each, quickly).
+    const said = "Dictated at once, with more than twenty characters: Grüße 🙂 and done.";
+    const t0 = Date.now();
+    await step("type at once (dictation)", () => input.typeText({ text: said, requestId: "e", at_once: true }));
+    const took = Date.now() - t0;
+    s = await state();
+    ok(s.value === said, `dictation's words arrive exactly, in order (got ${JSON.stringify(s.value)})`);
+    // Linux: input.mjs's pace (20 ms held, 12 ms apart) with half again; a person's is ~75 ms a character.
+    const most = process.platform === "win32" ? 1500 : [...said].length * 32 * 1.5;
+    ok(took < most, `and quickly: ${took} ms for ${[...said].length} characters (at most ${most})`);
+    await step("select all", () => input.pressKeys({ key: "a", mods: ["ctrl"], times: 1, requestId: "f" }));
+    await step("clear", () => input.pressKeys({ key: "backspace", mods: [], times: 1, requestId: "g" }));
+
+    // The user holds Right Ctrl (the dictation key again, say) as the words come: nothing is typed
+    // while it's held (each letter would be a Ctrl shortcut), then all of it, exactly.
+    const RCTRL = process.platform === "win32" ? [0xa3, 1] : [0xffe4, 0];
+    ok(addon.modifiersHeld() === false, "no modifier held before the test");
+    addon.keyCode(RCTRL[0], RCTRL[1], true);
+    let typed;
+    try {
+      ok(addon.modifiersHeld() === true, "Right Ctrl held reads as held");
+      typed = input.typeText({ text: "held keys wait", requestId: "h", at_once: true });
+      await new Promise((r) => setTimeout(r, 400));
+      s = await state();
+      ok(s.value === "", `nothing typed while Right Ctrl is held (got ${JSON.stringify(s.value)})`);
+    } finally {
+      addon.keyCode(RCTRL[0], RCTRL[1], false);
+    }
+    await step("let go: the words come", () => typed);
+    s = await state();
+    ok(s.value === "held keys wait", `let go: typed exactly, no shortcuts (got ${JSON.stringify(s.value)})`);
+    await step("select all", () => input.pressKeys({ key: "a", mods: ["ctrl"], times: 1, requestId: "i" }));
+    await step("clear", () => input.pressKeys({ key: "backspace", mods: [], times: 1, requestId: "j" }));
+
     const list = await centre("s");
     await step("scroll down", () => input.scrollAt({ x: list.x, y: list.y, dx: 0, dy: -1, notches: 4 }));
     s = await state();

@@ -4,6 +4,7 @@ type SarvamStatus = { saved: boolean; canSave: boolean };
 interface Window {
   dunebot: {
     platform: string;
+    wayland?: boolean;
     call: (method: string, params?: Record<string, unknown>) => Promise<any>;
     pickFolder: () => Promise<string | null>;
     onEvent: (fn: (msg: any) => void) => () => void;

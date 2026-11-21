@@ -17,6 +17,11 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const bin = process.argv[2] ?? path.join(root, "core", "target", "debug", process.platform === "win32" ? "dunebot-core.exe" : "dunebot-core");
 if (!fs.existsSync(bin)) throw new Error(`build the core first (bun run core): ${bin}`);
 
+// This system's key, and whether its typing takes up to 20 characters in one key event (macOS,
+// Windows) or one a key (Linux).
+const KEY = process.platform === "darwin" ? "Right ⌥" : "Right Ctrl";
+const MANY = process.platform === "darwin" || process.platform === "win32";
+
 let failed = 0;
 const ok = (cond, what) => {
   console.log(`${cond ? "ok  " : "FAIL"} ${what}`);
@@ -86,7 +91,8 @@ const input = createInput({
     keyCode: (code, flags, down) => (keys.push([`#${code}`, down]), true),
   }),
   screen: { getCursorScreenPoint: () => pointer },
-  platform: "darwin",
+  // This system's typing (macOS and Windows: up to 20 characters a key event; Linux: one a key).
+  platform: process.platform,
   refuseOwn: () => {},
   // As main.mjs words them.
   refuseKeyboard: () => {
@@ -135,7 +141,8 @@ const outcome = (from) => core.wait((m) => m.event === "dictation.state" && m.st
   ok(asked.length === 1 && asked[0].kind === "type" && asked[0].text === words, `the app is asked to type them (${asked.length} asks)`);
   ok(typed === words, `typeText typed exactly what was said (${JSON.stringify(typed)})`);
   const downs = keys.filter(([, down]) => down).length;
-  ok(asked[0].at_once === true && downs === Math.ceil(words.length / 20), `at once, as the system's dictation does: ${downs} key events of up to 20 characters, not one a letter`);
+  if (MANY) ok(asked[0].at_once === true && downs === Math.ceil(words.length / 20), `at once, as the system's dictation does: ${downs} key events of up to 20 characters, not one a letter`);
+  else ok(asked[0].at_once === true && downs === [...words].length, `Linux: at once, a key a character (${downs} keys)`);
   ok(JSON.stringify(states) === '["typing","typed"]' && end.chars === [...words].length, `the card: typing, then typed ${end.chars} characters (${states})`);
   ok(!core.events.some((m) => m.event === "voice.transcript"), "nothing goes to the bar (no voice.transcript)");
   ok(core.events.every((m) => m.event === "input.do" || !JSON.stringify(m).includes("Hello from")), "the words are in no event but the request to type them");
@@ -156,7 +163,10 @@ const outcome = (from) => core.wait((m) => m.event === "dictation.state" && m.st
   const typed = downs.join("");
   ok(end.state === "typed" && typed === words, `long words typed exactly (${JSON.stringify(typed)})`);
   ok(downs.every((t) => t.length <= 20 && !/^[\uDC00-\uDFFF]/.test(t) && !/[\uD800-\uDBFF]$/.test(t)), `pieces of at most 20 units, no character split (${downs.map((t) => t.length).join(",")})`);
-  ok(ms < 1500, `all of it in ${ms} ms`);
+  // Linux: a key a character at input.mjs's pace (20 ms held, 12 ms apart), with half again for the
+  // timers; a person's pace is about 75 ms a character. Elsewhere well under a second.
+  const most = MANY ? 1500 : [...words].length * 32 * 1.5;
+  ok(ms < most, `all of it in ${ms} ms (at most ${most})`);
 }
 
 // 1c. Moving the mouse while the words go in doesn't stop them: they're yours (it stops an agent).
@@ -201,7 +211,7 @@ const outcome = (from) => core.wait((m) => m.event === "dictation.state" && m.st
   const from = core.events.length;
   await core.call("dictation.feed", { text: "   " });
   const end = await outcome(from);
-  ok(end.state === "nothing" && asked.length === before && /Right ⌥/.test(end.message), `nothing heard: nothing asked, "${end.message}"`);
+  ok(end.state === "nothing" && asked.length === before && end.message.includes(KEY), `nothing heard: nothing asked, "${end.message}"`);
 }
 
 // 5. Dictation's stop and cancel touch only a dictation's recording: with none, nothing changes (a
@@ -223,7 +233,7 @@ const outcome = (from) => core.wait((m) => m.event === "dictation.state" && m.st
   const from = core.events.length;
   const r = await core.call("prefs.set", { key: "dictation", value: "off" });
   const ready = await core.wait((m) => m.event === "dictation.ready" && core.events.indexOf(m) >= from);
-  ok(r.result?.prefs?.dictation === "off" && ready.on === false && ready.keys === "Right ⌥", `turned off: saved, and the app told (${JSON.stringify(ready)})`);
+  ok(r.result?.prefs?.dictation === "off" && ready.on === false && ready.keys === KEY, `turned off: saved, and the app told (${JSON.stringify(ready)})`);
   ok(ready.available === false, "no key watching in this run (DUNEBOT_CHORD unset)");
 }
 

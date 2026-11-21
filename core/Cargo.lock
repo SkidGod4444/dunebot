@@ -443,6 +443,7 @@ dependencies = [
  "dirs",
  "futures-util",
  "libc",
+ "libloading",
  "rusqlite",
  "serde",
  "serde_json",
