@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { call } from "./store";
+import { call, errorText } from "./store";
+import { lockedBy, lockNoun, Segmented } from "./ui";
 
 /** What the core says about the phone (core/src/telegram.rs). Never the token. */
 export type PhoneStatus = {
@@ -39,7 +40,7 @@ export function PhoneSettings() {
     try {
       then(await f());
     } catch (e) {
-      setProblem((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+      setProblem(errorText(e));
     }
   };
   const flip = (k: "reads" | "files" | "actions", on: boolean) => run(() => call<PhoneStatus>("phone.set", { key: k, on }), setPh);
@@ -71,13 +72,13 @@ export function PhoneSettings() {
       )}
       <SwitchRow
         title="Read my accounts from my phone"
-        on={!!ph?.reads}
+        on={ph ? !!ph.reads : null}
         onPick={(v) => flip("reads", v)}
         hint="Slack, Gmail, Notion, Calendar and X, once you've named one in the Phone chat (named once, it counts until that chat has been quiet for 2 hours). Off: messages from your phone never read them."
       />
       <SwitchRow
         title="Read my files from my phone"
-        on={!!ph?.files}
+        on={ph ? !!ph.files : null}
         onPick={(v) => flip("files", v)}
         hint={
           ph?.files
@@ -87,7 +88,7 @@ export function PhoneSettings() {
       />
       <SwitchRow
         title="Let my phone run actions"
-        on={!!ph?.actions}
+        on={ph ? !!ph.actions : null}
         onPick={(v) => flip("actions", v)}
         hint={
           ph?.actions
@@ -113,7 +114,7 @@ function TokenRow({ st, phone, onKey }: { st: SarvamStatus | null; phone: PhoneS
       onKey(await f());
       setToken("");
     } catch (e) {
-      setProblem((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+      setProblem(errorText(e));
     } finally {
       setSaving(false);
     }
@@ -132,7 +133,7 @@ function TokenRow({ st, phone, onKey }: { st: SarvamStatus | null; phone: PhoneS
         </span>
         {st?.saved && (
           <>
-            <span className="text-[13px] text-ink">Saved, locked by your keychain</span>
+            <span className="text-[13px] text-ink">Saved, locked by {lockedBy()}</span>
             <button onClick={() => run(api.remove)} disabled={saving} className="h-8 rounded-full px-3 text-[13px] font-semibold text-ink hover:bg-black/[.05]">
               Remove
             </button>
@@ -167,28 +168,19 @@ function TokenRow({ st, phone, onKey }: { st: SarvamStatus | null; phone: PhoneS
           </form>
         </>
       )}
-      {st && !st.saved && !st.canSave && <p className="mt-1.5 text-[13px] text-ink">This computer has no keychain to lock a token with, so Dune Bot won't keep one.</p>}
+      {st && !st.saved && !st.canSave && <p className="mt-1.5 text-[13px] text-ink">This computer has no {lockNoun()} to lock a token with, so Dune Bot won't keep one.</p>}
       {problem && <p className="mt-1.5 text-[13px] font-medium text-ink">{problem}</p>}
     </div>
   );
 }
 
-function SwitchRow({ title, on, onPick, hint }: { title: string; on: boolean; onPick: (on: boolean) => void; hint: string }) {
+/** `on` null: the status hasn't come yet, so neither choice shows as picked (not a false "Off"). */
+function SwitchRow({ title, on, onPick, hint }: { title: string; on: boolean | null; onPick: (on: boolean) => void; hint: string }) {
   return (
     <div className="px-4 py-3.5">
       <div className="flex items-center gap-4">
         <span className="flex-1 text-[15px] font-medium">{title}</span>
-        <div className="flex rounded-full bg-black/[.05] p-0.5">
-          {SWITCH.map(([v, label]) => (
-            <button
-              key={label}
-              onClick={() => onPick(v)}
-              className={`h-8 rounded-full px-3.5 text-[13px] font-semibold ${on === v ? "bg-white text-ink shadow-[0_1px_2px_rgba(0,0,0,.1)]" : "text-[#777] hover:text-ink"}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Segmented label={title} value={on} options={SWITCH} onChange={onPick} disabled={on === null} />
       </div>
       <p className="mt-1.5 text-[13px] text-muted">{hint}</p>
     </div>

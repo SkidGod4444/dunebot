@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AudioLines, Bell, Check, FolderOpen, Keyboard, Loader2, Mic, Monitor, TriangleAlert } from "lucide-react";
 import { Mascot } from "./parts";
+import { errorText } from "./errors";
 
 export type SetupStatus = {
   platform: string;
@@ -82,15 +83,17 @@ export function Setup() {
     return s;
   };
 
+  // The first read failing would leave an empty window: say why, with a way on.
+  const first = () => refresh().then(() => setProblem(""), (e) => setProblem(errorText(e)));
   useEffect(() => {
-    refresh();
+    first();
     const offNav = window.dunebot.onNav((v) => setStep(v));
     const offEvent = window.dunebot.onEvent((m) => {
       if (m.event !== "voice.state") return;
       if (m.state === "downloading") setProgress(m.progress ?? 0);
       if (m.state === "ready") {
         setProgress(null);
-        refresh();
+        refresh().catch(() => {});
       }
       if (m.state === "error" && m.message) {
         setProgress(null);
@@ -98,7 +101,7 @@ export function Setup() {
       }
     });
     // Coming back from System Settings: show what changed there.
-    const onFocus = () => refresh();
+    const onFocus = () => refresh().catch(() => {});
     window.addEventListener("focus", onFocus);
     return () => {
       offNav();
@@ -138,7 +141,7 @@ export function Setup() {
       }
     } catch (e) {
       if (what === "mic-test") setHeard("no");
-      setProblem((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+      setProblem(errorText(e));
     } finally {
       setAsking(null);
     }
@@ -166,7 +169,26 @@ export function Setup() {
   }
 
   // data-loading: snapshots wait until no part of the page is still loading (electron/main.mjs STILL).
-  if (!st) return <div ref={box} data-loading className="h-80" />;
+  if (!st)
+    return (
+      <div ref={box} data-loading={problem ? undefined : true} className="flex h-80 flex-col items-center justify-center gap-3 px-8 text-center">
+        {problem && (
+          <>
+            <p role="alert" className="text-[14px] text-ink">
+              Couldn't check this computer's settings: {problem}
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => window.dunebot.setup.finish(false)} className="no-drag h-10 rounded-full px-4 text-[14px] font-medium text-muted hover:text-ink">
+                Later
+              </button>
+              <button onClick={first} className="no-drag h-10 rounded-full bg-ink px-5 text-[14px] font-semibold text-white hover:bg-black">
+                Try again
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    );
   const keys = st.keys ?? "⌥⌘";
 
   const folders = Object.entries(st.folders);

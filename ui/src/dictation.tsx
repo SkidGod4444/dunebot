@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { call, set, useStore } from "./store";
+import { savePref, useStore } from "./store";
+import { Segmented } from "./ui";
 
 /**
  * Dictation (core/src/dictation.rs): hold Right ⌥ (macOS) or Right Ctrl (Windows, Linux on X11) on its
@@ -60,28 +61,21 @@ export function DictationSetting() {
       live = false;
     };
   }, [mac, twice]);
-  const save = async (key: string, value: string) => {
-    const r = await call<{ prefs: Record<string, string | null> }>("prefs.set", { key, value });
-    set({ prefs: r.prefs });
-  };
+  const save = (key: string, value: string) => savePref(key, value);
   const pick = (value: "on" | "off") => save("dictation", value);
   return (
     <div className={`rounded-2xl border border-line px-4 py-3.5 ${mac ? "mt-2.5" : ""}`}>
       <div className="flex items-center gap-4">
         <span className="flex-1 text-[15px] font-medium">{wayland ? "Press a key to type what you say" : `${chosen.how} to type what you say`}</span>
-        {
-          <div className="flex rounded-full bg-black/[.05] p-0.5">
-            {(["on", "off"] as const).map((k) => (
-              <button
-                key={k}
-                onClick={() => pick(k)}
-                className={`h-8 rounded-full px-3.5 text-[13px] font-semibold ${(k === "on") === on ? "bg-white text-ink shadow-[0_1px_2px_rgba(0,0,0,.1)]" : "text-[#777] hover:text-ink"}`}
-              >
-                {k === "on" ? "On" : "Off"}
-              </button>
-            ))}
-          </div>
-        }
+        <Segmented
+          label="Dictation"
+          value={on ? "on" : "off"}
+          options={[
+            ["on", "On"],
+            ["off", "Off"],
+          ] as const}
+          onChange={pick}
+        />
       </div>
       <p className="mt-1.5 text-[13px] text-muted">
         {wayland
@@ -96,17 +90,13 @@ export function DictationSetting() {
               {`No ${choices[0].label} on your keyboard? Pick ${choices[1].label}: tap ${ctrl}, then hold it. Every keyboard has a ${ctrl}, and a ${ctrl} held without the tap does nothing.`}
             </span>
           </span>
-          <div className="flex shrink-0 rounded-full bg-black/[.05] p-0.5">
-            {choices.map((c) => (
-              <button
-                key={c.name}
-                onClick={() => save("dictation.key", c.name)}
-                className={`h-8 rounded-full px-3.5 text-[13px] font-semibold ${c.name === chosen.name ? "bg-white text-ink shadow-[0_1px_2px_rgba(0,0,0,.1)]" : "text-[#777] hover:text-ink"}`}
-              >
-                {c.label}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            className="shrink-0"
+            label="Dictation key"
+            value={chosen.name}
+            options={choices.map((c) => [c.name, c.label] as const)}
+            onChange={(k) => save("dictation.key", k)}
+          />
         </div>
       )}
       {apple && (

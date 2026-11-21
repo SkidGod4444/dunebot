@@ -73,6 +73,9 @@ const SHOTS = [
   ["chat-markdown", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "markdown.js") }],
   ["fixes", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "fixes-page.js") }],
   ["schedules", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "schedules.js") }],
+  // A delete asks first (here on a switched-off schedule), and a draft stays with its chat.
+  ["schedules-delete", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "schedules-delete.js") }],
+  ["chat-draft", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "chat-draft.js") }],
   ["permissions", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions.js") }],
   // Settings (bottom of the sidebar, or ⌘,): the look, keys and voice; Permissions keeps every safety control.
   ["settings", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "settings.js") }],
@@ -84,6 +87,8 @@ const SHOTS = [
   // Permissions › Bots (three bots, one open in the editor), and the bar's picker with them in it.
   ["bots", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bots.js") }],
   ["bar-bots", "bar", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bar-bots.js") }],
+  // New bot: all 15 actions in two groups; it starts with this computer's, none of your accounts'.
+  ["bots-new", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bots-new.js") }],
   // Permissions › Phone (the Telegram bot): no token; then drawn with a pairing code, and paired.
   ["permissions-phone", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-phone.js") }],
   ["permissions-phone-code", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-phone-code.js") }],
@@ -216,6 +221,33 @@ for (const theme of ["light", "dark"])
       if (!good) problems.push(`${name} ${theme}: ${JSON.stringify(res)}`);
       else note += name === "bots" ? " three bots, Ops in the editor, hand cursor on every button" : " bots in the picker, Writer picked";
     }
+    if (name === "bots-new" || name === "schedules-delete" || name === "chat-draft") {
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      const accounts = ["slack-write", "gmail-write", "notion-write", "calendar-write", "x-post"];
+      const good =
+        name === "bots-new"
+          ? res?.groups?.join() === "What it may do,Changes in your accounts (sending, posting, editing)" &&
+            res.pills?.join() === "10,5" &&
+            res.on?.[0]?.length === 10 &&
+            res.on?.[1]?.length === 0 &&
+            res.coreDefault?.length === 10 &&
+            !res.coreDefault.some((k) => accounts.includes(k)) &&
+            res.summary?.some((s) => s.endsWith("May do what Permissions allows on this computer; no account changes"))
+          : name === "schedules-delete"
+            ? res?.dialog === "Delete this schedule?" && /won't run again/.test(res.text ?? "") && res.focused === "Cancel" && res.faded === 0 && res.rows === 2 && res.left === 2
+            : res?.chats === true && res.inOther === "" && res.back === "Half a thought for the first chat";
+      if (!good) problems.push(`${name} ${theme}: ${JSON.stringify(res)}`);
+      else
+        note +=
+          name === "bots-new"
+            ? " 15 actions in two groups, a new bot starts without account changes (here and in the core)"
+            : name === "schedules-delete"
+              ? " asks first, Cancel has the keyboard, not dimmed with the off row"
+              : " the draft stays with its chat";
+    }
     if (name === "caption-held-read") {
       // The held question goes only after the answer has been read: "speech:" (reading over) first.
       const read = log.search(/speech: .*streamed [1-9]/);
@@ -233,7 +265,7 @@ for (const theme of ["light", "dark"])
       const ok =
         res?.byKey === "Settings" &&
         res.permissions.title === "Permissions" &&
-        res.permissions.sections.join() === "Connectors,Phone,Bots,Always off limits" &&
+        res.permissions.sections.join() === "Connectors,Phone,Bots,Off limits to file tools" &&
         !res.permissions.theme &&
         res.settings.title === "Settings" &&
         res.settings.sections.join() === want &&

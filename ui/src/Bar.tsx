@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, Maximize2, Mic, Plus, Square } from "lucide-react";
-import { AGENT_LOOK, agentName, barChatLive, call, get, keysLabel, openThread, sendFromBar, set, toast as showToast, useStore, type Agent } from "./store";
+import { AGENT_LOOK, agentName, barChatLive, call, errorText, get, keysLabel, openThread, savePref, sendFromBar, set, toast as showToast, useStore, type Agent } from "./store";
 import { Mascot, Typing } from "./parts";
 import { botLook, useBots } from "./bots";
 import { afterTurn, cardDone, hold, READ_WAIT_MS, readWaitOver, type Held, type Step } from "./held";
@@ -196,29 +196,40 @@ export function Bar() {
 
   async function submit() {
     const t = text.trim();
-    if (!t || busy) return;
+    if (!t) return;
+    // What you typed stays in the box for when this answer is done.
+    if (busy) return showToast("Still on the last question: wait for its answer, or press Stop.");
     setText("");
     await ask(t, setText);
   }
 
   async function pickAgent(id: string) {
-    const r = await call<{ prefs: Record<string, string | null> }>("prefs.set", { key: "agent", value: id });
-    set({ prefs: r.prefs });
+    if (!(await savePref("agent", id))) return;
     if (thread && thread.agent !== id) set({ activeId: null });
     input.current?.focus();
   }
 
-  // Hold-to-talk button (every system; on macOS holding ⌥⌘ does the same).
+  // Hold-to-talk button (every system; on macOS holding ⌥⌘ does the same). From the keyboard,
+  // holding Space or Enter on it does the same as holding it down.
   async function talkStart(e: React.PointerEvent) {
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    await startTalking();
+  }
+  function talkKey(e: React.KeyboardEvent, down: boolean) {
+    if (e.key !== " " && e.key !== "Enter") return;
+    e.preventDefault();
+    if (down && !e.repeat && !holding.current) startTalking();
+    if (!down) talkEnd();
+  }
+  async function startTalking() {
     holding.current = true;
     try {
       await call("voice.start", { source: "button" });
       if (!holding.current) call("voice.stop"); // released before the mic opened
     } catch (err) {
       holding.current = false;
-      showToast((err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+      showToast(errorText(err));
     }
   }
   function talkEnd() {
@@ -278,19 +289,28 @@ export function Bar() {
           </div>
           <div className="mb-0.5 flex shrink-0 items-center gap-1.5">
             {busy ? (
-              <button title="Stop" onClick={() => activeId && call("threads.cancel", { id: activeId })} className="grid size-8 place-items-center rounded-full bg-ink text-white hover:bg-black">
+              <button
+                title="Stop"
+                aria-label="Stop"
+                onClick={() => activeId && call("threads.cancel", { id: activeId }).catch((err) => showToast(errorText(err)))}
+                className="grid size-8 place-items-center rounded-full bg-ink text-white hover:bg-black">
                 <Square size={12} fill="currentColor" />
               </button>
             ) : text.trim() && !listening ? (
-              <button title="Send" onClick={submit} className="grid size-8 place-items-center rounded-full bg-ink text-white hover:bg-black">
+              <button title="Send" aria-label="Send" onClick={submit} className="grid size-8 place-items-center rounded-full bg-ink text-white hover:bg-black">
                 <ArrowUp size={17} />
               </button>
             ) : (
               <button
                 title={mac ? `Hold to talk (or hold ${keys})` : "Hold to talk"}
+                aria-label="Hold to talk"
+                aria-pressed={listening}
                 onPointerDown={talkStart}
                 onPointerUp={talkEnd}
                 onPointerCancel={talkEnd}
+                onKeyDown={(e) => talkKey(e, true)}
+                onKeyUp={(e) => talkKey(e, false)}
+                onBlur={talkEnd}
                 className={`grid size-8 place-items-center rounded-full transition-colors ${
                   listening ? "bg-ink text-white" : "text-muted hover:bg-bubble hover:text-ink"
                 }`}
@@ -336,24 +356,26 @@ export function Bar() {
               )}
             </label>
             {thread && (
-              <button title="New chat" onClick={() => (set({ activeId: null }), input.current?.focus())} className="grid size-8 place-items-center rounded-full text-muted hover:bg-bubble hover:text-ink">
+              <button title="New chat" aria-label="New chat" onClick={() => (set({ activeId: null }), input.current?.focus())} className="grid size-8 place-items-center rounded-full text-muted hover:bg-bubble hover:text-ink">
                 <Plus size={17} />
               </button>
             )}
-            <button title="Open chats" onClick={() => window.dunebot.openMain(activeId ? `thread:${activeId}` : "chat")} className="grid size-8 place-items-center rounded-full text-muted hover:bg-bubble hover:text-ink">
+            <button title="Open chats" aria-label="Open chats" onClick={() => window.dunebot.openMain(activeId ? `thread:${activeId}` : "chat")} className="grid size-8 place-items-center rounded-full text-muted hover:bg-bubble hover:text-ink">
               <Maximize2 size={15} />
             </button>
           </div>
         </div>
 
         {showFooter && (
-        <div className="flex items-center gap-3 border-t border-line px-4 py-2 text-[11.5px] text-muted">
+        <div role="status" aria-live="polite" className="flex items-center gap-3 border-t border-line px-4 py-2 text-[11.5px] text-muted">
           {toast ? (
             <span className="font-medium text-ink">{toast}</span>
           ) : voice.state === "downloading" ? (
             <span className="truncate">Getting voice ready (one-time 190 MB download)… {voice.progress ?? 0}%</span>
           ) : voice.state === "error" && voice.message ? (
-            <span className="truncate font-medium text-ink">{voice.message}</span>
+            <span title={voice.message} className="truncate font-medium text-ink">
+              {voice.message}
+            </span>
           ) : null}
           <span className="ml-auto shrink-0">{hint}</span>
         </div>

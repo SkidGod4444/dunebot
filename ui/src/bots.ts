@@ -46,7 +46,9 @@ export function botLook(id: string) {
   return b ? { short: botShort(b.name) } : undefined;
 }
 
-/** What each action lets a bot do, in a few words (the keys are the core's, core/src/policy.rs). */
+/** What each action lets a bot do, in a few words: every action of the core's (core/src/policy.rs
+ * Action::ALL, in its order), so a bot can be given any of them. The account changes are their own
+ * group: their reads follow the chat as for any chat (only when you ask). */
 export const MAY: [string, string][] = [
   ["run-command", "Run commands"],
   ["write-file", "Change files"],
@@ -54,7 +56,34 @@ export const MAY: [string, string][] = [
   ["list-folder", "Look in folders"],
   ["search-chats", "Search chats"],
   ["look-screen", "See the screen"],
+  ["point", "Point on screen"],
   ["click", "Click"],
   ["type", "Type"],
   ["find-location", "Location"],
 ];
+export const MAY_ACCOUNTS: [string, string][] = [
+  ["slack-write", "Slack"],
+  ["gmail-write", "Gmail"],
+  ["notion-write", "Notion"],
+  ["calendar-write", "Calendar"],
+  ["x-post", "Post on X"],
+];
+/** What a new bot starts with: everything on this computer, no changes in your accounts (sending,
+ * posting, editing), so a bot never sends or posts until you switch that on for it. */
+export const MAY_NEW = MAY.map(([k]) => k);
+/** Every action a bot may be given (the core checks the same list: team.rs, policy.rs). */
+export const MAY_ALL: [string, string][] = [...MAY, ...MAY_ACCOUNTS];
+
+/** One line for a bot's row: everything, nothing, or whichever list is shorter (what it may, or may not, do). */
+export function mayText(may: string[]) {
+  const label = (k: string) => {
+    const [key, l] = MAY_ALL.find(([x]) => x === k) ?? [k, k];
+    return MAY_ACCOUNTS.some(([x]) => x === key) && key !== "x-post" ? `change ${l}` : l[0].toLowerCase() + l.slice(1);
+  };
+  const yes = MAY_ALL.filter(([k]) => may.includes(k)).map(([k]) => k);
+  const no = MAY_ALL.filter(([k]) => !may.includes(k)).map(([k]) => k);
+  if (!no.length) return "May do what Permissions allows";
+  if (no.length === MAY_ACCOUNTS.length && MAY_ACCOUNTS.every(([k]) => no.includes(k))) return "May do what Permissions allows on this computer; no account changes";
+  if (!yes.length) return "Only answers and hands over";
+  return no.length < yes.length ? `May do all but: ${no.map(label).join(", ")}` : `May: ${yes.map(label).join(", ")}`;
+}

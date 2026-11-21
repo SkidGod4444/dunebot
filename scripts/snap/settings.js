@@ -18,7 +18,7 @@
   const permissions = { title: title(), sections: sections(), theme: [...document.querySelectorAll("main span")].some((s) => s.textContent === "Theme") };
   side("Settings")?.click();
   await sleep(500);
-  const settings = { title: title(), sections: sections(), active: side("Settings")?.className.includes("bg-white") ?? false };
+  const settings = { title: title(), sections: sections(), active: side("Settings")?.getAttribute("aria-current") === "page" };
   document.querySelector("main .overflow-y-auto")?.scrollTo(0, 0);
   return { byKey, permissions, settings };
 })();

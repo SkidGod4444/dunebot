@@ -91,6 +91,22 @@ export function useStore<T>(pick: (s: State) => T): T {
 export const call = <T = any>(method: string, params?: Record<string, unknown>): Promise<T> =>
   window.dunebot.call(method, params);
 
+import { errorText } from "./errors";
+export { errorText };
+
+/** Saves a pref through the core (it checks the value) and takes the prefs it hands back; a refusal
+ * shows as a toast and leaves the old value, so a control never shows a choice that wasn't saved. */
+export async function savePref(key: string, value: string | null): Promise<boolean> {
+  try {
+    const r = await call<{ prefs: Record<string, string | null> }>("prefs.set", { key, value });
+    set({ prefs: r.prefs });
+    return true;
+  } catch (e) {
+    toast(errorText(e));
+    return false;
+  }
+}
+
 let toastTimer: number | undefined;
 export function toast(text: string) {
   set({ toast: text });
@@ -260,9 +276,15 @@ export async function sendFromBar(text: string) {
   return (await send(id, text, true)) ? id : null;
 }
 
+/** Finds the agents on this computer. A failure is said where the agents are listed (agentsProblem),
+ * never "looking" forever. */
 export async function loadAgents() {
-  const r = await call<{ agents: Agent[]; problem?: string }>("agents.list");
-  set({ agents: r.agents, agentsProblem: r.problem });
+  try {
+    const r = await call<{ agents: Agent[]; problem?: string }>("agents.list");
+    set({ agents: r.agents, agentsProblem: r.problem });
+  } catch (e) {
+    set({ agents: get().agents ?? [], agentsProblem: `Couldn't look for agents: ${errorText(e)}` });
+  }
 }
 
 export async function openThread(id: string) {
@@ -294,7 +316,7 @@ export async function send(threadId: string, text: string, spoken = false) {
     await call("threads.send", { id: threadId, text, ...(spoken ? { spoken } : {}) });
     return true;
   } catch (e) {
-    toast((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+    toast(errorText(e));
     return false;
   }
 }
@@ -305,7 +327,7 @@ export async function answer(approvalId: string, decision: "once" | "chat" | "de
     await call("approvals.respond", { id: approvalId, decision });
     return null;
   } catch (e) {
-    const why = (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
+    const why = errorText(e);
     const text = why.startsWith("too soon") ? "Take a second to read the card first." : "That card was already answered or has expired.";
     toast(text);
     return text;
@@ -313,8 +335,12 @@ export async function answer(approvalId: string, decision: "once" | "chat" | "de
 }
 
 export async function setMode(action: string, mode: string) {
-  const r = await call<{ modes: ModeRow[] }>("settings.set", { action, mode });
-  set({ modes: r.modes });
+  try {
+    const r = await call<{ modes: ModeRow[] }>("settings.set", { action, mode });
+    set({ modes: r.modes });
+  } catch (e) {
+    toast(errorText(e));
+  }
 }
 
 /** Each agent's two letters on its badge (badges are grey: the app is black and white only). */
