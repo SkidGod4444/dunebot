@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { call, errorText, type LedgerRow } from "./store";
 import { LoadProblem } from "./parts";
 import { when } from "./format";
+import { PageShell } from "./ui";
 
 /** Activity's words for the core's action keys and decisions (core/src/app.rs ledger): short enough
  * for their column, the core's full words in the tooltip. */
@@ -53,32 +54,25 @@ export function Activity() {
   const tone = (d: string) =>
     d.startsWith("declined") || d.startsWith("blocked") || d === "no answer" ? "bg-ink text-white" : d.startsWith("approved") || d.startsWith("allowed") ? "bg-ink/10 text-ink" : "bg-black/[.05] text-ink/70";
   return (
-    <>
-      <div className="drag h-[56px] shrink-0" />
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[760px] px-6 pb-12">
-          <h1 className="font-pixel text-[32px] leading-tight">Activity</h1>
-          <p className="mt-1 text-[15px] text-muted">Everything agents did or tried to do, newest first.</p>
-          <div className="mt-6 divide-y divide-line rounded-2xl border border-line">
-            {!rows && failed && <LoadProblem what="the activity" why={failed} retry={load} />}
-            {rows?.length === 0 && <p className="px-4 py-6 text-center text-[14px] text-muted">Nothing yet.</p>}
-            {rows?.map((r) => (
-              <div key={r.id} className="flex items-center gap-3 px-4 py-2.5">
-                <span className="w-16 shrink-0 text-[12px] text-muted">{when(r.at)}</span>
-                <span className="w-24 shrink-0 truncate text-[13px] font-medium" title={r.action}>
-                  {DONE_WHAT[r.action] ?? r.action}
-                </span>
-                <code className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink/70 select-text" title={r.target}>
-                  {r.target}
-                </code>
-                <span title={r.decision} className={`shrink-0 rounded-full px-2.5 py-0.5 text-[12px] font-medium ${tone(r.decision)}`}>
-                  {decided(r.decision)}
-                </span>
-              </div>
-            ))}
+    <PageShell title="Activity" wide intro="Everything agents did or tried to do, newest first.">
+      <div className="mt-6 divide-y divide-line rounded-2xl border border-line">
+        {!rows && failed && <LoadProblem what="the activity" why={failed} retry={load} />}
+        {rows?.length === 0 && <p className="px-4 py-6 text-center text-[14px] text-muted">Nothing yet.</p>}
+        {rows?.map((r) => (
+          <div key={r.id} className="flex items-center gap-3 px-4 py-2.5">
+            <span className="w-16 shrink-0 text-[12px] text-muted">{when(r.at)}</span>
+            <span className="w-24 shrink-0 truncate text-[13px] font-medium" title={r.action}>
+              {DONE_WHAT[r.action] ?? r.action}
+            </span>
+            <code className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink/70 select-text" title={r.target}>
+              {r.target}
+            </code>
+            <span title={r.decision} className={`shrink-0 rounded-full px-2.5 py-0.5 text-[12px] font-medium ${tone(r.decision)}`}>
+              {decided(r.decision)}
+            </span>
           </div>
-        </div>
+        ))}
       </div>
-    </>
+    </PageShell>
   );
 }

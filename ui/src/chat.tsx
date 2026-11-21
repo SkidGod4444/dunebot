@@ -3,6 +3,7 @@ import { ArrowUp, FolderOpen, FolderPlus, Monitor, Square, Trash2, Undo2 } from 
 import { agentName, call, errorText, loadAgents, send, startChat, toast, useStore, type Message } from "./store";
 import { AgentAvatar, ApprovalCard, AssistantBubble, Confirm, Mascot, TeachFix, ThinkingBubble, UserBubble, failureOf } from "./parts";
 import { useStickToBottom } from "./stick";
+import { isSendKey } from "./ui";
 
 function shortPath(p: string) {
   const m = p.match(/(?:^|[\\/])workspaces[\\/][0-9a-f]{32}$/);
@@ -220,7 +221,7 @@ function Composer({ threadId, agent, busy }: { threadId: string; agent: string; 
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              if (isSendKey(e)) {
                 e.preventDefault();
                 go();
               }
@@ -345,7 +346,7 @@ export function NewChat() {
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                if (isSendKey(e)) {
                   e.preventDefault();
                   start();
                 }

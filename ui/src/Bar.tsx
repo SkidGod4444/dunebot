@@ -4,30 +4,15 @@ import { AGENT_LOOK, agentName, barChatLive, call, errorText, get, keysLabel, op
 import { Mascot, Typing } from "./parts";
 import { botLook, useBots } from "./bots";
 import { afterTurn, cardDone, hold, READ_WAIT_MS, readWaitOver, type Held, type Step } from "./held";
+import { Level } from "./ui";
 
 const mac = window.dunebot.platform === "darwin";
 
-/** Dune Bot's spark, small, for the bar. */
 /** Dune Bot's own logo at the bar's start; it pulses while the chat works. */
 function Logo({ busy }: { busy?: boolean }) {
   return (
     <span className={`block overflow-hidden rounded-[6px] ${busy ? "animate-pulse" : ""}`}>
       <Mascot size={22} />
-    </span>
-  );
-}
-
-/** Live microphone level as five bars. */
-function Level({ level }: { level: number }) {
-  return (
-    <span className="inline-flex h-5 items-center gap-[3px]" aria-hidden>
-      {[0.55, 0.85, 1, 0.8, 0.5].map((w, i) => (
-        <span
-          key={i}
-          className="w-[3px] rounded-full bg-brand transition-[height] duration-75"
-          style={{ height: `${Math.max(4, Math.round(20 * Math.min(1, level * 1.6) * w))}px` }}
-        />
-      ))}
     </span>
   );
 }

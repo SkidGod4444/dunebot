@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { KEYS, errorText, keysLabel, savePref, useStore } from "./store";
-import { lockedBy, lockNoun, Segmented } from "./ui";
+import { lockedBy, lockNoun, Segmented, PageShell } from "./ui";
 import { DictationSetting } from "./dictation";
 
 const THEMES = [
@@ -31,22 +31,15 @@ function ThemeSettings() {
  *  connected accounts, the phone, bots) stays on Permissions, in one place. */
 export function SettingsPage() {
   return (
-    <>
-      <div className="drag h-[56px] shrink-0" />
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[640px] px-6 pb-12">
-          <h1 className="font-pixel text-[32px] leading-tight">Settings</h1>
-          <p className="mt-1 text-[15px] text-muted">How Dune Bot looks, its keys, and how it listens and talks. What agents, bots, your accounts and your phone may do is in Permissions.</p>
-          <h2 className="mt-6 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Look</h2>
-          <ThemeSettings />
-          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Keys</h2>
-          {window.dunebot.platform === "darwin" && <KeySettings />}
-          <DictationSetting />
-          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Voice</h2>
-          <VoiceSettings />
-        </div>
-      </div>
-    </>
+    <PageShell title="Settings" intro="How Dune Bot looks, its keys, and how it listens and talks. What agents, bots, your accounts and your phone may do is in Permissions.">
+      <h2 className="mt-6 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Look</h2>
+      <ThemeSettings />
+      <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Keys</h2>
+      {window.dunebot.platform === "darwin" && <KeySettings />}
+      <DictationSetting />
+      <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Voice</h2>
+      <VoiceSettings />
+    </PageShell>
   );
 }
 
