@@ -423,7 +423,7 @@ function setKeys(name) {
   });
 }
 // Dune Bot's colours, in every window: dark unless you pick Light or Match the system (pref
-// `look.theme`; set in Permissions › Look or the menu bar's Theme). The pages follow the system's
+// `look.theme`; set in Settings › Look or the menu bar's Theme). The pages follow the system's
 // light/dark, which Electron takes from `themeSource`; the glass tint and Windows/Linux title bars
 // follow on nativeTheme's "updated".
 const THEMES = [
@@ -1885,7 +1885,8 @@ function refreshTray() {
         : []),
       { type: "separator" },
       { label: "Chats & activity…", click: () => openMain("chat") },
-      { label: "What agents may do…", click: () => openMain("settings") },
+      { label: "What agents may do…", click: () => openMain("permissions") },
+      { label: "Settings…", accelerator: isMac ? "Command+," : undefined, click: () => openMain("settings") },
       { label: "Set up Dune Bot…", click: () => openSetup() },
       {
         label: "Open the bar",
@@ -2214,7 +2215,7 @@ async function runSelfcheck() {
   app.exit(r.ok ? 0 : 1);
 }
 
-// Dark until the saved theme is read (Permissions › Look; snapshot tests draw the theme they're given).
+// Dark until the saved theme is read (Settings › Look; snapshot tests draw the theme they're given).
 nativeTheme.themeSource = snapshot && process.env.DUNEBOT_SNAPSHOT_THEME ? process.env.DUNEBOT_SNAPSHOT_THEME : "dark";
 app.whenReady().then(async () => {
   startCore();

@@ -23,7 +23,7 @@ export type Message = {
 export type Agent = { id: string; name: string; installed: boolean; version?: string; problem?: string };
 export type ModeRow = { action: string; label: string; mode: "auto" | "always" | "ask" | "never"; choices?: string[] };
 export type LedgerRow = { id: number; threadId?: string; action: string; target: string; decision: string; detail: string; at: number };
-export type View = "chat" | "new" | "settings" | "activity" | "fixes" | "schedules";
+export type View = "chat" | "new" | "permissions" | "settings" | "activity" | "fixes" | "schedules";
 export type Schedule = {
   id: number; title: string; prompt: string; agent: string; cwd?: string; every: "daily" | "weekdays" | "weekly" | "hourly";
   at: number; weekday: number; enabled: boolean; nextRun: number; lastRun?: number; lastThread?: string; createdAt: number;

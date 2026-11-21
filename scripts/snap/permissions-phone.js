@@ -1,4 +1,4 @@
-// Permissions › Phone: no token yet (a snapshot never saves one), the three switches off. With
+// Settings › Phone: no token yet (a snapshot never saves one), the three switches off. With
 // window.__phoneState set first (permissions-phone-code.js, -paired.js), the page draws that state.
 (async () => {
   const dm = window.__dm;

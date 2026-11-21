@@ -1,4 +1,4 @@
-// Permissions › Look: picks the other theme (Light when drawn dark, Dark when drawn light) as a person
+// Settings › Look: picks the other theme (Light when drawn dark, Dark when drawn light) as a person
 // would, and measures that the window's colours follow (the saved pref → Electron's themeSource → the
 // page's light/dark). The picture is taken in the theme it switched to.
 (async () => {

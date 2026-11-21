@@ -1,4 +1,4 @@
-// Permissions › Phone, paired, with all three switches on.
+// Settings › Phone, paired, with all three switches on.
 window.__phoneState = {
   key: { saved: true, canSave: true },
   phone: { token: true, bot: "@my_dunebot", code: null, paired: { name: "Sai (@sai)" }, reads: true, files: true, actions: true, problem: null },
