@@ -1,5 +1,6 @@
 // The answer beside the pointer asking about a long command: the command box stays short (it
-// scrolls), so what's asked and its buttons are in view together.
+// scrolls), so what's asked and its buttons are in view together; under the box, "Show all: N more
+// lines", and Allow once waits until the rest has been seen (a toast says so; still waiting).
 (async () => {
   const dm = window.__dm;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -19,6 +20,17 @@
   };
   const pre = card.querySelector("pre");
   const title = card.firstElementChild;
-  const yes = [...card.querySelectorAll("button")][0];
-  return { found: true, pre: Math.round(pre.getBoundingClientRect().height), scrolls: pre.scrollHeight > pre.clientHeight, title: inView(title), buttons: inView(yes) };
+  const yes = [...card.querySelectorAll("button")].find((b) => b.textContent.trim() === "Allow once");
+  const more = card.querySelector("[data-show-all]")?.textContent ?? null;
+  const shown = { pre: Math.round(pre.getBoundingClientRect().height), scrolls: pre.scrollHeight > pre.clientHeight, title: inView(title), buttons: inView(yes) };
+  yes.click(); // Allow once, before the rest was seen
+  await sleep(300);
+  const said = document.querySelector("[role=status]")?.textContent ?? "";
+  return {
+    found: true,
+    ...shown,
+    more,
+    refused: said.includes("goes on below the box"),
+    stillWaiting: dm.get().waiting[t.id] > 0,
+  };
 })();

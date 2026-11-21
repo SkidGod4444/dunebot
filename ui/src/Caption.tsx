@@ -282,7 +282,7 @@ export function Caption() {
               ) : null}
               {/* A line like "On it." with work after it: the dots again, and the step beside them. */}
               {reply && !asked && reply.text && busy && !approval && !replyIsLast && <Working step={step} />}
-              {approval && <ApprovalCard m={approval} agent={thread?.agent ?? "claude"} bar />}
+              {approval && <ApprovalCard key={approval.id} m={approval} agent={thread?.agent ?? "claude"} bar />}
               {/* What a button here answered with ("Take a second to read the card first."). */}
               {toastText && (
                 <p role="status" className="text-[12.5px] leading-[1.45] font-medium text-ink">

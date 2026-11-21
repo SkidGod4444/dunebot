@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Reply, Typing, TypingLine } from "./reply";
 import { useSmoothText, type StreamStats } from "./smooth";
-import { Check, ShieldAlert, ShieldCheck, ShieldX, Trash2, Wrench } from "lucide-react";
+import { Check, ChevronDown, ShieldAlert, ShieldCheck, ShieldX, Trash2, Wrench } from "lucide-react";
 import { AGENT_LOOK, agentName, answer, call, errorText, toast, type Message } from "./store";
 import mascot from "./mascot.svg";
 import { botLook } from "./bots";
@@ -310,7 +310,24 @@ function useOnScreenSince() {
 export function ApprovalCard({ m, agent, bar }: { m: Message; agent: string; bar?: boolean }) {
   const { approvalId, action, target, detail, status, why, label: coreLabel } = m.meta;
   const readLongEnough = useOnScreenSince();
+  // A long command doesn't all fit in its box. How many lines are out of sight, and whether you've
+  // seen them (Show all, or scrolled the box to its end): until then the card says so under the box
+  // and Allow waits, so a risky end can't hide below the fold (a Mac hides scrollbars).
+  const pre = useRef<HTMLPreElement>(null);
+  const [hidden, setHidden] = useState(0);
+  const [whole, setWhole] = useState(false);
+  const [seen, setSeen] = useState(false);
+  useLayoutEffect(() => {
+    const el = pre.current;
+    if (!el) return;
+    const measure = () => setHidden(Math.ceil(Math.max(0, el.scrollHeight - el.clientHeight - 1) / 18.75));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [target, status, whole]);
   const allow = (decision: "once" | "chat") => {
+    if (hidden > 0 && !seen) return toast("The command goes on below the box: read all of it first (Show all).");
     if (!readLongEnough()) return toast("Take a second to read the card first.");
     answer(approvalId, decision);
   };
@@ -344,10 +361,33 @@ export function ApprovalCard({ m, agent, bar }: { m: Message; agent: string; bar
         <ShieldAlert size={17} className="shrink-0 text-ink" />
         {agentName(agent)} wants to {askText(action, coreLabel)}
       </div>
-      {/* In the small card, a long command stays short enough that what's asked stays in view. */}
-      <pre className={`mt-3 ${bar ? "max-h-32" : "max-h-60"} overflow-auto whitespace-pre-wrap break-all rounded-xl border border-line bg-white px-3 py-2.5 font-mono text-[12.5px] leading-[1.5] select-text`}>
-        {target}
-      </pre>
+      {/* In the small card, a long command stays short enough that what's asked stays in view. What
+          doesn't fit is said over a fade at the box's foot (inside it, so the card doesn't grow). */}
+      <div className="relative mt-3">
+        <pre
+          ref={pre}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            if (el.scrollTop + el.clientHeight >= el.scrollHeight - 2) setSeen(true);
+          }}
+          className={`${whole ? "" : bar ? "max-h-32" : "max-h-60"} overflow-auto whitespace-pre-wrap break-all rounded-xl border border-line bg-white px-3 py-2.5 font-mono text-[12.5px] leading-[1.5] select-text`}
+        >
+          {target}
+        </pre>
+        {hidden > 0 && !whole && !seen && (
+          <div className="pointer-events-none absolute inset-x-px bottom-px flex justify-center rounded-b-xl bg-linear-to-t from-white from-45% to-transparent pt-7 pb-1.5">
+            <button
+              data-show-all
+              aria-expanded={false}
+              onClick={() => (setWhole(true), setSeen(true))}
+              className="pointer-events-auto flex h-7 items-center gap-1 rounded-full border border-line bg-white px-3 text-[12.5px] font-semibold text-ink shadow-[0_1px_2px_rgba(0,0,0,.08)] hover:border-muted/50"
+            >
+              <ChevronDown size={14} className="shrink-0" />
+              Show all: {hidden} more {hidden === 1 ? "line" : "lines"}
+            </button>
+          </div>
+        )}
+      </div>
       {detail && <p className="mt-2 truncate text-[13px] text-muted" title={detail}>{tidyDetail(detail)}</p>}
       {why && <p className="mt-1 text-[13px] text-ink">Asking because {why}.</p>}
       <div className="mt-3.5 flex flex-wrap items-center gap-2">

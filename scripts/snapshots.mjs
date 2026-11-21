@@ -32,6 +32,7 @@ const SHOTS = [
   ["caption-hover", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-hover.js") }],
   ["caption-long-code", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-long-code.js") }],
   ["caption-approval-long", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-approval-long.js") }],
+  ["caption-approval-all", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-approval-all.js") }],
   ["caption-approval", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-approval.js") }],
   // The answer card following a scripted pointer, then holding still while a card waits for an OK.
   ["caption-follow", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-follow.js"), DUNEBOT_SNAPSHOT_FOLLOW: "1" }],
@@ -348,20 +349,22 @@ for (const theme of ["light", "dark"])
         problems.push(`${name} ${theme}: buttons ${JSON.stringify(res)}`);
       else note += " buttons in the row under the answer, none over its words";
     }
-    if (name === "caption-long-code" || name === "caption-approval-long" || name === "toast-focus") {
+    if (name === "caption-long-code" || name === "caption-approval-long" || name === "caption-approval-all" || name === "toast-focus") {
       let res = null;
       try {
         res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
       } catch {}
       const ok =
         name === "caption-long-code" ? res?.found && res.hidden === 0 && res.whole && res.lines >= 2
-        : name === "caption-approval-long" ? res?.found && res.pre <= 130 && res.scrolls && res.title && res.buttons
+        : name === "caption-approval-long" ? res?.found && res.pre <= 130 && res.scrolls && res.title && res.buttons && /^Show all: \d+ more lines$/.test(res.more ?? "") && res.refused && res.stillWaiting
+        : name === "caption-approval-all" ? res?.found && res.whole && res.lastFile && res.showGone && res.stillWaiting
         : res?.found && res.outlineUnfocused === "none" && (res.focused = (() => { try { return JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".focus.script.json", "utf8")).outline; } catch { return null; } })()) === "solid 2px" && res.toast && res.toast.w <= 520 && res.toast.radius === "16px" && res.toast.inWindow;
       if (!ok) problems.push(`${name} ${theme}: ${JSON.stringify(res)}`);
       else
         note +=
           name === "caption-long-code" ? ` long code line wraps (${res.lines} lines), nothing hidden`
-          : name === "caption-approval-long" ? ` command box ${res.pre}px and scrolls; question and buttons in view`
+          : name === "caption-approval-long" ? ` command box ${res.pre}px and scrolls; question and buttons in view; "${res.more}"; Allow waits until it's all seen`
+          : name === "caption-approval-all" ? " Show all: the whole command, its last file too; still waiting for an answer"
           : ` keyboard focus outline ${res.focused} (none without it); toast ${res.toast.w}x${res.toast.h} box`;
     }
     if (name === "caption-first-line") {
