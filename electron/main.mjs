@@ -2223,6 +2223,34 @@ async function auditFocus(win) {
     } catch {}
   }
 }
+/** A snapshot script may mark one element `data-snapshot-focus`: the picture shows it as the keyboard
+ * would (forced :focus and :focus-visible through the DevTools protocol, as the audit does; a hidden
+ * window never has keyboard focus), and its outline is saved beside the picture. Returns the undo. */
+async function forceFocusForPicture(win, snapshot) {
+  const marked = await win.webContents.executeJavaScript(`!!document.querySelector("[data-snapshot-focus]")`).catch(() => false);
+  if (!marked) return () => {};
+  const dbg = win.webContents.debugger;
+  try {
+    dbg.attach("1.3");
+    await dbg.sendCommand("DOM.enable");
+    await dbg.sendCommand("CSS.enable");
+    const { root } = await dbg.sendCommand("DOM.getDocument", { depth: -1 });
+    const { nodeId } = await dbg.sendCommand("DOM.querySelector", { nodeId: root.nodeId, selector: "[data-snapshot-focus]" });
+    await dbg.sendCommand("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: ["focus", "focus-visible"] });
+    const outline = await win.webContents.executeJavaScript(
+      `(() => { const s = getComputedStyle(document.querySelector("[data-snapshot-focus]")); return s.outlineStyle + " " + s.outlineWidth; })()`,
+    );
+    fs.writeFileSync(snapshot.replace(/\.png$/, "") + ".focus.script.json", JSON.stringify({ outline }));
+    await new Promise((r) => setTimeout(r, 150));
+  } catch (err) {
+    console.error("snapshot focus failed:", err);
+  }
+  return () => {
+    try {
+      dbg.detach();
+    } catch {}
+  };
+}
 const SETTLE = `(async () => {
   const end = Date.now() + 10000;
   let last = "", since = Date.now();
@@ -2275,8 +2303,10 @@ async function takeSnapshot(win) {
   const still = !process.env.DUNEBOT_SNAPSHOT_STILL || (await win.webContents.executeJavaScript(STILL).catch(() => false));
   if (!still) console.log(`snapshot: ${path.basename(snapshot)} never held still for 500 ms in 15 s`);
   if (placing) barReport("resized");
+  const unforce = await forceFocusForPicture(win, snapshot);
   const img = await win.webContents.capturePage();
   fs.writeFileSync(snapshot, img.toPNG());
+  unforce();
   // Beside the picture: where the main parts are and how they're drawn, to compare systems by script
   // (fonts rasterise differently on each, so pixels can't be compared).
   try {

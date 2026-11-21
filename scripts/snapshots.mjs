@@ -30,6 +30,8 @@ const SHOTS = [
   ["caption", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption.js") }],
   ["caption-markdown", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-markdown.js") }],
   ["caption-hover", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-hover.js") }],
+  ["caption-long-code", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-long-code.js") }],
+  ["caption-approval-long", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-approval-long.js") }],
   ["caption-approval", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-approval.js") }],
   // The answer card following a scripted pointer, then holding still while a card waits for an OK.
   ["caption-follow", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-follow.js"), DUNEBOT_SNAPSHOT_FOLLOW: "1" }],
@@ -76,6 +78,7 @@ const SHOTS = [
   ["schedules", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "schedules.js") }],
   // A delete asks first (here on a switched-off schedule), and a draft stays with its chat.
   ["schedules-delete", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "schedules-delete.js") }],
+  ["toast-focus", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "toast-focus.js") }],
   ["chat-draft", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "chat-draft.js") }],
   // Activity in plain words (a file change you allowed, a schedule and a bot added).
   ["activity", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "activity.js") }],
@@ -344,6 +347,22 @@ for (const theme of ["light", "dark"])
       if (!res?.found || !res.row || res.buttons.join() !== "Read answers aloud,Open chats,Close" || res.covered || !res.inCard)
         problems.push(`${name} ${theme}: buttons ${JSON.stringify(res)}`);
       else note += " buttons in the row under the answer, none over its words";
+    }
+    if (name === "caption-long-code" || name === "caption-approval-long" || name === "toast-focus") {
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      const ok =
+        name === "caption-long-code" ? res?.found && res.hidden === 0 && res.whole && res.lines >= 2
+        : name === "caption-approval-long" ? res?.found && res.pre <= 130 && res.scrolls && res.title && res.buttons
+        : res?.found && res.outlineUnfocused === "none" && (res.focused = (() => { try { return JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".focus.script.json", "utf8")).outline; } catch { return null; } })()) === "solid 2px" && res.toast && res.toast.w <= 520 && res.toast.radius === "16px" && res.toast.inWindow;
+      if (!ok) problems.push(`${name} ${theme}: ${JSON.stringify(res)}`);
+      else
+        note +=
+          name === "caption-long-code" ? ` long code line wraps (${res.lines} lines), nothing hidden`
+          : name === "caption-approval-long" ? ` command box ${res.pre}px and scrolls; question and buttons in view`
+          : ` keyboard focus outline ${res.focused} (none without it); toast ${res.toast.w}x${res.toast.h} box`;
     }
     if (name === "caption-first-line") {
       // "On it." read while the command still ran, then "Done." after it.
