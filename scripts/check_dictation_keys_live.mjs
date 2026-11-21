@@ -1,7 +1,7 @@
 // Dictation's key for real (Windows, Linux on X11): the core watches Right Ctrl the way the app runs it
 // (DUNEBOT_CHORD=1), and this script presses real keys on the runner's own screen through the native
 // addon (SendInput / XTest), from outside the core, as a person's keyboard would. Checks that Right
-// Ctrl held alone starts and ends a dictation, that a tap, Left Ctrl or Ctrl+C never types, and that
+// Ctrl held alone starts and ends a dictation, that a tap, Left Ctrl or a Ctrl shortcut never types, and that
 // a shortcut after the start cancels it.
 //   node scripts/native.mjs && node scripts/check_dictation_keys_live.mjs [core binary]
 //   (Linux: under xvfb-run)
@@ -31,10 +31,13 @@ const ok = (cond, what) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // The keys, as the addon's keyCode takes them: Windows virtual keys (Right Ctrl is an extended key),
-// X keysyms on Linux.
+// X keysyms on Linux. `other` is the key pressed with Ctrl: C on Linux (xvfb, nothing in front); on
+// Windows F15, which nothing acts on, since the window in front there is the runner's own console
+// and Ctrl+C would interrupt the runner (it lost the job once, 2026-11-21).
 const K = win
-  ? { rctrl: [0xa3, 1], lctrl: [0xa2, 0], c: [0x43, 0] }
-  : { rctrl: [0xffe4, 0], lctrl: [0xffe3, 0], c: [0x63, 0] };
+  ? { rctrl: [0xa3, 1], lctrl: [0xa2, 0], other: [0x7e, 0] }
+  : { rctrl: [0xffe4, 0], lctrl: [0xffe3, 0], other: [0x63, 0] };
+const OTHER = win ? "F15" : "C";
 const down = new Set();
 const press = (k, on) => {
   const [code, flags] = K[k];
@@ -107,28 +110,28 @@ try {
     ok(fired(from).length === 0, `Left Ctrl held does nothing (${fired(from)})`);
   }
 
-  // 4. Right Ctrl + C quickly (a copy): nothing.
+  // 4. Right Ctrl + another key quickly (a shortcut, as Ctrl+C is): nothing.
   {
     const from = events.length;
     press("rctrl", true);
     await sleep(60);
-    press("c", true);
+    press("other", true);
     await sleep(50);
-    press("c", false);
+    press("other", false);
     await sleep(600);
     press("rctrl", false);
     await sleep(300);
-    ok(fired(from).length === 0, `Right Ctrl+C (a shortcut) starts nothing, though Ctrl stays held (${fired(from)})`);
+    ok(fired(from).length === 0, `Right Ctrl+${OTHER} (a shortcut) starts nothing, though Ctrl stays held (${fired(from)})`);
   }
 
-  // 5. Held, then C: the start is cancelled, nothing typed.
+  // 5. Held, then another key: the start is cancelled, nothing typed.
   {
     const from = events.length;
     press("rctrl", true);
     await sleep(600);
-    press("c", true);
+    press("other", true);
     await sleep(50);
-    press("c", false);
+    press("other", false);
     await sleep(100);
     press("rctrl", false);
     await sleep(300);
