@@ -5,7 +5,7 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const end = Date.now() + 5000;
   while (Date.now() < end && !dm.get().modes.length) await sleep(100);
-  dm.set({ view: "settings" });
+  dm.set({ view: "permissions" });
   const until = Date.now() + 12000;
   let row;
   while (Date.now() < until && !(row = [...document.querySelectorAll("span")].find((s) => s.textContent?.startsWith("Telegram bot")))) await sleep(100);

@@ -264,7 +264,7 @@ export function Setup() {
         <Row
           icon={<AudioLines size={17} />}
           title="Speech to text"
-          why="On this computer (English), 190 MB once. With a Sarvam key (Permissions › Voice), it's the fallback."
+          why="On this computer (English), 190 MB once. With a Sarvam key (Settings › Voice), it's the fallback."
           {...(st.voice.available === false
             ? { tone: "off" as Tone, label: "Not in this build" }
             : voiceOk

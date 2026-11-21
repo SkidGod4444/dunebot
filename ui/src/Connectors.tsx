@@ -36,7 +36,7 @@ const CHOICES = [
 
 const clean = (e: unknown) => (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
 
-/** Settings › Connectors: the user's Slack, Gmail, Notion, Google Calendar and X. */
+/** Permissions › Connectors: the user's Slack, Gmail, Notion, Google Calendar and X. */
 export function Connectors() {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const load = () =>

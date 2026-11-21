@@ -40,7 +40,7 @@ first time an agent uses the mouse or keyboard for you, or you dictate. Reopen s
   when you let go. Everywhere: hold the bar's mic button. On macOS the keys are read from the
   modifier-key state only, so Dune Bot needs no Input Monitoring permission and never sees what you
   type; ⌥⌘ followed by another key or a click (⌥⌘Esc, ⌥⌘D, …) is ignored. If another app wants the
-  same keys, pick ⌃⌥, ⌃⌘ or Right ⌘ alone instead (Permissions › Keys, or Keys in the menu bar).
+  same keys, pick ⌃⌥, ⌃⌘ or Right ⌘ alone instead (Settings › Keys, or Keys in the menu bar).
 - **Dictate.** **Hold Right ⌥** (macOS) or **Right Ctrl** (Windows, Linux on X11) on its own and
   talk; let go, and what you said is typed where your text cursor is, in any app, like the system's
   dictation, in English whatever you speak (Hindi said, English typed; with Sarvam). It isn't sent to
@@ -52,7 +52,7 @@ first time an agent uses the mouse or keyboard for you, or you dictate. Reopen s
   layouts. The words go in at once on macOS and Windows (up to 20 characters a key event) and about
   30 characters a second on Linux (a key each, held as IBus needs to keep them in order). Typing goes through the same checks as an agent's (never into Dune
   Bot itself; never into an app run as administrator on Windows; Accessibility asked the first time on
-  macOS). Turn it off in Permissions › Keys, or in the menu bar. Wayland doesn't let apps see which
+  macOS). Turn it off in Settings › Keys, or in the menu bar. Wayland doesn't let apps see which
   keys are held, so on GNOME dictation gets a shortcut of its own in GNOME's settings (Super+Alt+D
   unless taken, added in setup on its own yes): press it and talk, press it again, and the words are
   typed a moment later, once its keys are up. The stop key calls off a dictation that's listening.
@@ -75,11 +75,14 @@ first time an agent uses the mouse or keyboard for you, or you dictate. Reopen s
 - **Where the bar opens:** bottom centre by default; menu bar › **Open the bar** picks top centre or
   next to the pointer.
 - **Light or dark:** dark by default; **Light**, or **Match the system** (switches with your
-  computer), in Permissions › Look or menu bar › **Theme**. Every window follows at once: the bar, the
+  computer), in Settings › Look or menu bar › **Theme**. Every window follows at once: the bar, the
   answer card, setup and the chats.
 - **Chats & activity…** in the menu bar opens the full history window. When an agent needs your OK
   in a chat you didn't ask from the bar, the card appears in the screen's top corner and a
   notification says so.
+- **Settings** (bottom of that window's sidebar, **Settings…** in the menu bar, or ⌘, / Ctrl+,):
+  the look, keys and dictation, and voice. **Permissions**, beside it, keeps everything about what
+  may be done: each action, your connected accounts, your phone, your bots, and what's off limits.
 
 ### What agents may do
 
@@ -104,7 +107,7 @@ Out of the box, voice runs on your computer: speech becomes text with whisper.cp
 `small.en`, 190 MB, downloaded once during setup and checked against its SHA-256), and answers are
 read with your system's voice. A recording stops itself after 60 s.
 
-**With your own [Sarvam AI](https://www.sarvam.ai) key** (Permissions › Voice), what you say becomes
+**With your own [Sarvam AI](https://www.sarvam.ai) key** (Settings › Voice), what you say becomes
 text with `saaras:v4`: English, Hindi and other Indian languages, mixed too. Recordings over 29 s go
 in parts cut at a quiet moment. Answers are read aloud with `bulbul:v4-flash` in Hindi, Bengali,
 Tamil, Telugu, Gujarati, Kannada, Malayalam, Marathi, Punjabi and Odia. Each language is picked from
@@ -126,7 +129,7 @@ Deepgram key, the words of each answer read aloud go to that service. Silence an
 caught before anything is sent, and Dune Bot saves no audio. Each key is locked with Electron's
 `safeStorage` (the macOS Keychain, Windows DPAPI or the Linux secret store; Linux without one won't
 keep it). It's unlocked only when voice needs it and handed to the core over its stdin: never an
-environment variable, command line, page or log line. **Permissions › Voice › This computer** keeps
+environment variable, command line, page or log line. **Settings › Voice › This computer** keeps
 voice local even with keys saved.
 
 ## Your data

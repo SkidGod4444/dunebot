@@ -3,7 +3,7 @@
 @source "../../node_modules/streamdown/dist/*.js";
 @source "../../node_modules/@streamdown/code/dist/*.js";
 
-/* `dark:` follows the page's colour scheme, which follows the Theme you pick (Permissions › Look:
+/* `dark:` follows the page's colour scheme, which follows the Theme you pick (Settings › Look:
    dark by default, light, or the system's; electron/main.mjs sets Electron's themeSource). */
 @custom-variant dark {
   @media (prefers-color-scheme: dark) {

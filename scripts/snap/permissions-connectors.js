@@ -1,4 +1,4 @@
-// Settings › Connectors: Slack, Gmail, Notion, Google Calendar and X, none connected, with Slack's
+// Permissions › Connectors: Slack, Gmail, Notion, Google Calendar and X, none connected, with Slack's
 // form open (its client ID, and the Redirect URL its Slack app must list). Nothing is connected:
 // a snapshot never signs in or touches the keychain.
 (async () => {
@@ -6,7 +6,7 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const end = Date.now() + 5000;
   while (Date.now() < end && !dm.get().modes.length) await sleep(100);
-  dm.set({ view: "settings" });
+  dm.set({ view: "permissions" });
   const rowOf = (label) => [...document.querySelectorAll("span")].find((s) => s.textContent === label)?.closest("div.px-4");
   const until = Date.now() + 12000;
   let row;

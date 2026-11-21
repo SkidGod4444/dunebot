@@ -290,7 +290,7 @@ pub(crate) async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::R
             let s = app.db(|d| d.schedule_get(id))?;
             crate::schedule::run(app, &s).await?
         }
-        // Settings › Phone (telegram.rs): the bot, the pairing code, the paired chat, the two switches.
+        // Permissions › Phone (telegram.rs): the bot, the pairing code, the paired chat, the two switches.
         "phone.status" => app.phone.status(app),
         "phone.set" => {
             let on = p.get("on").and_then(Value::as_bool).ok_or_else(|| anyhow!("missing \"on\""))?;

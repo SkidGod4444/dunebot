@@ -1,4 +1,4 @@
-// Permissions › Voice: the Sarvam key and the Deepgram key (American voice for English), neither saved.
+// Settings › Voice: the Sarvam key and the Deepgram key (American voice for English), neither saved.
 (async () => {
   const dm = window.__dm;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

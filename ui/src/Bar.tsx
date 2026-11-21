@@ -316,7 +316,7 @@ export function Bar() {
                           ))}
                         </optgroup>
                       )}
-                      {/* The user's own bots (Settings › Bots), each on the engine it was given. */}
+                      {/* The user's own bots (Permissions › Bots), each on the engine it was given. */}
                       <optgroup label="Bots">
                         {bots.map((b) => (
                           <option key={b.id} value={b.id}>

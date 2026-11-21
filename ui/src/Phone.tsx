@@ -18,7 +18,7 @@ const SWITCH = [
   [true, "On"],
 ] as const;
 
-/** Settings › Phone: the user's Telegram bot, the pairing code or the paired chat, and two switches. */
+/** Permissions › Phone: the user's Telegram bot, the pairing code or the paired chat, and two switches. */
 export function PhoneSettings() {
   const [ph, setPh] = useState<PhoneStatus | null>(null);
   const [key, setKey] = useState<SarvamStatus | null>(null);

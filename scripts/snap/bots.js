@@ -1,4 +1,4 @@
-// Settings › Bots with three bots (one may only run commands and read files), drawn with the test
+// Permissions › Bots with three bots (one may only run commands and read files), drawn with the test
 // agent as their engine, and one bot open in the editor. Hands back what it drew for snapshots.mjs.
 (async () => {
   const dm = window.__dm;
@@ -9,7 +9,7 @@
   await call("bots.save", { name: "Ops", role: "Runs commands on my machine carefully, one at a time", engine: "echo", may: ["run-command", "read-file"] });
   let end = Date.now() + 5000;
   while (Date.now() < end && !dm.get().modes.length) await sleep(100);
-  dm.set({ view: "settings" });
+  dm.set({ view: "permissions" });
   end = Date.now() + 5000;
   while (Date.now() < end && document.querySelectorAll("[data-bots] [title='Edit this bot']").length < 3) await sleep(100);
   const edit = [...document.querySelectorAll("[data-bots] [title='Edit this bot']")];

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, CalendarClock, FolderOpen, FolderPlus, History, Monitor, Play, Search, ShieldCheck, Square, SquarePen, Trash2, Undo2, Wrench } from "lucide-react";
+import { ArrowUp, CalendarClock, FolderOpen, FolderPlus, History, Monitor, Play, Search, Settings, ShieldCheck, Square, SquarePen, Trash2, Undo2, Wrench } from "lucide-react";
 import {
   KEYS, agentName, call, get, keysLabel, loadAgents, openThread, send, set, setMode, startChat, toast, useStore,
   type Fix, type LedgerRow, type Message, type Schedule, type Thread,
@@ -16,6 +16,17 @@ export function App() {
   const view = useStore((s) => s.view);
   const coreDown = useStore((s) => s.coreDown);
   const toastText = useStore((s) => s.toast);
+  // ⌘, (Ctrl+, off the Mac) opens Settings, as in other apps.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "," && (window.dunebot.platform === "darwin" ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        set({ view: "settings" });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   return (
     <div className="flex h-full overflow-hidden font-sans text-ink select-none">
       <Sidebar />
@@ -25,7 +36,8 @@ export function App() {
         )}
         {view === "chat" && <ThreadView />}
         {view === "new" && <NewChat />}
-        {view === "settings" && <Permissions />}
+        {view === "permissions" && <Permissions />}
+        {view === "settings" && <SettingsPage />}
         {view === "activity" && <Activity />}
         {view === "fixes" && <Fixes />}
         {view === "schedules" && <Schedules />}
@@ -92,7 +104,8 @@ function Sidebar() {
         <SideButton icon={<History size={17} />} label="Activity" active={view === "activity"} onClick={() => set({ view: "activity" })} />
         <SideButton icon={<Wrench size={17} />} label="Fixes" active={view === "fixes"} onClick={() => set({ view: "fixes" })} />
         <SideButton icon={<CalendarClock size={17} />} label="Schedules" active={view === "schedules"} onClick={() => set({ view: "schedules" })} />
-        <SideButton icon={<ShieldCheck size={17} />} label="Permissions" active={view === "settings"} onClick={() => set({ view: "settings" })} />
+        <SideButton icon={<ShieldCheck size={17} />} label="Permissions" active={view === "permissions"} onClick={() => set({ view: "permissions" })} />
+        <SideButton icon={<Settings size={17} />} label="Settings" active={view === "settings"} onClick={() => set({ view: "settings" })} />
       </div>
     </aside>
   );
@@ -505,7 +518,7 @@ function Permissions() {
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[640px] px-6 pb-12">
           <h1 className="font-pixel text-[32px] leading-tight">Permissions</h1>
-          <p className="mt-1 text-[15px] text-muted">What agents may do on this computer. These apply to every chat.</p>
+          <p className="mt-1 text-[15px] text-muted">What agents may do on this computer, with your accounts and from your phone. These apply to every chat. The look, keys and voice are in Settings.</p>
           <div className="mt-6 divide-y divide-line rounded-2xl border border-line">
             {modes.filter((r) => !isConnectorAction(r.action)).map((r) => (
               <div key={r.action} className="px-4 py-3.5">
@@ -546,19 +559,12 @@ function Permissions() {
               </div>
             ))}
           </div>
-          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Bots</h2>
-          <BotsSettings />
-          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Look</h2>
-          <ThemeSettings />
-          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Keys</h2>
-          {window.dunebot.platform === "darwin" && <KeySettings />}
-          <DictationSetting />
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Connectors</h2>
           <Connectors />
-          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Voice</h2>
-          <VoiceSettings />
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Phone</h2>
           <PhoneSettings />
+          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Bots</h2>
+          <BotsSettings />
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Always off limits</h2>
           <div className="rounded-2xl bg-side px-4 py-3.5">
             <p className="text-[14px] text-ink/70">Dune Bot's file tools never read or change these, whatever the settings above say:</p>
@@ -612,6 +618,29 @@ function ThemeSettings() {
         The bar, the answer card, setup and this window. Match the system switches with your computer's light and dark. Also in the menu bar: Theme.
       </p>
     </div>
+  );
+}
+
+/** Settings: Dune Bot's own choices (the look, keys, voice). Everything about what may be done (agents,
+ *  connected accounts, the phone, bots) stays on Permissions, in one place. */
+function SettingsPage() {
+  return (
+    <>
+      <div className="drag h-[56px] shrink-0" />
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-[640px] px-6 pb-12">
+          <h1 className="font-pixel text-[32px] leading-tight">Settings</h1>
+          <p className="mt-1 text-[15px] text-muted">How Dune Bot looks, its keys, and how it listens and talks. What agents, bots, your accounts and your phone may do is in Permissions.</p>
+          <h2 className="mt-6 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Look</h2>
+          <ThemeSettings />
+          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Keys</h2>
+          {window.dunebot.platform === "darwin" && <KeySettings />}
+          <DictationSetting />
+          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Voice</h2>
+          <VoiceSettings />
+        </div>
+      </div>
+    </>
   );
 }
 

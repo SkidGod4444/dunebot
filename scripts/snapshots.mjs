@@ -74,10 +74,12 @@ const SHOTS = [
   ["fixes", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "fixes-page.js") }],
   ["schedules", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "schedules.js") }],
   ["permissions", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions.js") }],
+  // Settings (bottom of the sidebar, or ⌘,): the look, keys and voice; Permissions keeps every safety control.
+  ["settings", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "settings.js") }],
   ["permissions-voice", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-voice.js") }],
-  // Permissions › Look: the other theme picked; the window's colours follow (drawn in the one picked).
+  // Settings › Look: the other theme picked; the window's colours follow (drawn in the one picked).
   ["permissions-theme", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-theme.js") }],
-  // Settings › Bots (three bots, one open in the editor), and the bar's picker with them in it.
+  // Permissions › Bots (three bots, one open in the editor), and the bar's picker with them in it.
   ["bots", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bots.js") }],
   ["bar-bots", "bar", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bar-bots.js") }],
   // Permissions › Phone (the Telegram bot): no token; then drawn with a pairing code, and paired.
@@ -218,6 +220,24 @@ for (const theme of ["light", "dark"])
       const done = log.indexOf("card done with the answer");
       if (read < 0 || done < 0 || done < read) problems.push(`${name} ${theme}: reading over at ${read}, card done at ${done} (done must come after)\n${log.split("\n").filter((l) => /speech|card |turn/.test(l)).slice(-8).join("\n")}`);
       else note += " waited for the reading to end";
+    }
+    if (name === "settings") {
+      // ⌘, opens Settings (look, keys, voice); every safety control stays on Permissions.
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      const want = "Look,Keys,Voice";
+      const ok =
+        res?.byKey === "Settings" &&
+        res.permissions.title === "Permissions" &&
+        res.permissions.sections.join() === "Connectors,Phone,Bots,Always off limits" &&
+        !res.permissions.theme &&
+        res.settings.title === "Settings" &&
+        res.settings.sections.join() === want &&
+        res.settings.active;
+      if (!ok) problems.push(`${name} ${theme}: pages ${JSON.stringify(res)}`);
+      else note += ` ⌘, opens it; Settings: ${want}; Permissions: actions, Connectors, Phone, Bots, off limits`;
     }
     if (name === "permissions-theme") {
       // Picking Light in a dark window (Dark in a light one) turns the whole window over, and it stays picked.

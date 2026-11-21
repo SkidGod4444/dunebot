@@ -2,7 +2,7 @@
 //!
 //! The core long-polls Telegram's `getUpdates` (no webhook, no public server) and answers with
 //! `sendMessage`, as plain text. One chat is paired: the user sends `/pair <code>` (the code shown in
-//! Settings › Phone) from their own Telegram. Messages from that chat are turns in a chat called
+//! Permissions › Phone) from their own Telegram. Messages from that chat are turns in a chat called
 //! "Phone", started with `Origin::Phone`, and the answer goes back. Every other chat gets at most
 //! "This bot is private." (once an hour), and nothing of it is kept.
 //!
@@ -241,7 +241,7 @@ pub fn actions_on(app: &App) -> bool {
     switch_on(app, ACTIONS)
 }
 
-/// Which Settings › Phone switch lets a phone turn do this; with it off the gate refuses, with it
+/// Which Permissions › Phone switch lets a phone turn do this; with it off the gate refuses, with it
 /// on each one asks, every time, and the phone may answer. Every action is listed (no catch-all),
 /// so a new one has to be placed. None: the teaching ring, which reads and changes nothing.
 pub fn switch_for(action: crate::policy::Action) -> Option<&'static str> {
@@ -378,7 +378,7 @@ impl Phone {
         }
     }
 
-    /// What Settings › Phone shows. Never the token.
+    /// What Permissions › Phone shows. Never the token.
     pub fn status(&self, app: &App) -> Value {
         let paired = paired_chat(app).map(|_| json!({ "name": setting(app, NAME).unwrap_or_else(|| "your Telegram".into()) }));
         let code = if paired.is_none() { self.code.lock().unwrap().clone() } else { None };
@@ -455,7 +455,7 @@ impl Phone {
         Ok(())
     }
 
-    /// Settings › Phone's three switches: "reads" (accounts), "files" and "actions".
+    /// Permissions › Phone's three switches: "reads" (accounts), "files" and "actions".
     pub fn set_switch(&self, app: &App, key: &str, on: bool) -> anyhow::Result<()> {
         let (setting_key, what) = match key {
             "reads" => (READS, "phone: read accounts"),
@@ -1409,7 +1409,7 @@ mod tests {
         let t = setting(&app, THREAD).unwrap();
         let no = crate::asked::check(&app, &t, Source::Calendar).unwrap_err();
         assert!(no.contains("from your phone is off"), "{no}");
-        // Turned on in Settings › Phone (as the page does it): the named account may be read, no other.
+        // Turned on in Permissions › Phone (as the page does it): the named account may be read, no other.
         let switch = |on: bool| {
             let app = app.clone();
             async move { crate::protocol::handle(&app, "phone.set", &json!({ "key": "reads", "on": on })).await }

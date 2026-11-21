@@ -242,7 +242,7 @@ pub fn may_use(app: &App, thread: &Thread, tool: &str) -> Result<(), String> {
     }
     let _ = app.db(|d| d.ledger_add(Some(&thread.id), action.key(), tool, "blocked (not this bot's)", &format!("{} may not {}", bot.name, doing(action))));
     Err(format!(
-        "{} may not {} (the user chose what each bot may do in Settings › Bots), so this was not done. If a teammate may, hand it over with ask_bot; otherwise say what you'd need.",
+        "{} may not {} (the user chose what each bot may do in Permissions › Bots), so this was not done. If a teammate may, hand it over with ask_bot; otherwise say what you'd need.",
         bot.name,
         doing(action)
     ))

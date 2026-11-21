@@ -423,7 +423,7 @@ function setKeys(name) {
   });
 }
 // Dune Bot's colours, in every window: dark unless you pick Light or Match the system (pref
-// `look.theme`; set in Permissions › Look or the menu bar's Theme). The pages follow the system's
+// `look.theme`; set in Settings › Look or the menu bar's Theme). The pages follow the system's
 // light/dark, which Electron takes from `themeSource`; the glass tint and Windows/Linux title bars
 // follow on nativeTheme's "updated".
 const THEMES = [
@@ -1080,7 +1080,7 @@ function connectorConnect(params) {
 
 const sarvamKey = lockedKey({ id: "sarvam", name: "Sarvam", file: "sarvam-key.bin", pattern: /^[A-Za-z0-9_-]{10,200}$/, method: "voice.key" });
 const deepgramKey = lockedKey({ id: "deepgram", name: "Deepgram", file: "deepgram-key.bin", pattern: /^[A-Za-z0-9_-]{20,200}$/, method: "voice.deepgramKey" });
-// Settings › Phone: the user's Telegram bot token, locked the same way. The core polls Telegram with
+// Permissions › Phone: the user's Telegram bot token, locked the same way. The core polls Telegram with
 // it from the start (core/src/telegram.rs), so it's handed over as soon as the core runs.
 const telegramKey = lockedKey({ id: "telegram", name: "Telegram bot", file: "telegram-token.bin", pattern: /^\d{5,15}:[A-Za-z0-9_-]{30,60}$/, method: "phone.token" });
 /** Both keys with the core before anything is heard or read aloud. */
@@ -1885,7 +1885,8 @@ function refreshTray() {
         : []),
       { type: "separator" },
       { label: "Chats & activity…", click: () => openMain("chat") },
-      { label: "What agents may do…", click: () => openMain("settings") },
+      { label: "What agents may do…", click: () => openMain("permissions") },
+      { label: "Settings…", accelerator: isMac ? "Command+," : undefined, click: () => openMain("settings") },
       { label: "Set up Dune Bot…", click: () => openSetup() },
       {
         label: "Open the bar",
@@ -2214,7 +2215,7 @@ async function runSelfcheck() {
   app.exit(r.ok ? 0 : 1);
 }
 
-// Dark until the saved theme is read (Permissions › Look; snapshot tests draw the theme they're given).
+// Dark until the saved theme is read (Settings › Look; snapshot tests draw the theme they're given).
 nativeTheme.themeSource = snapshot && process.env.DUNEBOT_SNAPSHOT_THEME ? process.env.DUNEBOT_SNAPSHOT_THEME : "dark";
 app.whenReady().then(async () => {
   startCore();
@@ -2227,7 +2228,7 @@ app.whenReady().then(async () => {
     takeSnapshot(win);
     return;
   }
-  telegramKey.ready(); // the phone's bot answers from the start (Settings › Phone)
+  telegramKey.ready(); // the phone's bot answers from the start (Permissions › Phone)
   if (isMac) app.dock?.hide();
   tray = new Tray(nativeImage.createFromPath(path.join(here, "assets", ICONS.idle)));
   // Windows/Linux: a left click opens the bar (macOS shows the menu).
