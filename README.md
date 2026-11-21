@@ -47,9 +47,12 @@ first time an agent uses the mouse or keyboard for you, or you dictate. Reopen s
   an agent and nothing is read aloud. The key is read from the keyboard's state, never by watching
   keystrokes (macOS: as ⌥⌘, no Input Monitoring; Windows: GetAsyncKeyState; X11: XQueryKeymap), and
   other keys are only looked at, for whether one is down, while a modifier is held. Another key or a
-  click while you hold it cancels, so shortcuts and special characters still work. Right Alt isn't
-  used on Windows and Linux: let go on its own it opens apps' menu bars, and it is AltGr on many
-  layouts. The words go in at once on macOS and Windows (up to 20 characters a key event) and about
+  click while you hold it cancels, so shortcuts and special characters still work. **No right-hand
+  key on your keyboard?** Pick **Ctrl twice** (⌃ twice on macOS) in Settings › Keys or the menu bar's
+  Keys › Dictation key: tap Ctrl, then press it again within 0.4 s and hold it while you talk. Either
+  Ctrl counts; a Ctrl held without the tap, a slow second press, or another key between does nothing.
+  Right Alt isn't used on Windows and Linux: let go on its own it opens apps' menu bars, and it is
+  AltGr on many layouts. The words go in at once on macOS and Windows (up to 20 characters a key event) and about
   30 characters a second on Linux (a key each, held as IBus needs to keep them in order). Typing goes through the same checks as an agent's (never into Dune
   Bot itself; never into an app run as administrator on Windows; Accessibility asked the first time on
   macOS). Turn it off in Settings › Keys, or in the menu bar. Wayland doesn't let apps see which
@@ -345,7 +348,7 @@ python3 -I scripts/check_deepgram_live.py core/target/debug/dunebot-core <.env f
                                    # real Deepgram the same way: American English streamed and whole, Hindi to Sarvam, a wrong key
 node scripts/check_follow.mjs      # where the card goes as it follows the pointer (never on it, on screen, no flapping); moving toward it holds it
 node scripts/check_dictation.mjs   # dictation: words fed to the core (no mic) typed exactly through input.mjs (fake addon); refusals type nothing
-node scripts/check_dictation_keys_live.mjs   # Windows, Linux X11: Right Ctrl pressed for real (addon), the core starts/ends/cancels a dictation
+node scripts/check_dictation_keys_live.mjs   # Windows, Linux X11: Right Ctrl, then Ctrl twice, pressed for real (addon), the core starts/ends/cancels a dictation
 node scripts/check_dictation_press.mjs   # Wayland's pressed shortcut: start, end a moment later, double tap, stop key, the desktop asking first
 ```
 
@@ -384,7 +387,7 @@ on macOS, Windows and Linux. What each system forces:
 | Bar and setup surface | Apple's Liquid Glass edge (macOS 26+) around a solid dark fill, always dark | the same dark, solid | the same dark, solid |
 | Open the bar | tap ⌥⌘ (opens at the chosen place) | Ctrl+Alt+Space (or the next free of Alt+Shift+Space, Ctrl+Shift+Space) | same as Windows; on Wayland through the desktop's shortcut portal (it asks once) |
 | Talk | hold ⌥⌘ or the mic button | hold the mic button | hold the mic button |
-| Dictate (typed where you are) | hold Right ⌥ alone | hold Right Ctrl alone | hold Right Ctrl alone on X11; GNOME on Wayland: press its shortcut, talk, press again (no held keys for apps); other Wayland desktops not yet |
+| Dictate (typed where you are) | hold Right ⌥ alone, or ⌃ twice (tap, then hold) | hold Right Ctrl alone, or Ctrl twice | hold Right Ctrl alone, or Ctrl twice, on X11; GNOME on Wayland: press its shortcut, talk, press again (no held keys for apps); other Wayland desktops not yet |
 | Answer card | solid dark card that follows the pointer, read aloud | the same; Windows voices | the same on X11 (following not yet run on a real Linux display); the system voice needs speech-dispatcher; on Wayland it stays where it opened (Wayland doesn't tell apps where the pointer is) |
 | Clicking the answer card | while the pointer is on it | while the pointer is on it | only while a card waits for your OK (the window can't tell where the pointer is) |
 | Setup asks for | mic, notifications, Desktop/Documents/Downloads, speech model, Screen Recording | speech model (shows the mic if Windows has it off) | speech model |

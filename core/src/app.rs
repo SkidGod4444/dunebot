@@ -50,7 +50,9 @@ fn min_read_time() -> Duration {
 /// `keys.chord`: the keys that tap/hold on macOS ("opt-cmd" ⌥⌘ by default, "ctrl-opt", "ctrl-cmd", "right-cmd").
 /// `dictation`: "off" stops Right ⌥ held alone from typing what you say (macOS; unset is on).
 /// `look.theme`: Dune Bot's colours: unset is dark; "light", or "system" to follow the computer.
-pub const PREFS: [&str; 10] = ["agent", "bar.thread", "setup.done", "setup.folders", "bar.place", "voice.speak", "voice.engine", "keys.chord", crate::dictation::PREF, "look.theme"];
+/// `dictation.key`: the key dictation listens for (dictation::CHOICES; unset is Right ⌥ / Right Ctrl).
+pub const PREFS: [&str; 11] =
+    ["agent", "bar.thread", "setup.done", "setup.folders", "bar.place", "voice.speak", "voice.engine", "keys.chord", crate::dictation::PREF, "look.theme", crate::dictation::KEY_PREF];
 
 pub struct App {
     pub out: Out,
@@ -411,6 +413,9 @@ impl App {
         if key == crate::dictation::PREF {
             crate::dictation::check(value)?;
         }
+        if key == crate::dictation::KEY_PREF {
+            crate::dictation::check_key(value)?;
+        }
         self.db(|d| d.set_setting(&format!("pref.{key}"), value))?;
         if key == "keys.chord" {
             let label = crate::keys::choose(Some(value));
@@ -418,6 +423,9 @@ impl App {
         }
         if key == crate::dictation::PREF {
             crate::dictation::set(self, value);
+        }
+        if key == crate::dictation::KEY_PREF {
+            crate::dictation::set_key(self, value);
         }
         Ok(())
     }

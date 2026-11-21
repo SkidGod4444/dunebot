@@ -1,5 +1,6 @@
 // Dictation: hold Right ⌥ (macOS) or Right Ctrl (Windows, Linux on X11) on its own and talk; let go,
-// and the core types what you said into the app in front. Wayland lets apps see no held keys: there a
+// and the core types what you said into the app in front. A keyboard without that key picks "Ctrl
+// twice" instead (tap Ctrl, then hold it), in the menu bar's Keys or Settings › Keys. Wayland lets apps see no held keys: there a
 // shortcut of the desktop's (GNOME's, gnome-keys.mjs) is pressed once to start and again to type. core/src/dictation.rs decides everything (the keys, what's typed, the sentence when
 // it can't); here the microphone opens as for a hold to talk, with the "Listening…" card, and the menu
 // bar has its switch. What was said never passes through here, and the log keeps only its length.
@@ -23,9 +24,13 @@
 export function createDictation(h) {
   let hold = null; // the hold in progress: its start, so a release or cancel waits for the mic to open
   let typing = false;
-  let watching = false; // the core watches the key (the desktop app; not on Wayland)
+  let watching = false; // the core reads the keyboard (the desktop app; not on Wayland)
+  let usable = false; // and the chosen key is on it (Linux: a keyboard may have no Right Ctrl)
   let on = true;
   let keys = "Right ⌥";
+  let holdHow = null; // what's done with the key: "hold Right ⌥", "tap ⌃, then hold it"
+  let chosen = null; // the key picked (pref dictation.key), and what can be picked
+  let choices = [];
   let pressKey = null; // Wayland: the shortcut pressed to start and again to type
   let lastPress = 0;
 
@@ -110,18 +115,22 @@ export function createDictation(h) {
   }
 
   /** What the user does, for the menu bar. */
-  const how = () => (pressKey && !watching ? `press ${pressKey}` : `hold ${keys}`);
-  const available = () => watching || !!pressKey;
+  const how = () => (pressKey && !watching ? `press ${pressKey}` : holdHow || `hold ${keys}`);
+  const available = () => usable || !!pressKey;
 
   function onEvent(m) {
     switch (m.event) {
       case "dictation":
         return onKeys(m.kind);
       case "dictation.ready":
-        watching = !!m.available;
+        usable = !!m.available;
+        watching = m.watching ?? usable;
         on = !!m.on;
         keys = m.keys || keys;
-        h.log(`dictation ${available() ? (on ? `on (${how()})` : "off") : "unavailable"}`);
+        holdHow = m.how || null;
+        chosen = m.key || null;
+        choices = Array.isArray(m.choices) ? m.choices : [];
+        h.log(`dictation ${available() ? (on ? `on (${how()})` : "off") : watching ? `unavailable: no ${keys} on this keyboard` : "unavailable"}`);
         return h.refreshTray();
       case "dictation.state":
         hold = null; // the recording is over (its words, or why none), even one that stopped itself at 60 s
@@ -134,11 +143,19 @@ export function createDictation(h) {
 
   /** The menu bar: what the key does, under Talk (when it's on). */
   const hint = () => (available() && on ? [{ label: `Dictate                  ${how()}`, enabled: false }] : []);
-  /** The menu bar's Keys: the switch. */
-  const menu = () =>
-    available()
-      ? [{ type: "separator" }, { label: `${how()[0].toUpperCase()}${how().slice(1)} to type what you say`, type: "checkbox", checked: on, click: () => h.savePref("dictation", on ? "off" : "on") }]
-      : [];
+  /** The menu bar's Keys: the switch, and which key (when the keyboard is read: not on Wayland). */
+  const menu = () => {
+    if (!available() && !watching) return [];
+    const items = [{ type: "separator" }];
+    if (available()) items.push({ label: `${how()[0].toUpperCase()}${how().slice(1)} to type what you say`, type: "checkbox", checked: on, click: () => h.savePref("dictation", on ? "off" : "on") });
+    else items.push({ label: `Dictation: this keyboard has no ${keys}`, enabled: false });
+    if (watching && choices.length > 1)
+      items.push({
+        label: "Dictation key",
+        submenu: choices.map((c) => ({ label: c.label, type: "radio", checked: c.name === chosen, click: () => h.savePref("dictation.key", c.name) })),
+      });
+    return items;
+  };
 
   if (h.test)
     h.test.ipcMain.on("test:dictate", (e, text) => {

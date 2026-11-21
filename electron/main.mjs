@@ -127,7 +127,8 @@ function startCore() {
   const env = { ...process.env };
   delete env.DUNEBOT_SARVAM_ENV; // a developer's one-time import (below); agents inherit the core's env
   // The core watches the keys: on macOS the ⌥⌘ chord (tap opens the bar, hold talks) and Right ⌥ for
-  // dictation; on Windows and Linux (X11) Right Ctrl for dictation (core/src/dictation.rs).
+  // dictation; on Windows and Linux (X11) Right Ctrl for dictation, or Ctrl twice on any keyboard
+  // (pref dictation.key; core/src/dictation.rs).
   if (!snapshot && !selfcheck) env.DUNEBOT_CHORD = "1";
   const cm = codemaxBinary();
   if (cm) env.DUNEBOT_CODEMAX = cm;
