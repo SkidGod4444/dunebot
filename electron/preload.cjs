@@ -38,6 +38,8 @@ contextBridge.exposeInMainWorld("dunebot", {
   wayland: !process.env.DUNEBOT_SNAPSHOT && process.platform === "linux" && (process.env.XDG_SESSION_TYPE === "wayland" || !!process.env.WAYLAND_DISPLAY),
   call: (method, params) => ipcRenderer.invoke("core:call", method, params),
   pickFolder: () => ipcRenderer.invoke("pick-folder"),
+  // macOS: Apple's own Dictation is on (its shortcut may be Control twice, as "⌃ twice" is).
+  appleDictation: () => ipcRenderer.invoke("dictation:apple"),
   onEvent: listen("core:event"),
   onNav: listen("nav"),
   onLook: listen("look"),

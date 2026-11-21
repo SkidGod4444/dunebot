@@ -51,6 +51,8 @@ first time an agent uses the mouse or keyboard for you, or you dictate. Reopen s
   key on your keyboard?** Pick **Ctrl twice** (⌃ twice on macOS) in Settings › Keys or the menu bar's
   Keys › Dictation key: tap Ctrl, then press it again within 0.4 s and hold it while you talk. Either
   Ctrl counts; a Ctrl held without the tap, a slow second press, or another key between does nothing.
+  On macOS, Apple's own Dictation can be set to Control pressed twice too: when it's on, Settings says
+  so, and changing its shortcut (System Settings › Keyboard › Dictation) keeps them apart.
   Right Alt isn't used on Windows and Linux: let go on its own it opens apps' menu bars, and it is
   AltGr on many layouts. The words go in at once on macOS and Windows (up to 20 characters a key event) and about
   30 characters a second on Linux (a key each, held as IBus needs to keep them in order). Typing goes through the same checks as an agent's (never into Dune

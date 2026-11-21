@@ -50,6 +50,16 @@ export function DictationSetting() {
   const chosen = choices.find((c) => c.name === picked) ?? choices[0];
   const twice = chosen.name === "ctrl-twice";
   const ctrl = mac ? "⌃" : "Ctrl";
+  // macOS: Apple's own Dictation on, whose shortcut may be Control twice too (looked at again on each pick).
+  const [apple, setApple] = useState(false);
+  useEffect(() => {
+    if (!mac || !twice) return setApple(false);
+    let live = true;
+    window.dunebot.appleDictation?.().then((yes) => live && setApple(yes)).catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [mac, twice]);
   const save = async (key: string, value: string) => {
     const r = await call<{ prefs: Record<string, string | null> }>("prefs.set", { key, value });
     set({ prefs: r.prefs });
@@ -83,7 +93,7 @@ export function DictationSetting() {
           <span className="flex-1 text-[14px] font-medium">
             Dictation key
             <span className="block text-[13px] font-normal text-muted">
-              {`No ${choices[0].label} on your keyboard? Pick ${choices[1].label}: tap ${ctrl}, then hold it. Every keyboard has a ${ctrl}, and a ${ctrl} held without the tap does nothing.${mac && twice ? " If the Mac's own Dictation shortcut is set to Control twice, change that one in System Settings › Keyboard." : ""}`}
+              {`No ${choices[0].label} on your keyboard? Pick ${choices[1].label}: tap ${ctrl}, then hold it. Every keyboard has a ${ctrl}, and a ${ctrl} held without the tap does nothing.`}
             </span>
           </span>
           <div className="flex shrink-0 rounded-full bg-black/[.05] p-0.5">
@@ -98,6 +108,12 @@ export function DictationSetting() {
             ))}
           </div>
         </div>
+      )}
+      {apple && (
+        <p data-apple-dictation className="mt-3 rounded-xl border border-line px-3 py-2.5 text-[13px]">
+          Apple's Dictation is also turned on. If its shortcut is Control twice (System Settings › Keyboard › Dictation › Shortcut), ⌃ twice
+          starts both: pick another shortcut there, or Right ⌥ here.
+        </p>
       )}
     </div>
   );

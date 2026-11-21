@@ -9,6 +9,7 @@
  * @param {object} h
  * @param {(method: string, params?: object) => Promise<any>} h.call
  * @param {(...a: any[]) => void} h.log
+ * @param {() => Promise<boolean>} [h.appleDictationOn] macOS: Apple's own Dictation is on
  * @param {(m: object) => void} h.emit an event as if from the core (windows and the tray see it)
  * @param {() => boolean} h.micBlocked the system says no to the microphone
  * @param {(step?: string) => void} h.openSetup
@@ -31,6 +32,7 @@ export function createDictation(h) {
   let holdHow = null; // what's done with the key: "hold Right ⌥", "tap ⌃, then hold it"
   let chosen = null; // the key picked (pref dictation.key), and what can be picked
   let choices = [];
+  let apple = false; // ⌃ twice picked and Apple's own Dictation on: its shortcut may be Control twice too
   let pressKey = null; // Wayland: the shortcut pressed to start and again to type
   let lastPress = 0;
 
@@ -131,6 +133,13 @@ export function createDictation(h) {
         chosen = m.key || null;
         choices = Array.isArray(m.choices) ? m.choices : [];
         h.log(`dictation ${available() ? (on ? `on (${how()})` : "off") : watching ? `unavailable: no ${keys} on this keyboard` : "unavailable"}`);
+        apple = false;
+        if (chosen === "ctrl-twice" && h.appleDictationOn)
+          h.appleDictationOn().then((yes) => {
+            apple = yes && chosen === "ctrl-twice";
+            if (apple) h.log("dictation: Apple's own Dictation is on too; if its shortcut is Control twice, both start");
+            h.refreshTray();
+          });
         return h.refreshTray();
       case "dictation.state":
         hold = null; // the recording is over (its words, or why none), even one that stopped itself at 60 s
@@ -149,6 +158,7 @@ export function createDictation(h) {
     const items = [{ type: "separator" }];
     if (available()) items.push({ label: `${how()[0].toUpperCase()}${how().slice(1)} to type what you say`, type: "checkbox", checked: on, click: () => h.savePref("dictation", on ? "off" : "on") });
     else items.push({ label: `Dictation: this keyboard has no ${keys}`, enabled: false });
+    if (apple && on) items.push({ label: "Apple's Dictation is on too: if its shortcut is Control twice, both start", enabled: false });
     if (watching && choices.length > 1)
       items.push({
         label: "Dictation key",

@@ -7,6 +7,7 @@ interface Window {
     wayland?: boolean;
     call: (method: string, params?: Record<string, unknown>) => Promise<any>;
     pickFolder: () => Promise<string | null>;
+    appleDictation: () => Promise<boolean>;
     onEvent: (fn: (msg: any) => void) => () => void;
     onNav: (fn: (view: string) => void) => () => void;
     onLook: (fn: (look: { material: "glass" | "vibrancy" | "none"; radius?: number; standin?: boolean }) => void) => () => void;
