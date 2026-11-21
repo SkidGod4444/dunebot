@@ -19,7 +19,8 @@ import { Level } from "./ui";
  * 2026-11-18; never a card per step), the answer, an error, and approval cards (clickable: the card
  * takes the mouse while the pointer is on it).
  */
-export type CaptionShow = { threadId: string | null; side: "below" | "above"; align: "left" | "right"; speak: boolean };
+// n: main's number for this card (closing it says which card closed); none when a test opens it.
+export type CaptionShow = { threadId: string | null; side: "below" | "above"; align: "left" | "right"; speak: boolean; n?: number };
 
 const linux = window.dunebot.platform === "linux";
 
@@ -77,9 +78,15 @@ export function Caption() {
   const turnFor = useRef<string | null>(null); // the question whose turn is being read
   const scroller = useRef<HTMLDivElement>(null);
   const moving = useRef(false); // following the pointer: it can't be pointed at, so hovering is ignored
+  // Counts the cards opened. A fade or close timer from a card before this one does nothing: it can
+  // fire after a new card opened but before the page drew it, and would close the new card unheard.
+  const opened = useRef(0);
+  const cardN = useRef<number | undefined>(undefined); // main's number for the card open now
 
   useEffect(() => {
     const open = (s: CaptionShow) => {
+      opened.current++;
+      cardN.current = s.n;
       speaker.current?.stop();
       speaker.current = null;
       turnFor.current = null;
@@ -210,16 +217,19 @@ export function Caption() {
     setFading(false);
     if (active) return;
     const read = empty ? 0 : Math.min(14000, Math.max(4000, 2500 + (reply?.text.length ?? note?.length ?? 0) * 35));
-    const t = window.setTimeout(() => setFading(true), read);
+    const card = opened.current;
+    const t = window.setTimeout(() => opened.current === card && setFading(true), read);
     return () => window.clearTimeout(t);
   }, [show, active, empty, reply?.text.length]);
   useEffect(() => {
     if (!fading) return;
+    const card = opened.current;
     const t = window.setTimeout(() => {
+      if (opened.current !== card) return; // a newer card opened while this one faded
       speaker.current?.stop();
       setHover(false);
       setShow(null);
-      window.dunebot.caption.hide();
+      window.dunebot.caption.hide(cardN.current);
     }, 320);
     return () => window.clearTimeout(t);
   }, [fading]);
@@ -235,7 +245,7 @@ export function Caption() {
     speaker.current?.stop();
     setHover(false);
     setShow(null);
-    window.dunebot.caption.hide();
+    window.dunebot.caption.hide(cardN.current);
   };
   // Short states (listening, working, a step) hug their words; an answer or a card takes the full
   // width at once, so its lines don't reflow as it grows.

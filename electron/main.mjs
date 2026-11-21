@@ -783,6 +783,9 @@ function createCaption() {
 
 /** Shows a chat beside the pointer (`corner`: the screen's top right, for a card waiting in a chat
  * you didn't ask from the bar). `threadId` null: just "Listening…" while you hold ⌥⌘. */
+// Each card shown gets the next number: the page closes a card by its number, so a card that finished
+// closing just after a newer one opened can't hide the newer one (its answer would be read unseen).
+let captionShown = 0;
 function showCaption(threadId, { speak = true, corner = false, held = false } = {}) {
   if (!caption || caption.isDestroyed()) createCaption();
   const p = pointer();
@@ -796,7 +799,7 @@ function showCaption(threadId, { speak = true, corner = false, held = false } = 
   trail = [];
   captionPlace = { side, align };
   lastPointer = p;
-  const msg = { threadId, side, align, speak };
+  const msg = { threadId, side, align, speak, n: ++captionShown };
   const tell = () => caption.webContents.send("caption:show", msg);
   if (caption.webContents.isLoading()) caption.webContents.once("did-finish-load", tell);
   else tell();
@@ -818,8 +821,10 @@ function hideCaption() {
   updateFollow();
 }
 
-ipcMain.on("caption:hide", (e) => {
-  if (caption && e.sender === caption.webContents) hideCaption();
+ipcMain.on("caption:hide", (e, n) => {
+  if (!caption || e.sender !== caption.webContents) return;
+  if (typeof n === "number" && n !== captionShown) return log("caption: an older card's close ignored (a newer card is open)");
+  hideCaption();
 });
 let captionWantsMouse = false; // the pointer is on the card (the page says so)
 let pointerBusy = 0; // Dune Bot is using the mouse for an agent

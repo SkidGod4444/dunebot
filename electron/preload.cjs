@@ -92,7 +92,7 @@ contextBridge.exposeInMainWorld("dunebot", {
     onFocus: listen("bar:focus"),
   },
   caption: {
-    hide: () => ipcRenderer.send("caption:hide"),
+    hide: (n) => ipcRenderer.send("caption:hide", typeof n === "number" ? n : null), // the number of the card closing
     mouse: (on) => ipcRenderer.send("caption:mouse", !!on),
     onShow: latest("caption:show"),
     onHush: listen("caption:hush"),
