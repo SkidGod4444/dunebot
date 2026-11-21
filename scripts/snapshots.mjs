@@ -74,15 +74,15 @@ const SHOTS = [
   ["fixes", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "fixes-page.js") }],
   ["schedules", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "schedules.js") }],
   ["permissions", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions.js") }],
-  // Settings (bottom of the sidebar, or ⌘,): Dune Bot's own choices; Permissions keeps what agents may do.
+  // Settings (bottom of the sidebar, or ⌘,): the look, keys and voice; Permissions keeps every safety control.
   ["settings", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "settings.js") }],
   ["permissions-voice", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-voice.js") }],
   // Settings › Look: the other theme picked; the window's colours follow (drawn in the one picked).
   ["permissions-theme", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-theme.js") }],
-  // Settings › Bots (three bots, one open in the editor), and the bar's picker with them in it.
+  // Permissions › Bots (three bots, one open in the editor), and the bar's picker with them in it.
   ["bots", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bots.js") }],
   ["bar-bots", "bar", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bar-bots.js") }],
-  // Settings › Phone (the Telegram bot): no token; then drawn with a pairing code, and paired.
+  // Permissions › Phone (the Telegram bot): no token; then drawn with a pairing code, and paired.
   ["permissions-phone", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-phone.js") }],
   ["permissions-phone-code", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-phone-code.js") }],
   ["permissions-phone-paired", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-phone-paired.js") }],
@@ -222,22 +222,22 @@ for (const theme of ["light", "dark"])
       else note += " waited for the reading to end";
     }
     if (name === "settings") {
-      // ⌘, opens Settings; Permissions has only what agents may do; Settings has the rest, in order.
+      // ⌘, opens Settings (look, keys, voice); every safety control stays on Permissions.
       let res = null;
       try {
         res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
       } catch {}
-      const want = "Look,Keys,Voice,Connectors,Phone,Bots";
+      const want = "Look,Keys,Voice";
       const ok =
         res?.byKey === "Settings" &&
         res.permissions.title === "Permissions" &&
-        res.permissions.sections.join() === "Always off limits" &&
+        res.permissions.sections.join() === "Connectors,Phone,Bots,Always off limits" &&
         !res.permissions.theme &&
         res.settings.title === "Settings" &&
         res.settings.sections.join() === want &&
         res.settings.active;
       if (!ok) problems.push(`${name} ${theme}: pages ${JSON.stringify(res)}`);
-      else note += ` ⌘, opens it; Settings: ${want}; Permissions: what agents may do`;
+      else note += ` ⌘, opens it; Settings: ${want}; Permissions: actions, Connectors, Phone, Bots, off limits`;
     }
     if (name === "permissions-theme") {
       // Picking Light in a dark window (Dark in a light one) turns the whole window over, and it stays picked.

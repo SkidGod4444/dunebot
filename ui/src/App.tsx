@@ -518,7 +518,7 @@ function Permissions() {
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[640px] px-6 pb-12">
           <h1 className="font-pixel text-[32px] leading-tight">Permissions</h1>
-          <p className="mt-1 text-[15px] text-muted">What agents may do on this computer. These apply to every chat. Dune Bot's own choices are in Settings.</p>
+          <p className="mt-1 text-[15px] text-muted">What agents may do on this computer, with your accounts and from your phone. These apply to every chat. The look, keys and voice are in Settings.</p>
           <div className="mt-6 divide-y divide-line rounded-2xl border border-line">
             {modes.filter((r) => !isConnectorAction(r.action)).map((r) => (
               <div key={r.action} className="px-4 py-3.5">
@@ -559,6 +559,12 @@ function Permissions() {
               </div>
             ))}
           </div>
+          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Connectors</h2>
+          <Connectors />
+          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Phone</h2>
+          <PhoneSettings />
+          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Bots</h2>
+          <BotsSettings />
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Always off limits</h2>
           <div className="rounded-2xl bg-side px-4 py-3.5">
             <p className="text-[14px] text-ink/70">Dune Bot's file tools never read or change these, whatever the settings above say:</p>
@@ -615,8 +621,8 @@ function ThemeSettings() {
   );
 }
 
-/** Settings: Dune Bot's own choices (the look, keys, voice, accounts, phone, bots). What agents may do
- *  is on Permissions. */
+/** Settings: Dune Bot's own choices (the look, keys, voice). Everything about what may be done (agents,
+ *  connected accounts, the phone, bots) stays on Permissions, in one place. */
 function SettingsPage() {
   return (
     <>
@@ -624,7 +630,7 @@ function SettingsPage() {
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[640px] px-6 pb-12">
           <h1 className="font-pixel text-[32px] leading-tight">Settings</h1>
-          <p className="mt-1 text-[15px] text-muted">How Dune Bot looks, listens and talks, and the accounts and phone it works with.</p>
+          <p className="mt-1 text-[15px] text-muted">How Dune Bot looks, its keys, and how it listens and talks. What agents, bots, your accounts and your phone may do is in Permissions.</p>
           <h2 className="mt-6 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Look</h2>
           <ThemeSettings />
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Keys</h2>
@@ -632,12 +638,6 @@ function SettingsPage() {
           <DictationSetting />
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Voice</h2>
           <VoiceSettings />
-          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Connectors</h2>
-          <Connectors />
-          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Phone</h2>
-          <PhoneSettings />
-          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Bots</h2>
-          <BotsSettings />
         </div>
       </div>
     </>

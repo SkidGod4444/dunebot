@@ -15,7 +15,7 @@ function mayText(may: string[]) {
   return `May: ${MAY.filter(([k]) => may.includes(k)).map(([, label]) => label.toLowerCase()).join(", ")}`;
 }
 
-/** Settings › Bots: the user's own bots, each with a role and the engine it runs on (core/src/team.rs). */
+/** Permissions › Bots: the user's own bots, each with a role and the engine it runs on (core/src/team.rs). */
 export function BotsSettings() {
   const bots = useBots();
   const agents = useStore((s) => s.agents);

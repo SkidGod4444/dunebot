@@ -1,4 +1,4 @@
-// Settings › Phone with a token handed over and no chat paired yet: the code to send.
+// Permissions › Phone with a token handed over and no chat paired yet: the code to send.
 window.__phoneState = {
   key: { saved: true, canSave: true },
   phone: { token: true, bot: "@my_dunebot", code: "K7QPM2XD", paired: null, reads: false, files: false, actions: false, problem: null },
@@ -9,7 +9,7 @@ window.__phoneState = {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const end = Date.now() + 5000;
   while (Date.now() < end && !dm.get().modes.length) await sleep(100);
-  dm.set({ view: "settings" });
+  dm.set({ view: "permissions" });
   const until = Date.now() + 12000;
   let row;
   while (Date.now() < until && !(row = [...document.querySelectorAll("span")].find((s) => s.textContent?.startsWith("Telegram bot")))) await sleep(100);

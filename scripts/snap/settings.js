@@ -1,6 +1,6 @@
 // Settings, at the bottom of the sidebar: ⌘, (Ctrl+, off the Mac) opens it; the sidebar's Permissions
-// and Settings buttons each open their own page, and each holds only its own sections. Drawn on
-// Settings, from the top.
+// and Settings buttons each open their own page. Settings has the look, keys and voice; Permissions
+// keeps every safety control (actions, accounts, the phone, bots). Drawn on Settings, from the top.
 (async () => {
   const dm = window.__dm;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

@@ -81,8 +81,8 @@ first time an agent uses the mouse or keyboard for you, or you dictate. Reopen s
   in a chat you didn't ask from the bar, the card appears in the screen's top corner and a
   notification says so.
 - **Settings** (bottom of that window's sidebar, **Settings…** in the menu bar, or ⌘, / Ctrl+,):
-  the look, keys and dictation, voice, connectors, phone and bots. **Permissions**, beside it, is
-  what agents may do.
+  the look, keys and dictation, and voice. **Permissions**, beside it, keeps everything about what
+  may be done: each action, your connected accounts, your phone, your bots, and what's off limits.
 
 ### What agents may do
 

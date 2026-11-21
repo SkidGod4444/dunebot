@@ -58,7 +58,7 @@ async fn main() -> anyhow::Result<()> {
     app.set_mcp_port(port);
     agent::spawn_reaper(app.clone());
     schedule::spawn(app.clone());
-    // The user's Telegram bot (Settings › Phone): polls once the app hands over its token.
+    // The user's Telegram bot (Permissions › Phone): polls once the app hands over its token.
     telegram::spawn(app.clone());
     {
         let app = app.clone();

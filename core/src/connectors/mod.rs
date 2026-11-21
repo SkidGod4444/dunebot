@@ -175,7 +175,7 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> 
 
 fn reconnect_text(s: Source) -> String {
     format!(
-        "The user's {} sign-in has stopped working (it was revoked or ran out). Tell them to open Dune Bot's Settings › Connectors and press Reconnect.",
+        "The user's {} sign-in has stopped working (it was revoked or ran out). Tell them to open Dune Bot's Permissions › Connectors and press Reconnect.",
         vendor::label(s)
     )
 }
@@ -211,7 +211,7 @@ async fn load(app: &App, s: Source) -> Result<Secret, String> {
     }
     let label = vendor::label(s);
     if meta(app, s).is_none() {
-        return Err(format!("The user's {label} isn't connected. They can connect it in Dune Bot's Settings › Connectors."));
+        return Err(format!("The user's {label} isn't connected. They can connect it in Dune Bot's Permissions › Connectors."));
     }
     let first = app.connectors.asked_app.lock().unwrap().insert(s);
     if first {
@@ -223,7 +223,7 @@ async fn load(app: &App, s: Source) -> Result<Secret, String> {
         app.connectors.waiting.lock().unwrap().remove(&id);
     }
     app.connectors.secrets.lock().unwrap().get(&s).cloned().ok_or_else(|| {
-        format!("Dune Bot couldn't unlock the saved {label} sign-in on this computer. Tell the user to open Settings › Connectors and Reconnect {label}.")
+        format!("Dune Bot couldn't unlock the saved {label} sign-in on this computer. Tell the user to open Permissions › Connectors and Reconnect {label}.")
     })
 }
 
@@ -604,8 +604,8 @@ fn status_text(app: &App) -> String {
         .map(|s| {
             let state = match meta(app, s).map(|m| m.state) {
                 Some(st) if st == "connected" => "connected",
-                Some(_) => "needs Reconnect in Settings › Connectors",
-                None => "not connected (the user can connect it in Settings › Connectors)",
+                Some(_) => "needs Reconnect in Permissions › Connectors",
+                None => "not connected (the user can connect it in Permissions › Connectors)",
             };
             format!("- {}: {state}", vendor::label(s))
         })
