@@ -5,6 +5,7 @@ import { Check, ChevronDown, ShieldAlert, ShieldCheck, ShieldX, Trash2, Wrench }
 import { AGENT_LOOK, agentName, answer, call, errorText, toast, type Message } from "./store";
 import mascot from "./mascot.svg";
 import { botLook } from "./bots";
+import { isSendKey } from "./ui";
 
 /** A short question under the button that opened it (Undo, Delete…). Escape or a click outside
  * closes it. Cancel takes the keyboard: Enter that opened it (or a second press) never confirms;
@@ -133,8 +134,7 @@ export function TeachFix({ failure, detail, threadId }: { failure: string; detai
         maxLength={500}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
-          // isComposing: Enter that picks a word in an input method (Japanese, Chinese…) isn't "save".
-          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+          if (isSendKey(e)) {
             e.preventDefault();
             save();
           } else if (e.key === "Escape") setState("closed");

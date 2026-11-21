@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Maximize2, Volume2, VolumeX, X } from "lucide-react";
 import { agentName, get, keysLabel, openThread, savePref, set, useStore, type Message } from "./store";
-import { ApprovalCard } from "./parts";
+import { ApprovalCard, noteStream } from "./parts";
 import { Reply, Typing, TypingLine } from "./reply";
 import { stepLine } from "./steps";
 import { useSmoothText } from "./smooth";
-import { noteStream } from "./parts";
 import { useStickToBottom } from "./stick";
 import { Speaker } from "./speak";
 import { useDictation } from "./dictation";
+import { Level } from "./ui";
 
 /**
  * The answer beside the pointer (HeyClicky-style): no chat, just what Dune Bot is doing now and its
@@ -370,17 +370,6 @@ function Working({ step }: { step?: Message }) {
         </span>
       )}
     </div>
-  );
-}
-
-/** Live microphone level as five bars. */
-function Level({ level }: { level: number }) {
-  return (
-    <span className="inline-flex h-5 items-center gap-[3px]" aria-hidden>
-      {[0.55, 0.85, 1, 0.8, 0.5].map((w, i) => (
-        <span key={i} className="w-[3px] rounded-full bg-brand transition-[height] duration-75" style={{ height: `${Math.max(4, Math.round(20 * Math.min(1, level * 1.6) * w))}px` }} />
-      ))}
-    </span>
   );
 }
 
