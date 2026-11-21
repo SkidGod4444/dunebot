@@ -548,6 +548,8 @@ function Permissions() {
           </div>
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Bots</h2>
           <BotsSettings />
+          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Look</h2>
+          <ThemeSettings />
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Keys</h2>
           {window.dunebot.platform === "darwin" && <KeySettings />}
           <DictationSetting />
@@ -573,6 +575,43 @@ function Permissions() {
         </div>
       </div>
     </>
+  );
+}
+
+const THEMES = [
+  ["dark", "Dark"],
+  ["light", "Light"],
+  ["system", "Match the system"],
+] as const;
+
+/** Dune Bot's colours in every window: dark unless you pick Light or Match the system. */
+function ThemeSettings() {
+  const saved = useStore((s) => s.prefs["look.theme"]);
+  const now = THEMES.some(([k]) => k === saved) ? saved : "dark";
+  const pick = async (value: string) => {
+    const r = await call<{ prefs: Record<string, string | null> }>("prefs.set", { key: "look.theme", value });
+    set({ prefs: r.prefs });
+  };
+  return (
+    <div className="rounded-2xl border border-line px-4 py-3.5">
+      <div className="flex items-center gap-4">
+        <span className="flex-1 text-[15px] font-medium">Theme</span>
+        <div className="flex rounded-full bg-black/[.05] p-0.5">
+          {THEMES.map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => pick(k)}
+              className={`h-8 rounded-full px-3.5 text-[13px] font-semibold ${now === k ? "bg-white text-ink shadow-[0_1px_2px_rgba(0,0,0,.1)]" : "text-[#777] hover:text-ink"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="mt-1.5 text-[13px] text-muted">
+        The bar, the answer card, setup and this window. Match the system switches with your computer's light and dark. Also in the menu bar: Theme.
+      </p>
+    </div>
   );
 }
 
