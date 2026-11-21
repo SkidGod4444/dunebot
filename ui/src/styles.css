@@ -3,8 +3,8 @@
 @source "../../node_modules/streamdown/dist/*.js";
 @source "../../node_modules/@streamdown/code/dist/*.js";
 
-/* `dark:` follows the page's colour scheme. Dunebot is always dark (electron/main.mjs forces it);
-   light is only drawn by the snapshot tests. */
+/* `dark:` follows the page's colour scheme, which follows the Theme you pick (Permissions › Look:
+   dark by default, light, or the system's; electron/main.mjs sets Electron's themeSource). */
 @custom-variant dark {
   @media (prefers-color-scheme: dark) {
     @slot;
@@ -29,7 +29,7 @@
   font-display: swap;
 }
 
-/* Dark colours (Dunebot is always dark; the light ones are only drawn by the snapshot tests).
+/* Dark colours (the default theme; light is the colours above).
    `white`/`black` are remapped too, so "text-white on bg-ink" (buttons, your messages) and
    "bg-white" (cards) flip together. */
 :root {

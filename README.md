@@ -74,6 +74,9 @@ first time an agent uses the mouse or keyboard for you, or you dictate. Reopen s
   new chat.
 - **Where the bar opens:** bottom centre by default; menu bar › **Open the bar** picks top centre or
   next to the pointer.
+- **Light or dark:** dark by default; **Light**, or **Match the system** (switches with your
+  computer), in Permissions › Look or menu bar › **Theme**. Every window follows at once: the bar, the
+  answer card, setup and the chats.
 - **Chats & activity…** in the menu bar opens the full history window. When an agent needs your OK
   in a chat you didn't ask from the bar, the card appears in the screen's top corner and a
   notification says so.

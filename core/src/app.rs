@@ -49,7 +49,8 @@ fn min_read_time() -> Duration {
 /// `voice.engine`: "local" listens and reads aloud on this computer even when a Sarvam key is saved.
 /// `keys.chord`: the keys that tap/hold on macOS ("opt-cmd" ⌥⌘ by default, "ctrl-opt", "ctrl-cmd", "right-cmd").
 /// `dictation`: "off" stops Right ⌥ held alone from typing what you say (macOS; unset is on).
-pub const PREFS: [&str; 9] = ["agent", "bar.thread", "setup.done", "setup.folders", "bar.place", "voice.speak", "voice.engine", "keys.chord", crate::dictation::PREF];
+/// `look.theme`: Dune Bot's colours: unset is dark; "light", or "system" to follow the computer.
+pub const PREFS: [&str; 10] = ["agent", "bar.thread", "setup.done", "setup.folders", "bar.place", "voice.speak", "voice.engine", "keys.chord", crate::dictation::PREF, "look.theme"];
 
 pub struct App {
     pub out: Out,

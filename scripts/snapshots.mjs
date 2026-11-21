@@ -75,6 +75,8 @@ const SHOTS = [
   ["schedules", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "schedules.js") }],
   ["permissions", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions.js") }],
   ["permissions-voice", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-voice.js") }],
+  // Permissions › Look: the other theme picked; the window's colours follow (drawn in the one picked).
+  ["permissions-theme", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-theme.js") }],
   // Settings › Bots (three bots, one open in the editor), and the bar's picker with them in it.
   ["bots", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bots.js") }],
   ["bar-bots", "bar", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bar-bots.js") }],
@@ -216,6 +218,24 @@ for (const theme of ["light", "dark"])
       const done = log.indexOf("card done with the answer");
       if (read < 0 || done < 0 || done < read) problems.push(`${name} ${theme}: reading over at ${read}, card done at ${done} (done must come after)\n${log.split("\n").filter((l) => /speech|card |turn/.test(l)).slice(-8).join("\n")}`);
       else note += " waited for the reading to end";
+    }
+    if (name === "permissions-theme") {
+      // Picking Light in a dark window (Dark in a light one) turns the whole window over, and it stays picked.
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      const want = theme === "dark" ? ["Light", "light"] : ["Dark", "dark"];
+      const ok =
+        res?.found &&
+        res.buttons?.join() === "Dark,Light,Match the system" &&
+        res.before.dark === (theme === "dark") &&
+        res.after.dark === (theme !== "dark") &&
+        res.before.body !== res.after.body &&
+        res.picked === want[0] &&
+        res.pref === want[1];
+      if (!ok) problems.push(`${name} ${theme}: Theme ${JSON.stringify(res)}`);
+      else note += ` ${want[0]} picked: ${res.before.body} → ${res.after.body}`;
     }
     if (name.startsWith("permissions-phone")) {
       // { found, code, paired, switches }: the section is there with its three switches, and the state asked for.

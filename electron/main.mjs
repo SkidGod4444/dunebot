@@ -208,6 +208,7 @@ ipcMain.handle("core:call", (e, method, params) => {
     return call(method, params ?? {}).then((r) => {
       if (r?.prefs) {
         prefs = r.prefs;
+        if (params?.key === "look.theme") applyTheme();
         broadcast({ event: "prefs.updated", prefs: r.prefs });
         refreshTray();
       }
@@ -294,8 +295,8 @@ const liquidGlass = (() => {
 })();
 // Darwin 25 is macOS 26, the first with Liquid Glass (older systems get the package's blur instead).
 const glassOS = isMac && Number(os.release().split(".")[0]) >= 25;
-// The bar and setup: Apple's Control Center glass, dark (Dune Bot is always dark) and tinted 85%
-// toward the page's dark colour. The page paints its own solid fill over it (styles.css, `--dm-fill`),
+// The bar and setup: Apple's Control Center glass in the theme's light or dark, tinted 85% toward the
+// page's colour. The page paints its own solid fill over it (styles.css, `--dm-fill`),
 // so nothing behind shows through; the glass only adds its lit edge.
 const GLASS_STYLE = "controlCenter";
 const GLASS_TINT = 0.85;
@@ -418,6 +419,27 @@ function setKeys(name) {
   savePref("keys.chord", name).then(() => {
     broadcast({ event: "prefs.updated", prefs });
     log(`keys: ${keysLabel()}`);
+    refreshTray();
+  });
+}
+// Dune Bot's colours, in every window: dark unless you pick Light or Match the system (pref
+// `look.theme`; set in Permissions › Look or the menu bar's Theme). The pages follow the system's
+// light/dark, which Electron takes from `themeSource`; the glass tint and Windows/Linux title bars
+// follow on nativeTheme's "updated".
+const THEMES = [
+  ["dark", "Dark"],
+  ["light", "Light"],
+  ["system", "Match the system"],
+];
+const themeName = () => (THEMES.some(([k]) => k === prefs["look.theme"]) ? prefs["look.theme"] : "dark");
+function applyTheme() {
+  if (nativeTheme.themeSource !== themeName()) nativeTheme.themeSource = themeName();
+}
+function setTheme(name) {
+  savePref("look.theme", name).then(() => {
+    applyTheme();
+    broadcast({ event: "prefs.updated", prefs });
+    log(`theme: ${themeName()}`);
     refreshTray();
   });
 }
@@ -1869,6 +1891,7 @@ function refreshTray() {
         label: "Open the bar",
         submenu: BAR_PLACES.map(([k, label]) => ({ label, type: "radio", checked: barPlace() === k, click: () => setBarPlace(k) })),
       },
+      { label: "Theme", submenu: THEMES.map(([k, label]) => ({ label, type: "radio", checked: themeName() === k, click: () => setTheme(k) })) },
       ...(isMac && chord
         ? [{ label: "Keys", submenu: [...KEYS.map(([k, label]) => ({ label, type: "radio", checked: keysName() === k, click: () => setKeys(k) })), ...dictation.menu()] }]
         : isMac
@@ -2141,8 +2164,9 @@ app.on("second-instance", (_e, argv) => {
   showBar({ focus: true });
 });
 nativeTheme.on("updated", () => {
-  log(`system switched to ${nativeTheme.shouldUseDarkColors ? "dark" : "light"}${bar && addon ? `; bar window ${addon.windowAppearance(bar.getNativeWindowHandle())}` : ""}`);
+  log(`colours now ${nativeTheme.shouldUseDarkColors ? "dark" : "light"}${bar && addon ? `; bar window ${addon.windowAppearance(bar.getNativeWindowHandle())}` : ""}`);
   if (setupWin && !setupWin.isDestroyed() && !isMac) setupWin.setBackgroundColor(GLASS_PAPER());
+  if (mainWin && !mainWin.isDestroyed() && !isMac) mainWin.setBackgroundColor(PAPER());
   if (mainWin && !mainWin.isDestroyed() && !isMac) mainWin.setTitleBarOverlay(titleBarOverlay());
   refreshGlass(); // the tint is a fixed colour: swap it for the other mode's
 });
@@ -2190,7 +2214,7 @@ async function runSelfcheck() {
   app.exit(r.ok ? 0 : 1);
 }
 
-// Dune Bot is always dark, whatever the system is set to (snapshot tests can still draw light).
+// Dark until the saved theme is read (Permissions › Look; snapshot tests draw the theme they're given).
 nativeTheme.themeSource = snapshot && process.env.DUNEBOT_SNAPSHOT_THEME ? process.env.DUNEBOT_SNAPSHOT_THEME : "dark";
 app.whenReady().then(async () => {
   startCore();
@@ -2219,6 +2243,7 @@ app.whenReady().then(async () => {
   refreshTray();
   sarvamImport();
   prefs = (await call("settings.get").catch(() => ({}))).prefs ?? {};
+  applyTheme(); // before any window is shown (the bar and card are made hidden)
   refreshTray();
   agentsLoaded = call("agents.list")
     .then((r) => {
