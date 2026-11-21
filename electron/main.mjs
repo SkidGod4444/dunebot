@@ -77,6 +77,8 @@ if (process.argv.includes("--stop") && !snapshot && !selfcheck) {
   app.quit();
   process.exit(0);
 }
+// Dictation's key (`dunebot --dictate`, GNOME on Wayland) with no Dune Bot running: Dune Bot starts as
+// usual, and the next press dictates.
 
 function newest(files) {
   return files.filter((f) => fs.existsSync(f)).sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
@@ -1165,6 +1167,18 @@ const dictation = createDictation({
   hideListening: () => captionThread === null && hideCaption(),
   savePref: (key, value) => savePref(key, value).then(() => broadcast({ event: "prefs.updated", prefs })),
   refreshTray: () => refreshTray(),
+  // Wayland: the keyboard and pointer session, opened at the first press (GNOME may ask first).
+  readyToType: async () => {
+    if (!wl) return;
+    let s;
+    try {
+      s = await wl.ensure();
+    } catch (e) {
+      if (/remote desktop portal/i.test(e.message)) throw new Error("Nothing typed: this desktop doesn't let apps type for you.");
+      throw e;
+    }
+    if (!s?.hand) throw new Error(`Nothing typed: ${waylandDesktop} didn't let Dune Bot use the keyboard. Press the key again and allow it in the box.`);
+  },
   test: snapshot && process.env.DUNEBOT_DICTATION_TEST === "1" ? { ipcMain, from: (sender) => !!caption && sender === caption.webContents } : undefined,
 });
 
@@ -1455,12 +1469,14 @@ async function startGnomeKeys() {
   const command = [process.execPath, ...(app.isPackaged ? [] : [app.getAppPath()]), ...(process.argv.includes("--no-sandbox") ? ["--no-sandbox"] : [])];
   gnome = gnomeKeys({ command, log });
   await gnome.follow().catch((e) => log(`keys: couldn't read GNOME's shortcuts (${e.message})`));
+  dictation.setPressKey(gnome.dictateKey());
 }
 
 /** Every agent stops (the tray, the stop key, GNOME's top bar, a window's Stop all). On Wayland the
  * steps under way end at their next move and the screen session closes. */
 function stopAgents(why, { keepSession = false } = {}) {
   log(`stop: ${why}`);
+  dictation.stop(); // Wayland: a dictation waiting for its second press is called off
   hushCaption();
   highlight.clear("every agent was stopped");
   if (wl && !keepSession) wl.stop();
@@ -1623,7 +1639,7 @@ async function setupStatus() {
     folders: folderAnswers(),
     screen: screenStatus(),
     wayland: waylandAsks() ? (snapshot ? "GNOME" : waylandDesktop) : null,
-    gnomeKeys: gnome?.status() ?? (snapshot && process.env.DUNEBOT_SNAPSHOT_WAYLAND === "1" ? { added: false, bar: null, stop: null } : null),
+    gnomeKeys: gnome?.status() ?? (snapshot && process.env.DUNEBOT_SNAPSHOT_WAYLAND === "1" ? { added: false, bar: null, stop: null, dictate: null } : null),
     voice,
     done: prefs["setup.done"] === "1",
   };
@@ -1703,6 +1719,12 @@ ipcMain.handle("setup:ask", async (e, what) => {
       await gnome.add();
       hotkey = gnome.barKey();
       refreshTray();
+      break;
+    case "gnome-dictate-key":
+      // Its own yes: only dictation's shortcut is added (one the user removed stays removed).
+      if (!gnome) throw new Error("This desktop isn't GNOME.");
+      await gnome.add(["dictate"]);
+      dictation.setPressKey(gnome.dictateKey());
       break;
     case "mic-test":
       // The core records, not this app: check that sound actually reaches it.
@@ -2113,6 +2135,8 @@ app.setName("Dunebot");
 // Another launch: the GNOME shortcuts run `dunebot --bar` and `dunebot --stop`; anything else opens the bar.
 app.on("second-instance", (_e, argv) => {
   if (argv.includes("--stop")) return void stopAgents("the stop key");
+  // Before the bar: it would take the keyboard, and the words would be refused (never into Dune Bot).
+  if (argv.includes("--dictate")) return void dictation.press();
   if (argv.includes("--bar")) return toggleBar();
   showBar({ focus: true });
 });

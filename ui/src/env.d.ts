@@ -32,7 +32,7 @@ interface Window {
     };
     setup: {
       status: () => Promise<import("./Setup").SetupStatus>;
-      ask: (what: "mic" | "mic-test" | "notifications" | "folders" | "voice" | "screen" | "gnome-keys") => Promise<any>;
+      ask: (what: "mic" | "mic-test" | "notifications" | "folders" | "voice" | "screen" | "gnome-keys" | "gnome-dictate-key") => Promise<any>;
       openSettings: (what: "mic" | "notifications" | "folders" | "screen") => void;
       fit: (height: number) => void;
       finish: (done: boolean) => Promise<void>;

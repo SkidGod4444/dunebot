@@ -19,7 +19,7 @@ export type SetupStatus = {
    * screen, keyboard and pointer in one OK. */
   wayland?: string | null;
   /** GNOME on Wayland: Dune Bot's shortcuts in GNOME's settings (added only when the user says so). */
-  gnomeKeys?: { added: boolean; bar: string | null; stop: string | null } | null;
+  gnomeKeys?: { added: boolean; bar: string | null; stop: string | null; dictate?: string | null } | null;
 };
 
 type Tone = "ok" | "todo" | "off" | "busy" | "warn";
@@ -205,7 +205,7 @@ export function Setup() {
       <Row
         icon={<Mic size={17} />}
         title="Microphone"
-        why={mac ? `Hears you only while you hold ${keys} or the mic button. Nothing is recorded otherwise.` : "Hears you only while you hold the mic button. Nothing is recorded otherwise."}
+        why={mac ? `Hears you only while you hold ${keys} or the mic button. Nothing is recorded otherwise.` : "Hears you only while you hold the mic button or dictate. Nothing is recorded otherwise."}
         focus={step === "mic" && !micOk}
         {...(!asks.mic
           ? nothing
@@ -346,6 +346,22 @@ export function Setup() {
                 ? { tone: "ok" as Tone, label: "Added" }
                 : { tone: "todo" as Tone, label: "", action: { text: "Add", run: () => ask("gnome-keys") } })}
           />
+          <div className="mt-2">
+            <Row
+              icon={<Keyboard size={17} />}
+              title="Dictation key"
+              why={
+                gk.dictate
+                  ? `Press ${ctrl(gk.dictate)} and talk; press it again, and what you said is typed where your text cursor is. Change it in GNOME's Settings › Keyboard.`
+                  : "Wayland doesn't let apps see which keys are held, so dictation gets a shortcut in GNOME's settings: press it and talk, press it again, and what you said is typed where your text cursor is."
+              }
+              {...(asking === "gnome-dictate-key"
+                ? { tone: "busy" as Tone, label: "Adding" }
+                : gk.dictate
+                  ? { tone: "ok" as Tone, label: "Added" }
+                  : { tone: "todo" as Tone, label: "", action: { text: "Add", run: () => ask("gnome-dictate-key") } })}
+            />
+          </div>
         </div>
       )}
 

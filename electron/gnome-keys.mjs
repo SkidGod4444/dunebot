@@ -2,7 +2,8 @@
 // and older (no shortcut portal), and on Wayland moving the mouse can't stop Dune Bot. So, once the
 // user says yes in setup, Dune Bot adds two shortcuts to GNOME's Keyboard settings, as entries of
 // its own beside the user's: one asks Dune Bot, one stops every agent. Each runs Dune Bot again with
-// --bar or --stop, and the running Dune Bot gets that (app "second-instance").
+// --bar or --stop, and the running Dune Bot gets that (app "second-instance"). A third, dictation's
+// (--dictate: press to start listening, press again to type), is added only on its own yes.
 //
 // Nothing here runs a shell: gsettings gets its arguments as a list. The user can change or remove
 // the shortcuts in GNOME's Settings › Keyboard; a removed one is never put back.
@@ -14,7 +15,11 @@ const BASE = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/"
 const KEYS = [
   { id: "bar", path: `${BASE}dunebot-bar/`, name: "Dune Bot: ask", arg: "--bar", choices: ["<Control><Alt>space", "<Super><Alt>space", "<Control><Shift>space"] },
   { id: "stop", path: `${BASE}dunebot-stop/`, name: "Dune Bot: stop every agent", arg: "--stop", choices: ["<Control><Alt>period", "<Super><Alt>period", "<Control><Shift>period"] },
+  // Wayland lets apps see no held keys, so dictation is pressed once to start and once to type.
+  { id: "dictate", path: `${BASE}dunebot-dictate/`, name: "Dune Bot: dictate", arg: "--dictate", choices: ["<Super><Alt>d", "<Control><Super>d", "<Control><Alt>d"] },
 ];
+/** What setup's first "Add" adds; dictation's has its own. */
+const FIRST = ["bar", "stop"];
 
 const gsettings = (...args) =>
   new Promise((resolve, reject) =>
@@ -65,7 +70,7 @@ export async function onGnome() {
  * @param {(...a: any[]) => void} o.log
  */
 export function gnomeKeys({ command, log }) {
-  let state = { added: false, bar: null, stop: null };
+  let state = { added: false, bar: null, stop: null, dictate: null };
   const commandFor = (k) => [...command, k.arg].map(shq).join(" ");
 
   /** Every key combination GNOME already uses, but Dune Bot's own. */
@@ -83,7 +88,7 @@ export function gnomeKeys({ command, log }) {
   /** What GNOME has now: Dune Bot's shortcuts in its list, and their keys. */
   async function refresh() {
     const paths = quoted(await gsettings("get", LIST, "custom-keybindings").catch(() => ""));
-    const next = { added: false, bar: null, stop: null };
+    const next = { added: false, bar: null, stop: null, dictate: null };
     for (const k of KEYS) {
       if (!paths.includes(k.path)) continue;
       next[k.id] = gstr(await gsettings("get", `${ONE}:${k.path}`, "binding").catch(() => "")) || null;
@@ -96,14 +101,17 @@ export function gnomeKeys({ command, log }) {
   return {
     refresh,
     /** For the setup page: added or not, and the keys as people write them. */
-    status: () => ({ added: state.added, bar: shown(state.bar), stop: shown(state.stop) }),
+    status: () => ({ added: state.added, bar: shown(state.bar), stop: shown(state.stop), dictate: shown(state.dictate) }),
     /** The bar's key, as Electron writes accelerators (the tray shows it). */
     barKey: () => shown(state.bar),
-    /** The user said yes: both shortcuts, each on the first key combination GNOME doesn't use yet. */
-    async add() {
+    /** Dictation's key (pressed to start, again to type), or null. */
+    dictateKey: () => shown(state.dictate),
+    /** The user said yes: those shortcuts (setup's first: ask and stop; dictation's on its own yes),
+     * each on the first key combination GNOME doesn't use yet. Only those: one removed stays removed. */
+    async add(ids = FIRST) {
       const used = await taken();
       const paths = quoted(await gsettings("get", LIST, "custom-keybindings"));
-      for (const k of KEYS) {
+      for (const k of KEYS.filter((k) => ids.includes(k.id))) {
         const accel = k.choices.find((c) => !used.has(same(c)));
         if (!accel) throw new Error(`Every key combination Dune Bot would use for "${k.name}" is taken in GNOME. Add one yourself in Settings › Keyboard › Custom Shortcuts: the command is ${commandFor(k)}`);
         used.add(same(accel));
@@ -115,7 +123,7 @@ export function gnomeKeys({ command, log }) {
       }
       await gsettings("set", LIST, "custom-keybindings", list(paths));
       await refresh();
-      log(`keys: added to GNOME (${shown(state.bar)} asks, ${shown(state.stop)} stops)`);
+      log(`keys: added to GNOME (${[state.bar && `${shown(state.bar)} asks`, state.stop && `${shown(state.stop)} stops`, state.dictate && `${shown(state.dictate)} dictates`].filter(Boolean).join(", ")})`);
       return this.status();
     },
     /** At each start: Dune Bot may have moved, so its shortcuts are pointed at where it is now.

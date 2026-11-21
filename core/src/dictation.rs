@@ -65,6 +65,17 @@ const MAX_CHARS: usize = 4000;
 
 static ON: AtomicBool = AtomicBool::new(true);
 static WATCHING: AtomicBool = AtomicBool::new(false);
+/// Wayland (no key state for apps): the shortcut the app starts and ends a dictation with, pressed
+/// once each (electron/dictation.mjs), for what the user is told. None: the key held here (LABEL).
+static PRESSED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// What the user does, in sentences: "Hold Right Ctrl" or "Press Super+Alt+D".
+fn how() -> (String, bool) {
+    match PRESSED.lock().unwrap().clone() {
+        Some(k) => (k, true),
+        None => (LABEL.to_string(), false),
+    }
+}
 
 pub fn on() -> bool {
     ON.load(SeqCst)
@@ -227,8 +238,14 @@ pub fn heard(app: &Arc<App>, text: String, note: Option<&str>) {
 /// Nothing to type: the transcriber's note, in dictation's words.
 fn nothing_note(note: Option<&str>) -> String {
     match note {
-        Some("Hold the keys while you talk.") => format!("Hold {LABEL} while you talk."),
-        None | Some("Didn't catch that.") => format!("Didn't catch that. Hold {LABEL} and try again."),
+        Some("Hold the keys while you talk.") => match how() {
+            (k, true) => format!("Press {k}, talk, then press it again."),
+            (k, false) => format!("Hold {k} while you talk."),
+        },
+        None | Some("Didn't catch that.") => match how() {
+            (k, true) => format!("Didn't catch that. Press {k} and try again."),
+            (k, false) => format!("Didn't catch that. Hold {k} and try again."),
+        },
         Some(other) => other.to_string(),
     }
 }
@@ -265,6 +282,11 @@ pub async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::Result<V
         "dictation.stop" => crate::voice::stop_from(app, SOURCE),
         // Right ⌥ was part of a shortcut: nothing is typed. Only a dictation's own recording.
         "dictation.cancel" => crate::voice::cancel_from(app, SOURCE),
+        // Wayland: the shortcut that starts and ends a dictation (pressed, not held), or null.
+        "dictation.pressed" => {
+            let keys = p.get("keys").and_then(Value::as_str).map(str::trim).filter(|k| !k.is_empty() && k.len() < 60);
+            *PRESSED.lock().unwrap() = keys.map(str::to_string);
+        }
         // Tests only (DUNEBOT_DICTATION_TEST=1): words as if just said, with no microphone.
         "dictation.feed" => {
             if std::env::var("DUNEBOT_DICTATION_TEST").as_deref() != Ok("1") {
@@ -527,6 +549,13 @@ mod tests {
         assert_eq!(nothing_note(Some("Hold the keys while you talk.")), format!("Hold {key} while you talk."));
         assert_eq!(nothing_note(None), format!("Didn't catch that. Hold {key} and try again."));
         assert_eq!(nothing_note(Some("Didn't hear anything.")), "Didn't hear anything.");
+        // Wayland: the shortcut pressed to start and end (one test: PRESSED is shared).
+        *PRESSED.lock().unwrap() = Some("Super+Alt+D".into());
+        assert_eq!(nothing_note(None), "Didn't catch that. Press Super+Alt+D and try again.");
+        assert_eq!(nothing_note(Some("Hold the keys while you talk.")), "Press Super+Alt+D, talk, then press it again.");
+        assert_eq!(nothing_note(Some("Didn't hear anything.")), "Didn't hear anything.");
+        *PRESSED.lock().unwrap() = None;
+        assert_eq!(nothing_note(None), format!("Didn't catch that. Hold {key} and try again."));
     }
 
     /// The app's refusals as electron/main.mjs and electron/input.mjs write them (for agents), each to

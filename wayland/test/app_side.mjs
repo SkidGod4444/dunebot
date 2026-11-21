@@ -210,6 +210,21 @@ async function main() {
   await input.pressKeys({ key: "a", mods: ["ctrl"], times: 1, requestId: "d" });
   await input.pressKeys({ key: "backspace", mods: [], times: 1, requestId: "e" });
   check("Ctrl+A then Backspace through input.mjs clear the box", await target.wait((l) => l === "text ''", m, 5000));
+  // Dictation's words: at once (a key a character at input.mjs's pace), exactly and in order. Only
+  // characters the US layout has: one it lacks is refused before anything is typed (checked below).
+  const dictated = "Dictated words, typed at once: (a+b) = 42, OK?";
+  m = target.mark();
+  const t0 = Date.now();
+  err = await input.typeText({ text: dictated, requestId: "c2", at_once: true }).then(() => "", (e) => e.message);
+  const took = Date.now() - t0;
+  const arrived = !!(await target.wait((l) => l === `text '${dictated}'`, m, 10_000));
+  check("dictation's words through the helper arrive exactly", arrived, err);
+  // A person's pace is about 75 ms a character; at once is 20 ms held and 12 apart, plus the helper.
+  check(`dictation's words come quicker than a person types (${took} ms for ${[...dictated].length})`, arrived && took < [...dictated].length * 60, `${took} ms`);
+  m = target.mark();
+  await input.pressKeys({ key: "a", mods: ["ctrl"], times: 1, requestId: "d2" });
+  await input.pressKeys({ key: "backspace", mods: [], times: 1, requestId: "e2" });
+  check("and cleared again", await target.wait((l) => l === "text ''", m, 5000));
   m = target.mark();
   err = await input.typeText({ text: "ok ж", requestId: "f" }).then(() => "", (e) => e.message);
   await sleep(800);
@@ -346,6 +361,17 @@ async function main() {
   await handKeys("Super_L Alt_L space");
   const said2 = fs.existsSync(fired) ? fs.readFileSync(fired, "utf8").trim().split("\n") : [];
   check("shortcuts: after a move, the bar's key runs the new place", said2.at(-1) === "moved --bar", said2.at(-1));
+  // Dictation's own key, on its own yes (Wayland has no held keys: pressed to start, again to type).
+  check("shortcuts: no dictation key before its own yes", moved.status().dictate === null, JSON.stringify(moved.status()));
+  const st3 = await moved.add(["dictate"]).catch((e) => ({ error: e.message }));
+  const now3 = gs("get", LIST, "custom-keybindings");
+  const DICTATE = { "Super+Alt+D": "Super_L Alt_L d", "Control+Super+D": "Control_L Super_L d", "Control+Alt+D": "Control_L Alt_L d" };
+  check("shortcuts: dictation's key is added on its own yes, on a free combination", !!DICTATE[st3.dictate], JSON.stringify(st3));
+  check("shortcuts: adding dictation's doesn't put back the stop key the user removed", /dunebot-dictate/.test(now3) && !/dunebot-stop/.test(now3) && now3.startsWith(`['${USER}'`), now3);
+  await sleep(1500);
+  if (DICTATE[st3.dictate]) await handKeys(DICTATE[st3.dictate]);
+  const said3 = fs.existsSync(fired) ? fs.readFileSync(fired, "utf8").trim().split("\n") : [];
+  check("shortcuts: pressing dictation's key runs Dune Bot with --dictate", said3.at(-1) === "moved --dictate", said3.at(-1));
 
   // 10. Real Electron: the own-window guard, a picture through nativeImage, a second launch.
   const ELECTRON = process.env.DUNEBOT_TEST_ELECTRON;
@@ -474,12 +500,14 @@ async function main() {
           JSON.stringify(px),
         );
         k = el.mark();
+        const launched = Date.now(); // a shortcut's press is a second launch: how long it takes to arrive
         const second = spawn(ELECTRON, [...flags, path.join(HERE, "electron_guard.mjs"), "--stop"], { stdio: "ignore" });
         const ended = await new Promise((r) => {
           const t = setTimeout(() => r("still running"), 15_000);
           second.on("exit", (code) => (clearTimeout(t), r(code)));
         });
         const got = await next("second_instance", k, 5000);
+        console.log(`  a second launch reached the running app ${got ? `${Date.now() - launched} ms after it started (about what a shortcut's press costs)` : "never"}`);
         check("electron: a second launch with --stop reaches the running app, and ends", got?.second_instance?.includes("--stop") && ended === 0, `${JSON.stringify(got)}, second launch exit ${ended}`);
       }
       send({ quit: true });
