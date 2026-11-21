@@ -57,7 +57,7 @@ export function Segmented<T extends string | boolean>({
             // A press on the picked one saves it too (as before): what's shown picked may be only the
             // default (Theme with nothing saved), and saving it makes it so.
             onClick={() => onChange(v)}
-            className={`${small ? "h-7 px-3 text-[12.5px]" : "h-8 px-3.5 text-[13px]"} rounded-full font-semibold ${on ? "bg-white text-ink shadow-[0_1px_2px_rgba(0,0,0,.1)]" : "text-[#777] hover:text-ink"}`}
+            className={`${small ? "h-7 px-3 text-[12.5px]" : "h-8 px-3.5 text-[13px]"} rounded-full font-semibold ${on ? "bg-white text-ink shadow-[0_1px_2px_rgba(0,0,0,.1)]" : "text-muted hover:text-ink"}`}
           >
             {text}
           </button>

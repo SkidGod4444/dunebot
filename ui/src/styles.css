@@ -37,7 +37,9 @@
   --dm-ink: #121212;
   --dm-paper: #ffffff;
   --dm-strong: #000000;
-  --dm-muted: #8a8a8a;
+  /* Secondary text: at least 4.5:1 on every light surface (4.65 on a pill over the sidebar;
+     #8a8a8a was 3.45 on white). */
+  --dm-muted: #68686d;
   --dm-line: #ebebeb;
   --dm-side: #f7f7f7;
   --dm-bubble: #f2f2f2;
@@ -60,13 +62,13 @@
 /* Floating windows on glass (or the system blur): the page paints its own solid fill over the glass
    (`--dm-fill`; 90% still let terminal text show through), so nothing behind shows; the glass only
    adds its lit edge. Secondary text is the main text colour at lower strength,
-   as on Apple's own glass. (The `white` token stays solid: it is also the text colour on dark buttons.) */
+   as on Apple's own glass: 64%, so it clears 5:1 on the fill and on a card (58% was 4.2 on a card). (The `white` token stays solid: it is also the text colour on dark buttons.) */
 html.floating[data-material="glass"], html.floating[data-material="vibrancy"] {
   --dm-bubble: rgba(120, 120, 128, 0.16);
   --dm-line: rgba(120, 120, 128, 0.22);
   --dm-surface: rgba(255, 255, 255, 0.45);
   --dm-fill: #f5f5f7;
-  --dm-muted: color-mix(in srgb, var(--dm-ink) 58%, transparent);
+  --dm-muted: color-mix(in srgb, var(--dm-ink) 64%, transparent);
   --dm-ask-card: rgba(120, 120, 128, 0.16);
   --dm-ask-line: rgba(120, 120, 128, 0.4);
 }
@@ -82,7 +84,7 @@ html.floating[data-material="none"] {
   --dm-line: rgba(120, 120, 128, 0.22);
   --dm-surface: rgba(255, 255, 255, 0.45);
   --dm-glass: #f5f5f7;
-  --dm-muted: color-mix(in srgb, var(--dm-ink) 58%, transparent);
+  --dm-muted: color-mix(in srgb, var(--dm-ink) 64%, transparent);
   --dm-ask-card: rgba(120, 120, 128, 0.16);
   --dm-ask-line: rgba(120, 120, 128, 0.4);
 }
@@ -101,10 +103,12 @@ html.floating[data-material="none"] .bg-white, html.floating[data-material="none
 /* The fill over the glass: the bar's card, the setup window, the chats window's sidebar. */
 html.bar[data-material="glass"] .dm-card, html.bar[data-material="vibrancy"] .dm-card { background-color: var(--dm-fill); }
 html.setup[data-material="glass"] #root, html.setup[data-material="vibrancy"] #root { background-color: var(--dm-fill); border-radius: 26px; }
+/* Windows/Linux: exactly the Mac's fill (a lighter layer on top made it #2a2a2c, not #1c1c1e), and
+   an edge in the line colour, which shows on a dark desktop too (7% black didn't). */
 html.bar[data-material="none"] .dm-card, html.setup[data-material="none"] body {
   background-color: var(--dm-glass);
-  background-image: linear-gradient(var(--dm-surface), var(--dm-surface));
 }
+html.bar[data-material="none"] .dm-card { box-shadow: 0 14px 40px rgba(0, 0, 0, 0.2), 0 0 0 1px var(--dm-line); }
 /* Windows/Linux draw a grey scrollbar that takes room; macOS's floats over the page. Keep theirs
    thin and quiet so the pages look the same. */
 html:not([data-os="darwin"]) ::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
@@ -150,6 +154,11 @@ html:not([data-os="darwin"]) .dm-top {
   button:not(:disabled), [role="button"], a[href], summary, select, label[for] { cursor: pointer; }
   button:disabled { cursor: not-allowed; }
   textarea::placeholder, input::placeholder { color: var(--dm-muted); }
+  /* What has the keyboard shows it, in the text colour (no accent colour: the app is black and
+     white). Only for the keyboard (:focus-visible), never on a click. */
+  :focus-visible { outline: 2px solid var(--dm-ink); outline-offset: 2px; }
+  /* A select drawn invisible over its own label (the bar's agent picker): the label shows it. */
+  label:has(> select:focus-visible) { outline: 2px solid var(--dm-ink); outline-offset: 2px; }
 }
 
 /* The answer beside the pointer: a solid card (nothing behind it shows) in a see-through window. */
@@ -161,6 +170,8 @@ html.caption, html.caption body { background: transparent; overflow: hidden; }
 /* A long answer scrolls (it stays on its newest line) without a scrollbar: Windows and Linux bars
    would take 10 px of its width, macOS's float, so it would wrap differently on each. */
 .dm-caption-scroll { scrollbar-width: none; }
+/* The card can't be scrolled sideways: a long code line wraps there instead of being cut off. */
+.dm-caption .md pre, .dm-caption .md pre code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .dm-caption-scroll::-webkit-scrollbar { display: none; }
 
 /* The bar's window is transparent; only its card (or the glass behind it) is drawn. */
@@ -211,7 +222,7 @@ html.bar[data-standin] .dm-card { backdrop-filter: blur(28px) saturate(170%); }
 /* Tables in replies: a quiet header (Streamdown fills it with `muted`, the app's grey text colour). */
 .md [data-streamdown="table-header"] { background: rgba(120, 120, 128, 0.16); }
 /* A picture or link in a reply that Dunebot won't load or open (reply.tsx). */
-.md .dm-blocked { display: inline-block; padding: 0 6px; border-radius: 7px; background: rgba(120, 120, 128, 0.16); color: var(--dm-muted, inherit); font-size: 0.86em; }
+.md .dm-blocked { display: inline-block; padding: 0 6px; border-radius: 7px; background: rgba(120, 120, 128, 0.16); color: var(--dm-ink, inherit); font-size: 0.86em; }
 /* Streamdown sizes a code block it hasn't drawn yet as 200 px tall (content-visibility), which made
    a streaming reply, and the bar with it, jump for a frame. Replies are short: draw them as they are. */
 .md [data-streamdown="code-block"] { content-visibility: visible !important; contain-intrinsic-size: none !important; }

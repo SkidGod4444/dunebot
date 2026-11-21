@@ -34,7 +34,9 @@ const REHYPE = [
 ] as ComponentProps<typeof Streamdown>["rehypePlugins"];
 
 const PLUGINS = { code };
-const THEMES: ["github-dark", "github-dark"] = ["github-dark", "github-dark"];
+/** Code colours: [light theme, dark theme]; Streamdown switches with the page (dark: variant). It was
+ * the dark colours twice, which on a light page drew pale code ("&&" at 1.3:1) on white. */
+const THEMES: ["github-light", "github-dark"] = ["github-light", "github-dark"];
 
 // The code colours load on first use, which paused a streaming reply once (~60 ms, measured) at
 // its first code block. Load them while the window is idle instead, for the commonest languages.
