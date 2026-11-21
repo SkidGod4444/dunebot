@@ -23,7 +23,7 @@
   await sleep(200);
   card.scrollIntoView({ block: "center" });
   await sleep(200);
-  const picked = pickers.find((b) => b.className.includes("bg-white"))?.textContent ?? null;
+  const picked = pickers.find((b) => b.getAttribute("aria-checked") === "true")?.textContent ?? null;
   // macOS, drawn with Apple's Dictation on (DUNEBOT_SNAPSHOT_APPLE_DICTATION=1): the warning shows.
   const warnBy = Date.now() + 3000;
   while (window.dunebot.platform === "darwin" && Date.now() < warnBy && !card.querySelector("[data-apple-dictation]")) await sleep(50);

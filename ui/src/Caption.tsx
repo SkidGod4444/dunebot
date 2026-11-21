@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Maximize2, Volume2, VolumeX, X } from "lucide-react";
-import { agentName, call, get, keysLabel, openThread, set, useStore, type Message } from "./store";
+import { agentName, get, keysLabel, openThread, savePref, set, useStore, type Message } from "./store";
 import { ApprovalCard } from "./parts";
 import { Reply, Typing, TypingLine } from "./reply";
 import { stepLine } from "./steps";
@@ -49,6 +49,7 @@ export function Caption() {
   const [next, setNext] = useState<string | null>(null); // said while this answer was coming: asked after it
   const voice = useStore((s) => s.voice);
   const speakPref = useStore((s) => s.prefs["voice.speak"]) !== "0";
+  const toastText = useStore((s) => s.toast);
   // Sarvam reads aloud unless Settings › Voice says this computer (with no key saved, the first try
   // fails at once and the system voice reads that answer).
   const engine = useStore((s) => s.prefs["voice.engine"]);
@@ -114,7 +115,7 @@ export function Caption() {
       if (on) setHover(false);
     });
     const offEvent = window.dunebot.onEvent((m) => {
-      if (m.event === "voice.transcript" && !String(m.text ?? "").trim()) setNote(m.note || `I didn't catch that. Hold ${keysLabel(get().prefs)} and try again.`);
+      if (m.event === "voice.transcript" && !String(m.text ?? "").trim()) setNote(heardNothing(m.note));
       else if (m.event === "voice.transcript") {
         // The bar holds what you said while its chat is still working (asked after it): no dots then.
         const s = get();
@@ -250,11 +251,11 @@ export function Caption() {
         {hover && (
           <div className="absolute top-1.5 right-1.5 z-10 flex gap-0.5 rounded-full bg-[var(--dm-glass)]">
             {id && (
-              <button title="Open in Chats" onClick={() => window.dunebot.openMain(`thread:${id}`)} className="grid size-7 place-items-center rounded-full text-muted hover:bg-bubble hover:text-ink">
+              <button title="Open chats" aria-label="Open chats" onClick={() => window.dunebot.openMain(`thread:${id}`)} className="grid size-7 place-items-center rounded-full text-muted hover:bg-bubble hover:text-ink">
                 <Maximize2 size={13} />
               </button>
             )}
-            <button title="Close" onClick={close} className="grid size-7 place-items-center rounded-full text-muted hover:bg-bubble hover:text-ink">
+            <button title="Close" aria-label="Close" onClick={close} className="grid size-7 place-items-center rounded-full text-muted hover:bg-bubble hover:text-ink">
               <X size={14} />
             </button>
           </div>
@@ -294,6 +295,12 @@ export function Caption() {
               {/* A line like "On it." with work after it: the dots again, and the step beside them. */}
               {reply && !asked && reply.text && busy && !approval && !replyIsLast && <Working step={step} />}
               {approval && <ApprovalCard m={approval} agent={thread?.agent ?? "claude"} bar />}
+              {/* What a button here answered with ("Take a second to read the card first."). */}
+              {toastText && (
+                <p role="status" className="text-[12.5px] leading-[1.45] font-medium text-ink">
+                  {toastText}
+                </p>
+              )}
               {next && (
                 <p className="flex min-w-0 items-baseline gap-1.5 text-[12.5px] leading-[1.45] text-muted">
                   {/* Talking never answers a card: the question waits until you click it. */}
@@ -307,13 +314,15 @@ export function Caption() {
         {(speaking || (thread && !listening && !transcribing && hover)) && (
           <div className="flex items-center gap-2 border-t border-line px-4 py-1.5 text-[11.5px] text-muted">
             {speaking ? (
-              <button title="Stop reading this answer" onClick={() => (speaker.current?.stop(), setSpeaking(false))} className="flex items-center gap-1.5 hover:text-ink">
+              <button title="Stop reading this answer" aria-label="Stop reading this answer" onClick={() => (speaker.current?.stop(), setSpeaking(false))} className="flex items-center gap-1.5 hover:text-ink">
                 <Volume2 size={12} className="shrink-0 text-brand" /> Speaking · stop
               </button>
             ) : (
               <button
                 title={speakPref ? "Stop reading answers aloud" : "Read answers aloud"}
-                onClick={async () => set({ prefs: (await call("prefs.set", { key: "voice.speak", value: speakPref ? "0" : "1" })).prefs })}
+                aria-label="Read answers aloud"
+                aria-pressed={speakPref}
+                onClick={() => savePref("voice.speak", speakPref ? "0" : "1")}
                 className="flex items-center gap-1.5 hover:text-ink"
               >
                 {speakPref ? <Volume2 size={12} className="shrink-0" /> : <VolumeX size={12} className="shrink-0" />}
@@ -326,6 +335,14 @@ export function Caption() {
       </div>
     </div>
   );
+}
+
+/** What to say when a hold heard nothing. Off the Mac the bar talks only through its mic button
+ * (there are no keys to hold), so the core's "Hold the keys…" is said as the button. */
+function heardNothing(note?: string) {
+  const mac = window.dunebot.platform === "darwin";
+  if (!mac && (!note || note === "Hold the keys while you talk.")) return note ? "Hold the mic button while you talk." : "I didn't catch that. Hold the mic button and try again.";
+  return note || `I didn't catch that. Hold ${keysLabel(get().prefs)} and try again.`;
 }
 
 /** The reply as it arrives (the same safe renderer as the chats window), or its error. */

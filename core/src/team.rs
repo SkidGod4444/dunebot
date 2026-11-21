@@ -167,8 +167,15 @@ pub fn save(app: &App, p: &Value) -> anyhow::Result<Bot> {
     if is_bot(engine) {
         bail!("A bot runs on an engine (an agent), not on another bot.");
     }
+    let id = p.get("id").and_then(Value::as_str).filter(|s| !s.is_empty());
     let may: Vec<String> = match p.get("may") {
-        None | Some(Value::Null) => Action::ALL.iter().map(|a| a.key().to_string()).collect(),
+        // No list: an edit keeps what the bot had; a new bot may do everything on this computer
+        // that Permissions allows, but changes nothing in your accounts (sending, posting) until
+        // you give it that. The careful default (2026-11-21), put to the user to confirm.
+        None | Some(Value::Null) => match id.and_then(|id| get(app, id)) {
+            Some(b) => b.may,
+            None => Action::ALL.iter().filter(|a| !a.is_account_change()).map(|a| a.key().to_string()).collect(),
+        },
         Some(Value::Array(keys)) => {
             let mut chosen = Vec::new();
             for k in keys {
@@ -180,7 +187,6 @@ pub fn save(app: &App, p: &Value) -> anyhow::Result<Bot> {
         }
         Some(_) => bail!("\"may\" must be a list of actions"),
     };
-    let id = p.get("id").and_then(Value::as_str).filter(|s| !s.is_empty());
     let bots = all(app);
     if bots.iter().any(|b| Some(b.id.as_str()) != id && b.name.to_lowercase() == name.to_lowercase()) {
         bail!("You already have a bot called {name}.");
@@ -636,7 +642,10 @@ mod tests {
         let w = r.call("bots.save", json!({ "name": "  Writer ", "role": "Turns notes into a short post", "engine": "claude" })).await.unwrap();
         let id = w["id"].as_str().unwrap().to_string();
         assert!(is_bot(&id) && w["name"] == "Writer" && w["engine"] == "claude");
-        assert_eq!(w["may"].as_array().unwrap().len(), Action::ALL.len(), "a new bot may do everything Permissions allows");
+        // A new bot may do everything on this computer, and nothing in your accounts until given it.
+        let may: Vec<&str> = w["may"].as_array().unwrap().iter().map(|k| k.as_str().unwrap()).collect();
+        assert_eq!(may.len(), Action::ALL.len() - 5, "a new bot may do everything but change your accounts: {may:?}");
+        assert!(Action::ALL.iter().all(|a| may.contains(&a.key()) != a.is_account_change()), "{may:?}");
         r.drain();
         assert!(r.seen.iter().any(|m| m["event"] == "bots.changed" && m["bots"][0]["name"] == "Writer"), "windows hear of it");
 
@@ -659,6 +668,9 @@ mod tests {
             .unwrap();
         assert_eq!((changed["id"].as_str().unwrap(), changed["name"].as_str().unwrap()), (id.as_str(), "Editor"));
         assert_eq!(changed["may"], json!(["write-file", "read-file"]), "kept in Permissions' order, once each");
+        // An edit that doesn't send the list keeps it (it never widens back to the default).
+        let renamed = r.call("bots.save", json!({ "id": id, "name": "Editor 2", "role": "Tightens drafts", "engine": "echo" })).await.unwrap();
+        assert_eq!(renamed["may"], json!(["write-file", "read-file"]), "an edit without a list keeps the bot's actions");
         assert_eq!(changed["createdAt"], w["createdAt"]);
         let listed = r.call("bots.list", json!({})).await.unwrap();
         assert_eq!(listed["bots"].as_array().unwrap().len(), 1);

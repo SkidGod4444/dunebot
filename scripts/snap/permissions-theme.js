@@ -23,6 +23,6 @@
   const after = { dark: dark(), body: getComputedStyle(document.body).backgroundColor };
   card.scrollIntoView({ block: "center" });
   await sleep(200);
-  const picked = [...card.querySelectorAll("button")].find((b) => b.className.includes("bg-white"))?.textContent ?? null;
+  const picked = card.querySelector("[role=radio][aria-checked=true]")?.textContent ?? null;
   return { found: true, buttons, before, after, picked, pref: dm.get().prefs["look.theme"] ?? null };
 })();

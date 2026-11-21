@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, CalendarClock, FolderOpen, FolderPlus, History, Monitor, Play, Search, Settings, ShieldCheck, Square, SquarePen, Trash2, Undo2, Wrench } from "lucide-react";
 import {
-  KEYS, agentName, call, get, keysLabel, loadAgents, openThread, send, set, setMode, startChat, toast, useStore,
+  KEYS, agentName, call, errorText, get, keysLabel, loadAgents, openThread, savePref, send, set, setMode, startChat, toast, useStore,
   type Fix, type LedgerRow, type Message, type Schedule, type Thread,
 } from "./store";
-import { AgentAvatar, ApprovalCard, AssistantBubble, failureOf, Mascot, TeachFix, ThinkingBubble, UserBubble } from "./parts";
+import { AgentAvatar, ApprovalCard, AssistantBubble, Confirm, DeleteButton, failureOf, LoadProblem, Mascot, TeachFix, ThinkingBubble, UserBubble } from "./parts";
 import { useStickToBottom } from "./stick";
+import { lockedBy, lockNoun, Segmented } from "./ui";
 import { Connectors, isConnectorAction } from "./Connectors";
 import { plainPreview } from "./reply";
 import { BotsSettings } from "./BotsSettings";
@@ -32,7 +33,9 @@ export function App() {
       <Sidebar />
       <main className="relative flex min-w-0 flex-1 flex-col bg-white">
         {coreDown && (
-          <div className="bg-ink/10 px-4 py-2 text-center text-[13px] font-medium text-ink">Dune Bot's core stopped. Restart the app to continue.</div>
+          <div role="alert" className="bg-ink/10 px-4 py-2 text-center text-[13px] font-medium text-ink">
+            Dune Bot's core stopped. Restart the app to continue.
+          </div>
         )}
         {view === "chat" && <ThreadView />}
         {view === "new" && <NewChat />}
@@ -41,9 +44,12 @@ export function App() {
         {view === "activity" && <Activity />}
         {view === "fixes" && <Fixes />}
         {view === "schedules" && <Schedules />}
-        {toastText && (
-          <div className="pointer-events-none absolute bottom-28 left-1/2 -translate-x-1/2 rounded-full bg-ink px-4 py-2 text-[13px] text-white shadow-lg">{toastText}</div>
-        )}
+        {/* Always there, so a screen reader hears each toast as it comes. */}
+        <div role="status" aria-live="polite">
+          {toastText && (
+            <div className="pointer-events-none absolute bottom-28 left-1/2 -translate-x-1/2 rounded-full bg-ink px-4 py-2 text-[13px] text-white shadow-lg">{toastText}</div>
+          )}
+        </div>
       </main>
     </div>
   );
@@ -73,6 +79,7 @@ function Sidebar() {
   const waiting = useStore((s) => s.waiting);
   const query = useStore((s) => s.query);
   const mac = useStore((s) => s.platform) === "darwin";
+  const ready = useStore((s) => s.ready);
   const q = query.trim().toLowerCase();
   const shown = q ? threads.filter((t) => (t.title + " " + t.preview).toLowerCase().includes(q)) : threads;
   return (
@@ -82,6 +89,7 @@ function Sidebar() {
         <button
           onClick={() => set({ view: "new", activeId: null })}
           title="New chat"
+          aria-label="New chat"
           className="ml-auto grid size-8 place-items-center rounded-lg text-ink/70 hover:bg-black/5 hover:text-ink"
         >
           <SquarePen size={18} />
@@ -90,14 +98,27 @@ function Sidebar() {
       <div className="px-3 pb-2">
         <label className="flex h-9 items-center gap-2 rounded-xl bg-black/[.045] px-3 text-muted focus-within:bg-white focus-within:ring-1 focus-within:ring-line">
           <Search size={15} />
-          <input value={query} onChange={(e) => set({ query: e.target.value })} placeholder="Search chats" className="min-w-0 flex-1 bg-transparent text-[14px] text-ink outline-none" />
+          <input
+            value={query}
+            onChange={(e) => set({ query: e.target.value })}
+            onKeyDown={(e) => e.key === "Escape" && query && set({ query: "" })}
+            aria-label="Search chats"
+            placeholder="Search chats"
+            className="min-w-0 flex-1 bg-transparent text-[14px] text-ink outline-none"
+          />
         </label>
       </div>
-      <nav className="flex-1 overflow-y-auto px-2 pb-2">
+      <nav aria-label="Chats" className="flex-1 overflow-y-auto px-2 pb-2">
         {shown.map((t) => (
           <ChatRow key={t.id} t={t} active={view === "chat" && t.id === activeId} busy={!!busy[t.id]} waiting={(waiting[t.id] ?? 0) > 0} />
         ))}
-        {!threads.length && <p className="px-3 pt-6 text-center text-[13px] text-muted">No chats yet.</p>}
+        {/* Not before the chats are read: no "No chats yet." flash on start. */}
+        {ready && !threads.length && <p className="px-3 pt-6 text-center text-[13px] text-muted">No chats yet.</p>}
+        {!!q && !!threads.length && !shown.length && (
+          <p role="status" className="px-3 pt-6 text-center text-[13px] text-muted">
+            No chats match “{query.trim()}”.
+          </p>
+        )}
       </nav>
       <StopAll count={Object.values(busy).filter(Boolean).length} />
       <div className="border-t border-line p-2">
@@ -119,7 +140,7 @@ function StopAll({ count }: { count: number }) {
       <span className="size-2 animate-pulse rounded-full bg-brand" />
       <span className="text-ink">{count === 1 ? "1 chat working" : `${count} chats working`}</span>
       <button
-        onClick={() => call("agents.stopAll").catch((e) => toast(String(e.message ?? e)))}
+        onClick={() => call("agents.stopAll").catch((e) => toast(errorText(e)))}
         className="ml-auto flex h-7 items-center gap-1 rounded-full px-2.5 font-medium text-ink hover:bg-black/5"
       >
         <Square size={11} fill="currentColor" />
@@ -131,7 +152,7 @@ function StopAll({ count }: { count: number }) {
 
 function SideButton({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
   return (
-    <button onClick={onClick} className={`flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[14px] font-medium ${active ? "bg-white text-ink shadow-[0_1px_2px_rgba(0,0,0,.06)]" : "text-ink/70 hover:bg-black/[.04]"}`}>
+    <button onClick={onClick} aria-current={active ? "page" : undefined} className={`flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[14px] font-medium ${active ? "bg-white text-ink shadow-[0_1px_2px_rgba(0,0,0,.06)]" : "text-ink/70 hover:bg-black/[.04]"}`}>
       {icon}
       {label}
     </button>
@@ -141,7 +162,8 @@ function SideButton({ icon, label, active, onClick }: { icon: React.ReactNode; l
 function ChatRow({ t, active, busy, waiting }: { t: Thread; active: boolean; busy: boolean; waiting: boolean }) {
   return (
     <button
-      onClick={() => openThread(t.id)}
+      onClick={() => openThread(t.id).catch((e) => toast(errorText(e)))}
+      aria-current={active ? "page" : undefined}
       className={`mb-0.5 flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left ${active ? "bg-white shadow-[0_1px_2px_rgba(0,0,0,.06)]" : "hover:bg-black/[.04]"}`}
     >
       <AgentAvatar id={t.agent} size={38} dot={waiting ? "waiting" : busy ? "busy" : undefined} />
@@ -177,7 +199,7 @@ function UndoChanges({ id, busy }: { id: string; busy: boolean }) {
       const r = await call<UndoResult>("threads.undo", { id });
       const done = [
         r.restored && `put back ${r.restored} file${r.restored > 1 ? "s" : ""}`,
-        r.removed && `moved ${r.removed} new file${r.removed > 1 ? "s" : ""} to the journal`,
+        r.removed && `moved ${r.removed} new file${r.removed > 1 ? "s" : ""} to Dune Bot's undo folder`,
       ].filter(Boolean);
       const left = r.skipped.map((s) => `${s.path.split(/[\\/]/).pop()}: ${s.why}`);
       toast(
@@ -185,7 +207,7 @@ function UndoChanges({ id, busy }: { id: string; busy: boolean }) {
           (left.length ? ` Left alone: ${left.slice(0, 2).join("; ")}${left.length > 2 ? ` and ${left.length - 2} more` : ""}.` : ""),
       );
     } catch (e) {
-      toast(String((e as Error).message ?? e));
+      toast(errorText(e));
     }
     refresh();
   }
@@ -193,6 +215,8 @@ function UndoChanges({ id, busy }: { id: string; busy: boolean }) {
     <div className="relative">
       <button
         title={`Undo this chat's ${files}`}
+        aria-label={`Undo this chat's ${files}`}
+        aria-expanded={asking}
         disabled={busy}
         onClick={() => setAsking((a) => !a)}
         className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] text-muted hover:bg-black/5 hover:text-ink disabled:opacity-40"
@@ -201,21 +225,42 @@ function UndoChanges({ id, busy }: { id: string; busy: boolean }) {
         {count}
       </button>
       {asking && (
-        <div className="no-drag absolute right-0 top-10 z-20 w-72 rounded-2xl border border-line bg-white p-3.5 text-[13px] shadow-[0_14px_40px_rgba(0,0,0,.16)]">
-          <p className="font-medium text-ink">Undo this chat's {files}?</p>
-          <p className="mt-1 text-muted">
-            Each file goes back to how it was; files the agent created move to the journal. A file you changed since is left
-            alone. Commands it ran aren't undone.
-          </p>
-          <div className="mt-3 flex justify-end gap-2">
-            <button onClick={() => setAsking(false)} className="h-8 rounded-full px-3 text-muted hover:text-ink">
-              Cancel
-            </button>
-            <button onClick={undo} className="h-8 rounded-full bg-ink px-3.5 font-medium text-white hover:bg-black">
-              Undo
-            </button>
-          </div>
-        </div>
+        <Confirm title={`Undo this chat's ${files}?`} confirm="Undo" onConfirm={undo} onClose={() => setAsking(false)}>
+          Each file goes back to how it was; files the agent created move to Dune Bot's undo folder, so nothing is lost. A
+          file you changed since is left alone. Commands it ran aren't undone.
+        </Confirm>
+      )}
+    </div>
+  );
+}
+
+/** Deletes the chat, after asking: there's no undo for it. */
+function DeleteChat({ id, title }: { id: string; title: string }) {
+  const [asking, setAsking] = useState(false);
+  useEffect(() => setAsking(false), [id]);
+  async function remove() {
+    setAsking(false);
+    try {
+      await call("threads.delete", { id });
+    } catch (e) {
+      toast(errorText(e));
+    }
+  }
+  return (
+    <div className="relative">
+      <button
+        title="Delete chat"
+        aria-label="Delete chat"
+        aria-expanded={asking}
+        onClick={() => setAsking((a) => !a)}
+        className="grid size-8 place-items-center rounded-lg text-muted hover:bg-black/5 hover:text-ink"
+      >
+        <Trash2 size={17} />
+      </button>
+      {asking && (
+        <Confirm title="Delete this chat?" confirm="Delete" onConfirm={remove} onClose={() => setAsking(false)}>
+          “{title}” and its messages are removed from Dune Bot. Files it changed stay as they are.
+        </Confirm>
       )}
     </div>
   );
@@ -256,19 +301,11 @@ function ThreadView() {
           <span title={`Works in ${thread.cwd}`} className="grid size-8 place-items-center rounded-lg text-[#666]">
             <Monitor size={18} />
           </span>
-          <button
-            title="Delete chat"
-            onClick={() => call("threads.delete", { id })}
-            className="grid size-8 place-items-center rounded-lg text-muted hover:bg-black/5 hover:text-ink"
-          >
-            <Trash2 size={17} />
-          </button>
+          <DeleteChat id={id} title={thread.title} />
         </div>
       </header>
-      <div
-        ref={scroller}
-        className="flex-1 overflow-y-auto"
-      >
+      {/* aria-busy while an answer streams: a screen reader reads it once it's whole, not each piece. */}
+      <div ref={scroller} role="log" aria-label="Messages" aria-busy={busy} className="flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-[780px] flex-col gap-3 px-6 py-6">
           {chatItems(msgs ?? [], busy).map((it) =>
             it.teach ? (
@@ -286,7 +323,8 @@ function ThreadView() {
           )}
         </div>
       </div>
-      <Composer threadId={id} agent={thread.agent} busy={busy} />
+      {/* key: a draft belongs to its chat; it doesn't follow you into another one. */}
+      <Composer key={id} threadId={id} agent={thread.agent} busy={busy} />
     </>
   );
 }
@@ -324,8 +362,17 @@ function useAutosize(value: string) {
   return ref;
 }
 
+/** What's typed and not sent yet, per chat: it stays with its chat when you open another one and is
+ * there again when you come back (until the app quits). */
+const drafts = new Map<string, string>();
+
 function Composer({ threadId, agent, busy }: { threadId: string; agent: string; busy: boolean }) {
-  const [text, setText] = useState("");
+  const [text, setTextState] = useState(() => drafts.get(threadId) ?? "");
+  const setText = (t: string) => {
+    setTextState(t);
+    if (t) drafts.set(threadId, t);
+    else drafts.delete(threadId);
+  };
   const ref = useAutosize(text);
   useEffect(() => ref.current?.focus(), [threadId]);
   const go = () => {
@@ -348,20 +395,21 @@ function Composer({ threadId, agent, busy }: { threadId: string; agent: string; 
                 go();
               }
             }}
+            aria-label={`Message ${agentName(agent)}`}
             placeholder={`Message ${agentName(agent)}`}
             className="max-h-[200px] min-h-10 flex-1 resize-none bg-transparent px-3 py-2 text-[15px] leading-[1.45] outline-none select-text"
           />
           {busy ? (
-            <button onClick={() => call("threads.cancel", { id: threadId })} title="Stop" className="grid size-10 shrink-0 place-items-center rounded-full bg-ink text-white hover:bg-black">
+            <button onClick={() => call("threads.cancel", { id: threadId }).catch((e) => toast(errorText(e)))} title="Stop" aria-label="Stop" className="grid size-10 shrink-0 place-items-center rounded-full bg-ink text-white hover:bg-black">
               <Square size={14} fill="currentColor" />
             </button>
           ) : (
-            <button onClick={go} disabled={!text.trim()} title="Send" className="grid size-10 shrink-0 place-items-center rounded-full bg-ink text-white hover:bg-black disabled:bg-muted/40">
+            <button onClick={go} disabled={!text.trim()} title="Send" aria-label="Send" className="grid size-10 shrink-0 place-items-center rounded-full bg-ink text-white hover:bg-black disabled:bg-muted/40">
               <ArrowUp size={19} strokeWidth={2.4} />
             </button>
           )}
         </div>
-        <p className="mt-2 text-center text-[11.5px] text-muted">Dune Bot works on this computer. It asks before anything risky.</p>
+        <p className="mt-2 text-center text-[11.5px] text-muted">Dune Bot works on this computer. What it asks about first is set in Permissions.</p>
       </div>
     </div>
   );
@@ -391,8 +439,7 @@ function NewChat() {
     try {
       await startChat(picked, folder, text);
     } catch (e) {
-      set({ toast: (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") });
-      setTimeout(() => set({ toast: undefined }), 4000);
+      toast(errorText(e));
     } finally {
       setStarting(false);
     }
@@ -405,18 +452,19 @@ function NewChat() {
         <div className="mx-auto max-w-[680px] px-6 pt-4 pb-12">
           <Mascot size={52} />
           <h1 className="mt-5 font-pixel text-[34px] leading-[1.1]">What should we get done on your computer?</h1>
-          <p className="mt-1.5 text-[15px] text-muted">Pick who does the work and where. Dune Bot asks before anything risky.</p>
+          <p className="mt-1.5 text-[15px] text-muted">Pick who does the work and where. What it asks about first is set in Permissions.</p>
 
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Agent</h2>
           {!agents ? (
             <p data-loading className="text-[14px] text-muted">Looking for agents on this computer…</p>
           ) : (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div role="group" aria-label="Agent" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {agents.map((a) => (
                 <button
                   key={a.id}
                   disabled={!a.installed}
                   onClick={() => setAgent(a.id)}
+                  aria-pressed={picked === a.id}
                   title={a.problem}
                   className={`flex items-center gap-2.5 rounded-2xl border bg-white px-3 py-2.5 text-left transition ${
                     picked === a.id ? "border-ink ring-1 ring-ink" : "border-line hover:border-muted/50"
@@ -433,7 +481,7 @@ function NewChat() {
           )}
           {problem && (
             <p className="mt-2 text-[12.5px] text-ink">
-              {problem}{" "}
+              {/[.!?]$/.test(problem.trim()) ? problem.trim() : `${problem.trim()}.`}{" "}
               <button className="underline" onClick={loadAgents}>
                 Check again
               </button>
@@ -441,8 +489,8 @@ function NewChat() {
           )}
 
           <h2 className="mt-7 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Works in</h2>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => setFolder(null)} className={`flex h-10 items-center gap-2 rounded-full border px-4 text-[14px] font-medium ${!folder ? "border-ink ring-1 ring-ink" : "border-line hover:border-muted/50"}`}>
+          <div role="group" aria-label="Works in" className="flex flex-wrap gap-2">
+            <button onClick={() => setFolder(null)} aria-pressed={!folder} className={`flex h-10 items-center gap-2 rounded-full border px-4 text-[14px] font-medium ${!folder ? "border-ink ring-1 ring-ink" : "border-line hover:border-muted/50"}`}>
               <FolderPlus size={16} /> A new folder for this chat
             </button>
             <button
@@ -450,6 +498,8 @@ function NewChat() {
                 const f = await window.dunebot.pickFolder();
                 if (f) setFolder(f);
               }}
+              aria-pressed={!!folder}
+              title={folder ?? undefined}
               className={`flex h-10 max-w-full items-center gap-2 rounded-full border px-4 text-[14px] font-medium ${folder ? "border-ink ring-1 ring-ink" : "border-line hover:border-muted/50"}`}
             >
               <FolderOpen size={16} className="shrink-0" />
@@ -469,6 +519,7 @@ function NewChat() {
                   start();
                 }
               }}
+              aria-label="Tell it what to do"
               placeholder="Tell it what to do…"
               className="block max-h-[200px] w-full resize-none bg-transparent px-3 py-2 text-[15px] leading-[1.45] outline-none select-text"
             />
@@ -482,7 +533,7 @@ function NewChat() {
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Try</h2>
           <div className="grid gap-2 sm:grid-cols-2">
             {SUGGESTIONS.map((s) => (
-              <button key={s} onClick={() => setText(s)} className="rounded-2xl border border-line bg-white px-4 py-3 text-left text-[14px] leading-snug text-ink/85 hover:border-muted/50 hover:bg-side">
+              <button key={s} onClick={() => (setText(s), ref.current?.focus())} className="rounded-2xl border border-line bg-white px-4 py-3 text-left text-[14px] leading-snug text-ink/85 hover:border-muted/50 hover:bg-side">
                 {s}
               </button>
             ))}
@@ -524,21 +575,24 @@ function Permissions() {
               <div key={r.action} className="px-4 py-3.5">
               <div className="flex items-center gap-4">
                 <span className="flex-1 text-[15px] font-medium">{r.label}</span>
-                <div className="flex rounded-full bg-black/[.05] p-0.5">
-                  {MODES.filter(([k]) => (r.choices ?? ["always", "ask", "never"]).includes(k)).map(([k, label]) => (
-                    <button
-                      key={k}
-                      onClick={() => setMode(r.action, k)}
-                      className={`h-8 rounded-full px-3.5 text-[13px] font-semibold ${r.mode === k ? "bg-white text-ink shadow-[0_1px_2px_rgba(0,0,0,.1)]" : "text-[#777] hover:text-ink"}`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                <Segmented
+                  label={r.label}
+                  value={r.mode}
+                  options={MODES.filter(([k]) => (r.choices ?? ["always", "ask", "never"]).includes(k))}
+                  onChange={(k) => setMode(r.action, k)}
+                />
               </div>
               {r.mode === "auto" && (
                 <p className="mt-1.5 text-[13px] text-muted">
                   Commands run without asking unless they're risky: deleting or saving files, running code, admin, other apps or the screen, sending data online, changing git, installing. Those ask, and the card says why. Scheduled chats always ask. Always: no cards at all.
+                </p>
+              )}
+              {r.mode === "always" && (r.action === "run-command" || r.action === "write-file") && (
+                <p data-always-warning className="mt-1.5 text-[13px] text-ink">
+                  {r.action === "run-command"
+                    ? "Always: every command runs without a card, risky ones too (deleting, installing, sending data online)."
+                    : "Always: files are created and changed without a card (never the off-limits ones below)."}{" "}
+                  Scheduled chats still ask.
                 </p>
               )}
               {r.action === "click" && r.mode !== "never" && (
@@ -565,7 +619,7 @@ function Permissions() {
           <PhoneSettings />
           <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Bots</h2>
           <BotsSettings />
-          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Always off limits</h2>
+          <h2 className="mt-8 mb-2.5 text-[12px] font-semibold tracking-[.08em] text-muted uppercase">Off limits to file tools</h2>
           <div className="rounded-2xl bg-side px-4 py-3.5">
             <p className="text-[14px] text-ink/70">Dune Bot's file tools never read or change these, whatever the settings above say:</p>
             <ul className="mt-2 grid gap-1 text-[14px] sm:grid-cols-2">
@@ -594,28 +648,15 @@ const THEMES = [
 function ThemeSettings() {
   const saved = useStore((s) => s.prefs["look.theme"]);
   const now = THEMES.some(([k]) => k === saved) ? saved : "dark";
-  const pick = async (value: string) => {
-    const r = await call<{ prefs: Record<string, string | null> }>("prefs.set", { key: "look.theme", value });
-    set({ prefs: r.prefs });
-  };
+  const pick = (value: string) => savePref("look.theme", value);
   return (
     <div className="rounded-2xl border border-line px-4 py-3.5">
       <div className="flex items-center gap-4">
         <span className="flex-1 text-[15px] font-medium">Theme</span>
-        <div className="flex rounded-full bg-black/[.05] p-0.5">
-          {THEMES.map(([k, label]) => (
-            <button
-              key={k}
-              onClick={() => pick(k)}
-              className={`h-8 rounded-full px-3.5 text-[13px] font-semibold ${now === k ? "bg-white text-ink shadow-[0_1px_2px_rgba(0,0,0,.1)]" : "text-[#777] hover:text-ink"}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Segmented label="Theme" value={now} options={THEMES} onChange={pick} />
       </div>
       <p className="mt-1.5 text-[13px] text-muted">
-        The bar, the answer card, setup and this window. Match the system switches with your computer's light and dark. Also in the menu bar: Theme.
+        The bar, the answer card, setup and this window. Match the system switches with your computer's light and dark. Also in the {window.dunebot.platform === "darwin" ? "menu bar" : "tray menu"}: Theme.
       </p>
     </div>
   );
@@ -648,25 +689,12 @@ function SettingsPage() {
 function KeySettings() {
   const prefs = useStore((s) => s.prefs);
   const now = keysLabel(prefs);
-  const pick = async (value: string) => {
-    const r = await call<{ prefs: Record<string, string | null> }>("prefs.set", { key: "keys.chord", value });
-    set({ prefs: r.prefs });
-  };
+  const pick = (value: string) => savePref("keys.chord", value);
   return (
     <div className="rounded-2xl border border-line px-4 py-3.5">
       <div className="flex items-center gap-4">
         <span className="flex-1 text-[15px] font-medium">Tap to ask, hold to talk</span>
-        <div className="flex rounded-full bg-black/[.05] p-0.5">
-          {KEYS.map(([k, label]) => (
-            <button
-              key={k}
-              onClick={() => pick(k)}
-              className={`h-8 rounded-full px-3.5 text-[13px] font-semibold ${now === label ? "bg-white text-ink shadow-[0_1px_2px_rgba(0,0,0,.1)]" : "text-[#777] hover:text-ink"}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Segmented label="Keys to ask and talk" value={KEYS.find(([, l]) => l === now)?.[0]} options={KEYS} onChange={pick} />
       </div>
       <p className="mt-1.5 text-[13px] text-muted">
         If another app uses the same keys, pick others here (also in the menu bar: Keys). Pressing any other key while you hold them lets the shortcut through.
@@ -682,10 +710,7 @@ function VoiceSettings() {
   const engine = useStore((s) => s.prefs["voice.engine"]) === "local" ? "local" : "sarvam";
   const [st, setSt] = useState<SarvamStatus | null>(null);
   const [dg, setDg] = useState<SarvamStatus | null>(null);
-  const pick = async (value: "sarvam" | "local") => {
-    const r = await call<{ prefs: Record<string, string | null> }>("prefs.set", { key: "voice.engine", value });
-    set({ prefs: r.prefs });
-  };
+  const pick = (value: "sarvam" | "local") => savePref("voice.engine", value);
   const sarvam = engine === "sarvam" && !!st?.saved;
   const american = engine === "sarvam" && !!dg?.saved;
   return (
@@ -693,17 +718,15 @@ function VoiceSettings() {
       <div className="px-4 py-3.5">
         <div className="flex items-center gap-4">
           <span className="flex-1 text-[15px] font-medium">Listening and reading aloud</span>
-          <div className="flex rounded-full bg-black/[.05] p-0.5">
-            {([["sarvam", "Sarvam AI"], ["local", "This computer"]] as const).map(([k, label]) => (
-              <button
-                key={k}
-                onClick={() => pick(k)}
-                className={`h-8 rounded-full px-3.5 text-[13px] font-semibold ${engine === k ? "bg-white text-ink shadow-[0_1px_2px_rgba(0,0,0,.1)]" : "text-[#777] hover:text-ink"}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            label="Listening and reading aloud"
+            value={engine}
+            options={[
+              ["sarvam", "Sarvam AI"],
+              ["local", "This computer"],
+            ] as const}
+            onChange={pick}
+          />
         </div>
         <p className="mt-1.5 text-[13px] text-muted">
           {sarvam
@@ -733,8 +756,9 @@ function KeyRow({ title, hint, api, placeholder, onStatus }: { title: string; hi
     setSt(s);
     onStatus(s);
   };
+  const check = () => api.status().then(show, (e) => setProblem(`Couldn't check this key: ${errorText(e)}`));
   useEffect(() => {
-    api.status().then(show, () => {});
+    check();
   }, []);
   const run = async (f: () => Promise<SarvamStatus>) => {
     setSaving(true);
@@ -743,7 +767,7 @@ function KeyRow({ title, hint, api, placeholder, onStatus }: { title: string; hi
       show(await f());
       setKey("");
     } catch (e) {
-      setProblem((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+      setProblem(errorText(e));
     } finally {
       setSaving(false);
     }
@@ -757,7 +781,7 @@ function KeyRow({ title, hint, api, placeholder, onStatus }: { title: string; hi
         </span>
         {st?.saved && (
           <>
-            <span className="text-[13px] text-ink">Saved, locked by your keychain</span>
+            <span className="text-[13px] text-ink">Saved, locked by {lockedBy()}</span>
             <button onClick={() => run(api.remove)} disabled={saving} className="h-8 rounded-full px-3 text-[13px] font-semibold text-ink hover:bg-black/[.05]">
               Remove
             </button>
@@ -778,6 +802,7 @@ function KeyRow({ title, hint, api, placeholder, onStatus }: { title: string; hi
             onChange={(e) => setKey(e.target.value)}
             autoComplete="off"
             spellCheck={false}
+            aria-label={title}
             placeholder={placeholder}
             className="h-9 min-w-0 flex-1 rounded-full border border-line bg-transparent px-3.5 text-[14px] outline-none placeholder:text-muted"
           />
@@ -787,9 +812,18 @@ function KeyRow({ title, hint, api, placeholder, onStatus }: { title: string; hi
         </form>
       )}
       {st && !st.saved && !st.canSave && (
-        <p className="mt-1.5 text-[13px] text-ink">This computer has no keychain to lock a key with, so Dune Bot won't keep one.</p>
+        <p className="mt-1.5 text-[13px] text-ink">This computer has no {lockNoun()} to lock a key with, so Dune Bot won't keep one.</p>
       )}
-      {problem && <p className="mt-1.5 text-[13px] font-medium text-ink">{problem}</p>}
+      {problem && (
+        <p role="alert" className="mt-1.5 text-[13px] font-medium text-ink">
+          {problem}
+          {!st && (
+            <button onClick={check} className="ml-2 font-semibold underline underline-offset-2">
+              Try again
+            </button>
+          )}
+        </p>
+      )}
     </div>
   );
 }
@@ -816,7 +850,13 @@ function Schedules() {
   const [time, setTime] = useState("09:00");
   const [weekday, setWeekday] = useState(1);
   const [cwd, setCwd] = useState<string | undefined>();
-  const load = () => call<Schedule[]>("schedules.list").then(setRows).catch(() => setRows([]));
+  const [failed, setFailed] = useState("");
+  const [adding, setAdding] = useState(false);
+  const load = () =>
+    call<Schedule[]>("schedules.list").then(
+      (r) => (setRows(r), setFailed("")),
+      (e) => setFailed(errorText(e)),
+    );
   useEffect(() => {
     if (!agents) loadAgents();
   }, []);
@@ -826,11 +866,17 @@ function Schedules() {
   const chosen = agent || (installed.find((a) => a.id === prefAgent) ?? installed[0])?.id || "";
   const [h, m] = time.split(":").map(Number);
   const at = every === "hourly" ? m || 0 : (h || 0) * 60 + (m || 0);
-  const act = (p: Promise<unknown>) => p.then(load).catch((e) => toast(String(e.message ?? e)));
+  // True when it worked; a refusal is a toast and leaves what you typed.
+  const act = (p: Promise<unknown>) =>
+    p.then(
+      () => (load(), true),
+      (e) => (toast(errorText(e)), false),
+    );
   async function add() {
-    if (!prompt.trim() || !chosen) return;
-    await act(call("schedules.add", { prompt, agent: chosen, every, at, weekday, cwd }));
-    setPrompt("");
+    if (!prompt.trim() || !chosen || adding) return;
+    setAdding(true);
+    if (await act(call("schedules.add", { prompt, agent: chosen, every, at, weekday, cwd }))) setPrompt("");
+    setAdding(false);
   }
   const field = "h-9 rounded-full border border-line bg-white px-3 text-[13.5px] outline-none hover:border-muted/50";
   return (
@@ -849,18 +895,19 @@ function Schedules() {
               value={prompt}
               maxLength={4000}
               onChange={(e) => setPrompt(e.target.value)}
+              aria-label="What should the agent do?"
               placeholder="What should the agent do? e.g. List what changed in ~/notes since yesterday"
               className="w-full resize-none bg-transparent px-1 py-1 text-[14.5px] outline-none placeholder:text-muted select-text"
             />
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <select value={every} onChange={(e) => setEvery(e.target.value as Schedule["every"])} className={`${field} w-34`}>
+              <select aria-label="How often" value={every} onChange={(e) => setEvery(e.target.value as Schedule["every"])} className={`${field} w-34`}>
                 <option value="daily">Every day</option>
                 <option value="weekdays">Weekdays</option>
                 <option value="weekly">Every week</option>
                 <option value="hourly">Every hour</option>
               </select>
               {every === "weekly" && (
-                <select value={weekday} onChange={(e) => setWeekday(Number(e.target.value))} className={`${field} w-34`}>
+                <select aria-label="Day" value={weekday} onChange={(e) => setWeekday(Number(e.target.value))} className={`${field} w-34`}>
                   {DAYS.map((d, i) => (
                     <option key={d} value={i}>
                       {d}
@@ -869,7 +916,7 @@ function Schedules() {
                 </select>
               )}
               {every === "hourly" ? (
-                <select value={String(m || 0)} onChange={(e) => setTime(`00:${e.target.value.padStart(2, "0")}`)} className={`${field} w-32`}>
+                <select aria-label="Minute past the hour" value={String(m || 0)} onChange={(e) => setTime(`00:${e.target.value.padStart(2, "0")}`)} className={`${field} w-32`}>
                   {[0, 15, 30, 45].map((x) => (
                     <option key={x} value={x}>
                       at :{String(x).padStart(2, "0")}
@@ -877,9 +924,9 @@ function Schedules() {
                   ))}
                 </select>
               ) : (
-                <input type="time" value={time} onChange={(e) => setTime(e.target.value || "09:00")} className={`${field} w-32`} />
+                <input aria-label="Time" type="time" value={time} onChange={(e) => setTime(e.target.value || "09:00")} className={`${field} w-32`} />
               )}
-              <select value={chosen} onChange={(e) => setAgent(e.target.value)} className={`${field} w-44`}>
+              <select aria-label="Agent" value={chosen} onChange={(e) => setAgent(e.target.value)} className={`${field} w-44`}>
                 {!installed.length && <option value="">No agents found</option>}
                 {installed.map((a) => (
                   <option key={a.id} value={a.id}>
@@ -895,16 +942,18 @@ function Schedules() {
                 <FolderOpen size={14} className="shrink-0 text-muted" />
                 <span className="truncate">{cwd ? folderName(cwd) : "Its own folder"}</span>
               </button>
-              <button disabled={!prompt.trim() || !chosen} onClick={add} className="ml-auto h-9 rounded-full bg-ink px-4 text-[13.5px] font-medium text-white hover:bg-black disabled:opacity-40">
+              <button disabled={!prompt.trim() || !chosen || adding} onClick={add} className="ml-auto h-9 rounded-full bg-ink px-4 text-[13.5px] font-medium text-white hover:bg-black disabled:opacity-40">
                 Add schedule
               </button>
             </div>
           </div>
           <div className="mt-4 divide-y divide-line rounded-2xl border border-line">
+            {!rows && failed && <LoadProblem what="your schedules" why={failed} retry={load} />}
             {rows?.length === 0 && <p className="px-4 py-6 text-center text-[14px] text-muted">No schedules yet.</p>}
             {rows?.map((s) => (
-              <div key={s.id} className={`flex items-start gap-3 px-4 py-3 ${s.enabled ? "" : "opacity-55"}`}>
-                <div className="min-w-0 flex-1">
+              <div key={s.id} data-schedule={s.enabled ? "on" : "off"} className="flex items-start gap-3 px-4 py-3">
+                {/* Off: its words dim; its buttons stay as they are (they still work). */}
+                <div className={`min-w-0 flex-1 ${s.enabled ? "" : "opacity-55"}`}>
                   <p className="truncate text-[14.5px] font-medium text-ink select-text" title={s.prompt}>
                     {s.title}
                   </p>
@@ -933,19 +982,18 @@ function Schedules() {
                 <button
                   role="switch"
                   aria-checked={s.enabled}
+                  aria-label={`Run “${s.title}” on its schedule`}
                   title={s.enabled ? "On" : "Off"}
                   onClick={() => act(call("schedules.set", { id: s.id, enabled: !s.enabled }))}
                   className={`mt-0.5 flex h-6 w-10 shrink-0 items-center rounded-full p-0.5 transition-colors ${s.enabled ? "bg-ink" : "bg-black/15"}`}
                 >
                   <span className={`size-5 rounded-full bg-white shadow transition-transform ${s.enabled ? "translate-x-4" : ""}`} />
                 </button>
-                <button
-                  title="Delete this schedule"
-                  onClick={() => act(call("schedules.delete", { id: s.id }))}
-                  className="grid size-7 shrink-0 place-items-center rounded-lg text-muted hover:bg-black/5 hover:text-ink"
-                >
-                  <Trash2 size={15} />
-                </button>
+                <DeleteButton
+                  what="schedule"
+                  body={`“${s.title}” won't run again. Chats from its past runs stay.`}
+                  onDelete={() => act(call("schedules.delete", { id: s.id }))}
+                />
               </div>
             ))}
           </div>
@@ -960,15 +1008,27 @@ function Fixes() {
   const [rows, setRows] = useState<Fix[] | null>(null);
   const [text, setText] = useState("");
   const threads = useStore((s) => s.threads);
-  const load = () => call<Fix[]>("fixes.list").then(setRows).catch(() => setRows([]));
+  const [failed, setFailed] = useState("");
+  const [adding, setAdding] = useState(false);
+  const load = () =>
+    call<Fix[]>("fixes.list").then(
+      (r) => (setRows(r), setFailed("")),
+      (e) => setFailed(errorText(e)),
+    );
   useEffect(() => {
     load();
   }, []);
-  const act = (p: Promise<unknown>) => p.then(load).catch((e) => toast(String(e.message ?? e)));
+  // True when it worked; a refusal is a toast and leaves what you typed.
+  const act = (p: Promise<unknown>) =>
+    p.then(
+      () => (load(), true),
+      (e) => (toast(errorText(e)), false),
+    );
   async function add() {
-    if (!text.trim()) return;
-    await act(call("fixes.add", { fix: text }));
-    setText("");
+    if (!text.trim() || adding) return;
+    setAdding(true);
+    if (await act(call("fixes.add", { fix: text }))) setText("");
+    setAdding(false);
   }
   return (
     <>
@@ -987,25 +1047,28 @@ function Fixes() {
               maxLength={500}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
+                // isComposing: Enter that picks a word in an input method isn't "add".
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   add();
                 }
               }}
+              aria-label="Add a fix of your own"
               placeholder="Add a fix of your own, e.g. Use bun, never npm"
               className="min-h-9 flex-1 resize-none bg-transparent py-2 text-[14px] outline-none placeholder:text-muted select-text"
             />
-            <button disabled={!text.trim()} onClick={add} className="h-9 rounded-full bg-ink px-4 text-[13.5px] font-medium text-white hover:bg-black disabled:opacity-40">
+            <button disabled={!text.trim() || adding} onClick={add} className="h-9 rounded-full bg-ink px-4 text-[13.5px] font-medium text-white hover:bg-black disabled:opacity-40">
               Add
             </button>
           </div>
           <div className="mt-4 divide-y divide-line rounded-2xl border border-line">
+            {!rows && failed && <LoadProblem what="your fixes" why={failed} retry={load} />}
             {rows?.length === 0 && <p className="px-4 py-6 text-center text-[14px] text-muted">No fixes yet.</p>}
             {rows?.map((f) => {
               const chat = f.threadId ? threads.find((t) => t.id === f.threadId) : undefined;
               return (
-                <div key={f.id} className={`flex items-start gap-3 px-4 py-3 ${f.enabled ? "" : "opacity-55"}`}>
-                  <div className="min-w-0 flex-1">
+                <div key={f.id} data-fix={f.enabled ? "on" : "off"} className="flex items-start gap-3 px-4 py-3">
+                  <div className={`min-w-0 flex-1 ${f.enabled ? "" : "opacity-55"}`}>
                     <p className="text-[14.5px] font-medium text-ink select-text">{f.fix}</p>
                     <p className="mt-0.5 truncate text-[12.5px] text-muted select-text" title={[f.failure, f.detail].filter(Boolean).join("\n")}>
                       {f.failure}
@@ -1026,19 +1089,18 @@ function Fixes() {
                   <button
                     role="switch"
                     aria-checked={f.enabled}
+                    aria-label="Agents read this fix"
                     title={f.enabled ? "On: agents read it" : "Off: agents don't see it"}
                     onClick={() => act(call("fixes.set", { id: f.id, enabled: !f.enabled }))}
                     className={`mt-0.5 flex h-6 w-10 shrink-0 items-center rounded-full p-0.5 transition-colors ${f.enabled ? "bg-ink" : "bg-black/15"}`}
                   >
                     <span className={`size-5 rounded-full bg-white shadow transition-transform ${f.enabled ? "translate-x-4" : ""}`} />
                   </button>
-                  <button
-                    title="Delete this fix"
-                    onClick={() => act(call("fixes.delete", { id: f.id }))}
-                    className="grid size-7 shrink-0 place-items-center rounded-lg text-muted hover:bg-black/5 hover:text-ink"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                  <DeleteButton
+                    what="fix"
+                    body="Agents stop reading it. To keep it without agents seeing it, switch it off instead."
+                    onDelete={() => act(call("fixes.delete", { id: f.id }))}
+                  />
                 </div>
               );
             })}
@@ -1049,10 +1111,52 @@ function Fixes() {
   );
 }
 
+/** Activity's words for the core's action keys and decisions (core/src/app.rs ledger): short enough
+ * for their column, the core's full words in the tooltip. */
+const DONE_WHAT: Record<string, string> = {
+  "run-command": "Command",
+  "write-file": "File change",
+  "read-file": "Read file",
+  "list-folder": "Folder",
+  "search-chats": "Chat search",
+  "look-screen": "Screen look",
+  "find-location": "Location",
+  click: "Click",
+  type: "Typing",
+  point: "Point",
+  "slack-write": "Slack",
+  "gmail-write": "Gmail",
+  "notion-write": "Notion",
+  "calendar-write": "Calendar",
+  "x-post": "Post on X",
+  bot: "Bot",
+  phone: "Phone",
+  schedule: "Schedule",
+  settings: "Setting",
+};
+const DECIDED: Record<string, string> = {
+  "allowed (auto: nothing risky)": "Allowed: not risky",
+  "allowed (always)": "Allowed: Always",
+  "allowed (this chat)": "Allowed: this chat",
+  "approved once": "You allowed it",
+  "approved for this chat": "You allowed the chat",
+  declined: "You said no",
+  "no answer": "No answer",
+  "blocked by settings": "Blocked: Never",
+  "blocked (from your phone)": "Blocked: phone",
+};
+const decided = (d: string) => DECIDED[d] ?? (d ? d[0].toUpperCase() + d.slice(1) : "");
+
 function Activity() {
   const [rows, setRows] = useState<LedgerRow[] | null>(null);
+  const [failed, setFailed] = useState("");
+  const load = () =>
+    call<LedgerRow[]>("ledger.list").then(
+      (r) => (setRows(r), setFailed("")),
+      (e) => setFailed(errorText(e)),
+    );
   useEffect(() => {
-    call<LedgerRow[]>("ledger.list").then(setRows);
+    load();
   }, []);
   const tone = (d: string) =>
     d.startsWith("declined") || d.startsWith("blocked") || d === "no answer" ? "bg-ink text-white" : d.startsWith("approved") || d.startsWith("allowed") ? "bg-ink/10 text-ink" : "bg-black/[.05] text-ink/70";
@@ -1064,15 +1168,20 @@ function Activity() {
           <h1 className="font-pixel text-[32px] leading-tight">Activity</h1>
           <p className="mt-1 text-[15px] text-muted">Everything agents did or tried to do, newest first.</p>
           <div className="mt-6 divide-y divide-line rounded-2xl border border-line">
+            {!rows && failed && <LoadProblem what="the activity" why={failed} retry={load} />}
             {rows?.length === 0 && <p className="px-4 py-6 text-center text-[14px] text-muted">Nothing yet.</p>}
             {rows?.map((r) => (
               <div key={r.id} className="flex items-center gap-3 px-4 py-2.5">
                 <span className="w-16 shrink-0 text-[12px] text-muted">{when(r.at)}</span>
-                <span className="w-24 shrink-0 text-[13px] font-medium">{r.action}</span>
+                <span className="w-24 shrink-0 truncate text-[13px] font-medium" title={r.action}>
+                  {DONE_WHAT[r.action] ?? r.action}
+                </span>
                 <code className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink/70 select-text" title={r.target}>
                   {r.target}
                 </code>
-                <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[12px] font-medium ${tone(r.decision)}`}>{r.decision}</span>
+                <span title={r.decision} className={`shrink-0 rounded-full px-2.5 py-0.5 text-[12px] font-medium ${tone(r.decision)}`}>
+                  {decided(r.decision)}
+                </span>
               </div>
             ))}
           </div>

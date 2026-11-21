@@ -2097,6 +2097,132 @@ const MEASURE = `(() => {
     controls: wco ? { visible: wco.visible, free: [Math.round(area.x), Math.round(area.width), Math.round(area.height)] } : null,
     dark: matchMedia("(prefers-color-scheme: dark)").matches, body: getComputedStyle(document.body).backgroundColor, parts: out };
 })()`;
+// After the picture (DUNEBOT_SNAPSHOT_AUDIT=1, scripts/audit.mjs reads it): what a person on a keyboard
+// or with weak eyes would trip on, per view and theme. Clickables (buttons, links, ARIA roles, form
+// controls): no hand cursor, no name, a focus that doesn't show; a hand cursor on something a keyboard
+// can't reach (a div with a click); text below 4.5:1 (3:1 large) on what's behind it; text cut off.
+const AUDIT = `(async () => {
+  const cvs = document.createElement("canvas");
+  cvs.width = cvs.height = 1;
+  const g = cvs.getContext("2d", { willReadFrequently: true });
+  const rgba = (c) => {
+    g.clearRect(0, 0, 1, 1);
+    g.fillStyle = "rgba(0,0,0,0)";
+    g.fillStyle = c;
+    g.fillRect(0, 0, 1, 1);
+    const d = g.getImageData(0, 0, 1, 1).data;
+    return [d[0], d[1], d[2], d[3] / 255];
+  };
+  const over = (top, under) => {
+    const a = top[3] + under[3] * (1 - top[3]);
+    if (!a) return [0, 0, 0, 0];
+    return [0, 1, 2].map((i) => (top[i] * top[3] + under[i] * under[3] * (1 - top[3])) / a).concat(a);
+  };
+  const lum = (c) => {
+    const f = (v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
+  };
+  const vis = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1 || r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) return false;
+    for (let e = el; e; e = e.parentElement) {
+      const c = getComputedStyle(e);
+      if (c.visibility === "hidden" || c.display === "none" || Number(c.opacity) < 0.05) return false;
+    }
+    return true;
+  };
+  const name = (el) => {
+    const by = el.getAttribute("aria-labelledby");
+    const t = el.getAttribute("aria-label") || (by && by.split(/\\s+/).map((id) => document.getElementById(id)?.textContent ?? "").join(" ")) ||
+      el.textContent || el.getAttribute("title") || el.querySelector("img[alt]")?.getAttribute("alt") || el.labels?.[0]?.textContent || el.getAttribute("placeholder") || "";
+    return t.replace(/\\s+/g, " ").trim();
+  };
+  const at = (el) => {
+    const r = el.getBoundingClientRect();
+    return Math.round(r.x) + "," + Math.round(r.y);
+  };
+  const say = (el, more = "") => el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") + " '" + name(el).slice(0, 40) + "' @" + at(el) + more;
+  const CLICK = "button, a[href], [role=button], [role=tab], [role=radio], [role=switch], [role=checkbox], [role=menuitem], [role=option], summary, select, input[type=checkbox], input[type=radio], input[type=range]";
+  const clickables = [...document.querySelectorAll(CLICK)].filter(vis);
+  const enabled = (el) => !el.disabled && el.getAttribute("aria-disabled") !== "true";
+  const out = { clickables: clickables.length, cursor: [], name: [], keyboard: [], contrast: [], clipped: [], offWindow: [] };
+  for (const el of clickables) {
+    if (enabled(el) && getComputedStyle(el).cursor !== "pointer") out.cursor.push(say(el, " cursor " + getComputedStyle(el).cursor));
+    if (!name(el)) out.name.push(say(el));
+  }
+  for (const el of document.querySelectorAll("body *")) {
+    if (el.matches(CLICK) || el.closest(CLICK) || ["INPUT", "TEXTAREA", "LABEL"].includes(el.tagName) || el.tabIndex >= 0 || el.isContentEditable) continue;
+    if (getComputedStyle(el).cursor !== "pointer" || !vis(el)) continue;
+    const p = el.parentElement;
+    if (p && getComputedStyle(p).cursor === "pointer" && !p.matches(CLICK) && p.tabIndex < 0) continue; // its parent is reported
+    out.keyboard.push(say(el));
+  }
+  // Focus (auditFocus, after this): each enabled clickable is marked, and how it's drawn is read
+  // before and while it's forced to :focus-visible (a hidden window never has keyboard focus).
+  const look = (el) => {
+    const c = getComputedStyle(el);
+    return [c.outlineStyle !== "none" && parseFloat(c.outlineWidth) > 0 ? c.outlineStyle + c.outlineWidth + c.outlineColor : "", c.boxShadow, c.borderColor, c.backgroundColor, c.color, c.textDecorationLine].join("|");
+  };
+  const marked = (i) => document.querySelector('[data-audit-i="' + i + '"]');
+  window.__auditLook = (i) => look(marked(i));
+  window.__auditSay = (i) => say(marked(i));
+  clickables.filter(enabled).slice(0, 80).forEach((el, i) => (el.dataset.auditI = String(i)));
+  // Text: each element with its own words, against what's painted behind it.
+  for (const el of document.querySelectorAll("body *")) {
+    const own = [...el.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim()).map((n) => n.textContent.trim()).join(" ");
+    if (!own || !vis(el) || el.closest("[aria-hidden=true]")) continue;
+    if (el.closest("button:disabled, [aria-disabled=true]")) continue;
+    let bg = [0, 0, 0, 0], opacity = 1;
+    const chain = [];
+    for (let e = el; e; e = e.parentElement) chain.push(e);
+    for (const e of chain.reverse()) bg = over(rgba(getComputedStyle(e).backgroundColor), bg);
+    for (let e = el; e; e = e.parentElement) opacity *= Number(getComputedStyle(e).opacity);
+    if (bg[3] < 1) bg = over(bg, rgba(getComputedStyle(document.body).backgroundColor).slice(0, 3).concat(1));
+    if (bg[3] < 1) bg = over(bg, [0, 0, 0, 0]);
+    const fg0 = rgba(getComputedStyle(el).color);
+    const fg = over([fg0[0], fg0[1], fg0[2], fg0[3] * opacity], bg);
+    const L1 = lum(fg), L2 = lum(bg);
+    const ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+    const c = getComputedStyle(el);
+    const px = parseFloat(c.fontSize), large = px >= 24 || (px >= 18.66 && Number(c.fontWeight) >= 700);
+    if (ratio < (large ? 3 : 4.5)) out.contrast.push(say(el, " " + ratio.toFixed(2) + ":1 " + px + "px"));
+    if (el.scrollWidth > el.clientWidth + 1 && ["hidden", "clip"].includes(c.overflowX) && c.textOverflow !== "ellipsis") out.clipped.push(say(el, " " + el.scrollWidth + ">" + el.clientWidth));
+    const r = el.getBoundingClientRect();
+    if (r.right > innerWidth + 1 && !el.closest("[class*=overflow-x-auto], [class*=overflow-auto], pre")) out.offWindow.push(say(el, " right " + Math.round(r.right) + " > " + innerWidth));
+  }
+  for (const k of ["cursor", "name", "keyboard", "contrast", "clipped", "offWindow"]) out[k] = [...new Set(out[k])];
+  return out;
+})()`;
+/** The audit's focus check: every clickable AUDIT marked, forced to :focus and :focus-visible through
+ * the DevTools protocol (in this hidden window only, no input anywhere); one whose look doesn't change
+ * at all shows a keyboard user nothing. */
+async function auditFocus(win) {
+  const dbg = win.webContents.debugger;
+  const focus = [];
+  try {
+    dbg.attach("1.3");
+    await dbg.sendCommand("DOM.enable");
+    await dbg.sendCommand("CSS.enable");
+    const { root } = await dbg.sendCommand("DOM.getDocument", { depth: -1 });
+    const { nodeIds } = await dbg.sendCommand("DOM.querySelectorAll", { nodeId: root.nodeId, selector: "[data-audit-i]" });
+    for (const nodeId of nodeIds) {
+      const { attributes } = await dbg.sendCommand("DOM.getAttributes", { nodeId });
+      const i = JSON.stringify(attributes[attributes.indexOf("data-audit-i") + 1]);
+      const before = await win.webContents.executeJavaScript(`window.__auditLook(${i})`);
+      await dbg.sendCommand("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: ["focus", "focus-visible"] });
+      const during = await win.webContents.executeJavaScript(`window.__auditLook(${i})`);
+      await dbg.sendCommand("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] });
+      if (during === before) focus.push(await win.webContents.executeJavaScript(`window.__auditSay(${i})`));
+    }
+    return { focus, focusChecked: nodeIds.length };
+  } catch (err) {
+    return { focus, focusError: String(err) };
+  } finally {
+    try {
+      dbg.detach();
+    } catch {}
+  }
+}
 const SETTLE = `(async () => {
   const end = Date.now() + 10000;
   let last = "", since = Date.now();
@@ -2155,6 +2281,10 @@ async function takeSnapshot(win) {
   // (fonts rasterise differently on each, so pixels can't be compared).
   try {
     const parts = await win.webContents.executeJavaScript(MEASURE);
+    if (process.env.DUNEBOT_SNAPSHOT_AUDIT === "1") {
+      parts.audit = await win.webContents.executeJavaScript(AUDIT).catch((err) => ({ error: String(err) }));
+      if (!parts.audit.error) Object.assign(parts.audit, await auditFocus(win));
+    }
     fs.writeFileSync(snapshot.replace(/\.png$/, "") + ".json", JSON.stringify(parts, null, 1));
   } catch (err) {
     console.error("snapshot measure failed:", err);

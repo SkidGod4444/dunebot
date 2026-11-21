@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { call, setMode, useStore } from "./store";
+import { call, errorText, setMode, useStore } from "./store";
+import { lockedBy, Segmented } from "./ui";
 
 /** One account as the core describes it. Pages never see a token, a key or a client secret. */
 type Account = {
@@ -34,15 +35,18 @@ const CHOICES = [
   ["never", "Never"],
 ] as const;
 
-const clean = (e: unknown) => (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
 
 /** Permissions › Connectors: the user's Slack, Gmail, Notion, Google Calendar and X. */
 export function Connectors() {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
+  const [failed, setFailed] = useState("");
   const load = () =>
     call<{ accounts: Account[] }>("connectors.list").then(
-      (r) => setAccounts(r.accounts),
-      () => {},
+      (r) => {
+        setAccounts(r.accounts);
+        setFailed("");
+      },
+      (e) => setFailed(errorText(e)),
     );
   useEffect(() => {
     load();
@@ -53,11 +57,20 @@ export function Connectors() {
   return (
     <div className="rounded-2xl border border-line">
       <p className="px-4 pt-3.5 pb-1 text-[13px] text-muted">
-        Dune Bot reads an account only when you ask for it in a chat ("check my Slack"), never because an email, a message or a page says to. It asks before
-        it sends, drafts, posts or changes anything. Sign-ins stay on this computer, locked by your keychain.
+        Dune Bot reads an account only when you ask for it in a chat ("check my Slack"), never because an email, a message or a page says to. Sending,
+        drafting, posting or changing anything follows the choice under each account: Ask me shows a card first. Sign-ins stay on this computer, locked by{" "}
+        {lockedBy()}.
       </p>
       <div className="divide-y divide-line">
         {accounts?.map((a) => <AccountRow key={a.source} a={a} onChange={(list) => setAccounts(list)} />)}
+        {!accounts && failed && (
+          <div role="alert" className="flex items-center gap-4 px-4 py-3.5">
+            <span className="min-w-0 flex-1 text-[13px] text-ink">Couldn't list your accounts: {failed}</span>
+            <button onClick={load} className="h-8 rounded-full px-3 text-[13px] font-semibold text-ink hover:bg-black/[.05]">
+              Try again
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -85,7 +98,7 @@ function AccountRow({ a, onChange }: { a: Account; onChange: (list: Account[]) =
       setClientSecret("");
       setKey("");
     } catch (e) {
-      setProblem(clean(e));
+      setProblem(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -108,7 +121,9 @@ function AccountRow({ a, onChange }: { a: Account; onChange: (list: Account[]) =
     <div className="px-4 py-3.5">
       <div className="flex items-center gap-4">
         <span className="min-w-0 flex-1 text-[15px] font-medium">{a.label}</span>
-        <span className={`text-[13px] ${a.state === "off" ? "text-muted" : "text-ink"}`}>{status}</span>
+        <span title={status} className={`min-w-0 max-w-[60%] truncate text-[13px] ${a.state === "off" ? "text-muted" : "text-ink"}`}>
+          {status}
+        </span>
         {a.state === "connecting" && (
           <button onClick={() => run("connectors.cancel")} disabled={busy} className="h-8 rounded-full px-3 text-[13px] font-semibold text-ink hover:bg-black/[.05]">
             Cancel
@@ -128,17 +143,7 @@ function AccountRow({ a, onChange }: { a: Account; onChange: (list: Account[]) =
       {a.state === "connected" && change && (
         <div className="mt-2.5 flex items-center gap-4">
           <span className="flex-1 text-[13px] text-muted">{change.label}</span>
-          <div className="flex rounded-full bg-black/[.05] p-0.5">
-            {CHOICES.map(([k, label]) => (
-              <button
-                key={k}
-                onClick={() => setMode(change.action, k)}
-                className={`h-7 rounded-full px-3 text-[12.5px] font-semibold ${change.mode === k ? "bg-white text-ink shadow-[0_1px_2px_rgba(0,0,0,.1)]" : "text-[#777] hover:text-ink"}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <Segmented small label={change.label} value={change.mode} options={CHOICES} onChange={(k) => setMode(change.action, k)} />
         </div>
       )}
       {open && (a.state === "off" || a.state === "reconnect") && (

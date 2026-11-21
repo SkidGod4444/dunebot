@@ -108,6 +108,12 @@ impl Action {
         }
     }
 
+    /// A change in one of the user's accounts (sending, posting, editing in Slack, Gmail, Notion,
+    /// Calendar, X). A new bot starts without these (team.rs save).
+    pub fn is_account_change(self) -> bool {
+        matches!(self, Action::SlackWrite | Action::GmailWrite | Action::NotionWrite | Action::CalendarWrite | Action::XPost)
+    }
+
     pub fn from_key(k: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|a| a.key() == k)
     }

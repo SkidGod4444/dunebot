@@ -75,7 +75,7 @@ export function TypingLine() {
 
 export function Typing() {
   return (
-    <span className="inline-flex h-5 items-center gap-1 px-0.5" aria-label="Working">
+    <span role="status" className="inline-flex h-5 items-center gap-1 px-0.5" aria-label="Working">
       {[0, 1, 2].map((i) => (
         <span key={i} className="dm-dot size-1.5 rounded-full bg-muted" style={{ animationDelay: `${i * 0.15}s` }} />
       ))}

@@ -1,19 +1,11 @@
 import { useEffect, useState } from "react";
-import { Pencil, Plus, Trash2 } from "lucide-react";
-import { agentName, call, loadAgents, toast, useStore } from "./store";
-import { MAY, useBots, type Bot } from "./bots";
-import { AgentAvatar } from "./parts";
+import { Pencil, Plus } from "lucide-react";
+import { agentName, call, errorText, loadAgents, toast, useStore } from "./store";
+import { MAY, MAY_ACCOUNTS, MAY_NEW, mayText, useBots, type Bot } from "./bots";
+import { AgentAvatar, DeleteButton } from "./parts";
 
 type Draft = { id?: string; name: string; role: string; engine: string; may: string[] };
 
-const ALL = MAY.map(([k]) => k);
-const clean = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
-
-function mayText(may: string[]) {
-  if (ALL.every((k) => may.includes(k))) return "May do what Permissions allows";
-  if (!may.length) return "Only answers and hands over";
-  return `May: ${MAY.filter(([k]) => may.includes(k)).map(([, label]) => label.toLowerCase()).join(", ")}`;
-}
 
 /** Permissions › Bots: the user's own bots, each with a role and the engine it runs on (core/src/team.rs). */
 export function BotsSettings() {
@@ -34,7 +26,7 @@ export function BotsSettings() {
       await call("bots.delete", { id: b.id });
       if (draft?.id === b.id) setDraft(null);
     } catch (e) {
-      toast(clean(e));
+      toast(errorText(e));
     }
   }
 
@@ -55,20 +47,19 @@ export function BotsSettings() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[14.5px] font-medium text-ink">{b.name}</p>
                 <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-ink/70 select-text">{b.role}</p>
-                <p className="mt-1 truncate text-[12px] text-muted">
+                <p className="mt-1 truncate text-[12px] text-muted" title={`Runs on ${agentName(b.engine)} · ${mayText(b.may)}`}>
                   Runs on {agentName(b.engine)} · {mayText(b.may)}
                 </p>
               </div>
               <button
                 title="Edit this bot"
+                aria-label={`Edit ${b.name}`}
                 onClick={() => setDraft({ id: b.id, name: b.name, role: b.role, engine: b.engine, may: b.may })}
                 className="grid size-7 shrink-0 place-items-center rounded-lg text-muted hover:bg-black/5 hover:text-ink"
               >
                 <Pencil size={14} />
               </button>
-              <button title="Delete this bot" onClick={() => remove(b)} className="grid size-7 shrink-0 place-items-center rounded-lg text-muted hover:bg-black/5 hover:text-ink">
-                <Trash2 size={15} />
-              </button>
+              <DeleteButton what="bot" body={`${b.name} leaves the bar and your team. Its chats stay to read, but can't go on.`} onDelete={() => remove(b)} />
             </div>
           ),
         )}
@@ -76,7 +67,7 @@ export function BotsSettings() {
       </div>
       {!draft && (
         <button
-          onClick={() => setDraft({ name: "", role: "", engine: firstEngine(), may: ALL })}
+          onClick={() => setDraft({ name: "", role: "", engine: firstEngine(), may: MAY_NEW })}
           className="mt-3 flex h-9 items-center gap-1.5 rounded-full border border-line px-4 text-[13.5px] font-medium text-ink hover:border-muted/50"
         >
           <Plus size={15} /> New bot
@@ -110,7 +101,7 @@ function Editor({
       await call("bots.save", { ...(draft.id ? { id: draft.id } : {}), name: draft.name, role: draft.role, engine: draft.engine, may: draft.may });
       onDone();
     } catch (e) {
-      toast(clean(e));
+      toast(errorText(e));
     } finally {
       setSaving(false);
     }
@@ -149,22 +140,31 @@ function Editor({
         placeholder="Its role: what it does, e.g. Turns my notes into a short post"
         className="mt-2 block w-full resize-none rounded-xl border border-line bg-white px-3.5 py-2 text-[14px] leading-snug outline-none placeholder:text-muted hover:border-muted/50 focus:border-muted/60 select-text"
       />
-      <p className="mt-3 mb-1.5 text-[12px] font-medium text-muted">What it may do</p>
-      <div className="flex flex-wrap gap-1.5">
-        {MAY.map(([k, label]) => {
-          const on = draft.may.includes(k);
-          return (
-            <button
-              key={k}
-              aria-pressed={on}
-              onClick={() => toggle(k)}
-              className={`h-7 rounded-full border px-3 text-[12.5px] font-medium ${on ? "border-ink bg-ink text-white" : "border-line text-muted hover:border-muted/50 hover:text-ink"}`}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
+      {(
+        [
+          ["What it may do", MAY],
+          ["Changes in your accounts (sending, posting, editing)", MAY_ACCOUNTS],
+        ] as const
+      ).map(([title, list]) => (
+        <div key={title} role="group" aria-label={title}>
+          <p className="mt-3 mb-1.5 text-[12px] font-medium text-muted">{title}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {list.map(([k, label]) => {
+              const on = draft.may.includes(k);
+              return (
+                <button
+                  key={k}
+                  aria-pressed={on}
+                  onClick={() => toggle(k)}
+                  className={`h-7 rounded-full border px-3 text-[12.5px] font-medium ${on ? "border-ink bg-ink text-white" : "border-line text-muted hover:border-muted/50 hover:text-ink"}`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
       <p className="mt-1.5 text-[12px] text-muted">This only narrows Permissions: a bot still asks wherever any chat would.</p>
       <div className="mt-3 flex justify-end gap-2">
         <button onClick={onDone} className="h-8 rounded-full px-3 text-[13px] text-muted hover:text-ink">
