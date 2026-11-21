@@ -248,18 +248,6 @@ export function Caption() {
         onMouseEnter={() => !moving.current && setHover(true)}
         onMouseLeave={() => setHover(false)}
       >
-        {hover && (
-          <div className="absolute top-1.5 right-1.5 z-10 flex gap-0.5 rounded-full bg-[var(--dm-glass)]">
-            {id && (
-              <button title="Open chats" aria-label="Open chats" onClick={() => window.dunebot.openMain(`thread:${id}`)} className="grid size-7 place-items-center rounded-full text-muted hover:bg-bubble hover:text-ink">
-                <Maximize2 size={13} />
-              </button>
-            )}
-            <button title="Close" aria-label="Close" onClick={close} className="grid size-7 place-items-center rounded-full text-muted hover:bg-bubble hover:text-ink">
-              <X size={14} />
-            </button>
-          </div>
-        )}
         <div ref={scroller} className="dm-caption-scroll flex min-h-0 flex-col gap-2.5 overflow-y-auto px-4 py-3">
           {listening ? (
             <div className="flex h-[22.5px] items-center gap-2.5 text-[15px]">
@@ -311,13 +299,15 @@ export function Caption() {
             </>
           )}
         </div>
-        {(speaking || (thread && !listening && !transcribing && hover)) && (
-          <div className="flex items-center gap-2 border-t border-line px-4 py-1.5 text-[11.5px] text-muted">
+        {/* The card's buttons live in this row, under the words, so they never cover the answer
+            (they sat over its first line). It shows on hover, and while an answer is read aloud. */}
+        {(speaking || (hover && !listening && !transcribing)) && (
+          <div data-caption-row className="flex items-center gap-2 border-t border-line py-1 pr-1.5 pl-4 text-[11.5px] text-muted">
             {speaking ? (
               <button title="Stop reading this answer" aria-label="Stop reading this answer" onClick={() => (speaker.current?.stop(), setSpeaking(false))} className="flex items-center gap-1.5 hover:text-ink">
                 <Volume2 size={12} className="shrink-0 text-brand" /> Speaking · stop
               </button>
-            ) : (
+            ) : thread ? (
               <button
                 title={speakPref ? "Stop reading answers aloud" : "Read answers aloud"}
                 aria-label="Read answers aloud"
@@ -328,8 +318,16 @@ export function Caption() {
                 {speakPref ? <Volume2 size={12} className="shrink-0" /> : <VolumeX size={12} className="shrink-0" />}
                 {speakPref ? "Read aloud" : "Not read aloud"}
               </button>
+            ) : null}
+            <span className="ml-auto min-w-0 truncate">{thread ? agentName(thread.agent) : ""}</span>
+            {id && (
+              <button title="Open chats" aria-label="Open chats" onClick={() => window.dunebot.openMain(`thread:${id}`)} className="grid size-6 shrink-0 place-items-center rounded-full text-muted hover:bg-bubble hover:text-ink">
+                <Maximize2 size={12} />
+              </button>
             )}
-            {thread && <span className="ml-auto truncate">{agentName(thread.agent)}</span>}
+            <button title="Close" aria-label="Close" onClick={close} className="grid size-6 shrink-0 place-items-center rounded-full text-muted hover:bg-bubble hover:text-ink">
+              <X size={13} />
+            </button>
           </div>
         )}
       </div>

@@ -105,10 +105,15 @@ jobs:
           # What main tells a page the moment it loads reaches it, though React listens a moment later.
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1440x900x24" node scripts/check_early_messages.mjs
           else node scripts/check_early_messages.mjs; fi
+          # The audit (DUNEBOT_SNAPSHOT_AUDIT) measures every clickable on every page while it's drawn:
+          # hand cursor, a name, reachable by keyboard, a visible focus, text contrast (WCAG AA 4.5:1),
+          # nothing cut off or off the window. The gate below keeps each at zero.
+          export DUNEBOT_SNAPSHOT_AUDIT=1
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 1440x900x24" node scripts/snapshots.mjs snapshots
           else node scripts/snapshots.mjs snapshots; fi
           # The Mac also draws the Windows and Linux versions of the pages, the reference for those systems.
           if [ "$RUNNER_OS" = macOS ]; then node scripts/snapshots.mjs snapshots win32 && node scripts/snapshots.mjs snapshots linux; fi
+          node scripts/audit.mjs snapshots --max cursor=0,name=0,keyboard=0,focus=0,contrast=0,clipped=0,offWindow=0
       - name: Packaged app (unpacked folder) checks itself and draws the same pages
         shell: bash
         run: |

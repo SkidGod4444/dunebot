@@ -344,7 +344,8 @@ export function ApprovalCard({ m, agent, bar }: { m: Message; agent: string; bar
         <ShieldAlert size={17} className="shrink-0 text-ink" />
         {agentName(agent)} wants to {askText(action, coreLabel)}
       </div>
-      <pre className="mt-3 max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-xl border border-line bg-white px-3 py-2.5 font-mono text-[12.5px] leading-[1.5] select-text">
+      {/* In the small card, a long command stays short enough that what's asked stays in view. */}
+      <pre className={`mt-3 ${bar ? "max-h-32" : "max-h-60"} overflow-auto whitespace-pre-wrap break-all rounded-xl border border-line bg-white px-3 py-2.5 font-mono text-[12.5px] leading-[1.5] select-text`}>
         {target}
       </pre>
       {detail && <p className="mt-2 truncate text-[13px] text-muted" title={detail}>{tidyDetail(detail)}</p>}

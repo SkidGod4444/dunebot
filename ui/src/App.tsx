@@ -47,7 +47,10 @@ export function App() {
         {/* Always there, so a screen reader hears each toast as it comes. */}
         <div role="status" aria-live="polite">
           {toastText && (
-            <div className="pointer-events-none absolute bottom-28 left-1/2 -translate-x-1/2 rounded-full bg-ink px-4 py-2 text-[13px] text-white shadow-lg">{toastText}</div>
+            // A long message wraps in a box (a pill grew into a tall oval).
+            <div className="pointer-events-none absolute bottom-28 left-1/2 w-max max-w-[min(520px,calc(100%-48px))] -translate-x-1/2 rounded-2xl bg-ink px-4 py-2 text-center text-[13px] leading-snug text-white shadow-lg">
+              {toastText}
+            </div>
           )}
         </div>
       </main>
@@ -298,7 +301,7 @@ function ThreadView() {
         </div>
         <div className="ml-auto flex items-center gap-1">
           <UndoChanges id={id} busy={busy} />
-          <span title={`Works in ${thread.cwd}`} className="grid size-8 place-items-center rounded-lg text-[#666]">
+          <span title={`Works in ${thread.cwd}`} className="grid size-8 place-items-center rounded-lg text-muted">
             <Monitor size={18} />
           </span>
           <DeleteChat id={id} title={thread.title} />
@@ -458,7 +461,8 @@ function NewChat() {
           {!agents ? (
             <p data-loading className="text-[14px] text-muted">Looking for agents on this computer…</p>
           ) : (
-            <div role="group" aria-label="Agent" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            // As many columns as fit this window (the screen's width gave 3 cut-off names at 760).
+            <div role="group" aria-label="Agent" className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-2">
               {agents.map((a) => (
                 <button
                   key={a.id}
@@ -878,7 +882,8 @@ function Schedules() {
     if (await act(call("schedules.add", { prompt, agent: chosen, every, at, weekday, cwd }))) setPrompt("");
     setAdding(false);
   }
-  const field = "h-9 rounded-full border border-line bg-white px-3 text-[13.5px] outline-none hover:border-muted/50";
+  // No outline-none: the keyboard's outline (styles.css :focus-visible) shows on these pickers.
+  const field = "h-9 rounded-full border border-line bg-white px-3 text-[13.5px] hover:border-muted/50";
   return (
     <>
       <div className="drag h-[56px] shrink-0" />
@@ -952,9 +957,9 @@ function Schedules() {
             {rows?.length === 0 && <p className="px-4 py-6 text-center text-[14px] text-muted">No schedules yet.</p>}
             {rows?.map((s) => (
               <div key={s.id} data-schedule={s.enabled ? "on" : "off"} className="flex items-start gap-3 px-4 py-3">
-                {/* Off: its words dim; its buttons stay as they are (they still work). */}
-                <div className={`min-w-0 flex-1 ${s.enabled ? "" : "opacity-55"}`}>
-                  <p className="truncate text-[14.5px] font-medium text-ink select-text" title={s.prompt}>
+                {/* Off: its title turns grey (readable, not faded); its buttons stay as they are. */}
+                <div className="min-w-0 flex-1">
+                  <p className={`truncate text-[14.5px] font-medium select-text ${s.enabled ? "text-ink" : "text-muted"}`} title={s.prompt}>
                     {s.title}
                   </p>
                   <p className="mt-0.5 truncate text-[12.5px] text-muted" title={s.cwd}>
@@ -1068,8 +1073,8 @@ function Fixes() {
               const chat = f.threadId ? threads.find((t) => t.id === f.threadId) : undefined;
               return (
                 <div key={f.id} data-fix={f.enabled ? "on" : "off"} className="flex items-start gap-3 px-4 py-3">
-                  <div className={`min-w-0 flex-1 ${f.enabled ? "" : "opacity-55"}`}>
-                    <p className="text-[14.5px] font-medium text-ink select-text">{f.fix}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-[14.5px] font-medium select-text ${f.enabled ? "text-ink" : "text-muted"}`}>{f.fix}</p>
                     <p className="mt-0.5 truncate text-[12.5px] text-muted select-text" title={[f.failure, f.detail].filter(Boolean).join("\n")}>
                       {f.failure}
                       {f.detail && <span className="font-mono text-[11.5px]"> · {f.detail}</span>}

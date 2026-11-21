@@ -29,6 +29,7 @@ const SHOTS = [
   ["bar", "bar", { DUNEBOT_SNAPSHOT_PLACE: "1" }],
   ["caption", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption.js") }],
   ["caption-markdown", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-markdown.js") }],
+  ["caption-hover", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-hover.js") }],
   ["caption-approval", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-approval.js") }],
   // The answer card following a scripted pointer, then holding still while a card waits for an OK.
   ["caption-follow", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-follow.js"), DUNEBOT_SNAPSHOT_FOLLOW: "1" }],
@@ -333,6 +334,16 @@ for (const theme of ["light", "dark"])
       const want = { "permissions-phone": [false, false], "permissions-phone-code": [true, false], "permissions-phone-paired": [false, true] }[name];
       if (!res?.found || res.switches !== 3 || res.code !== want[0] || res.paired !== want[1]) problems.push(`${name} ${theme}: Phone section ${JSON.stringify(res)}`);
       else note += res.code ? " pairing code shown" : res.paired ? " paired, Unpair shown" : " token box and three switches";
+    }
+    if (name === "caption-hover") {
+      // Pointer over the card: Open chats and Close in the row under the words, none over the answer.
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      if (!res?.found || !res.row || res.buttons.join() !== "Read answers aloud,Open chats,Close" || res.covered || !res.inCard)
+        problems.push(`${name} ${theme}: buttons ${JSON.stringify(res)}`);
+      else note += " buttons in the row under the answer, none over its words";
     }
     if (name === "caption-first-line") {
       // "On it." read while the command still ran, then "Done." after it.
