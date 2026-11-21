@@ -5,6 +5,11 @@
 //! on its own it opens the menu bar in many apps (the words would land in the menu), and on many
 //! layouts it is AltGr, which types characters. Right Ctrl does nothing on its own.
 //!
+//! Some keyboards have no right-hand key (laptops, compact ones), so there's a second choice that every
+//! keyboard can do (pref `dictation.key`, Settings › Keys): Ctrl tapped, then held ("Ctrl twice"),
+//! either side. One left-hand modifier held on its own happens all the time (⌘ before Tab, Ctrl before
+//! C), so it would start the microphone constantly; a tap first doesn't happen by accident.
+//!
 //! The keys are read by polling, never by watching keystrokes: macOS gives the modifier state and
 //! "time since the last key/mouse press" (no Input Monitoring permission); Windows (GetAsyncKeyState)
 //! and X11 (XQueryKeymap) give what's down now, and the other keys are only looked at while a modifier
@@ -22,7 +27,7 @@
 
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, Ordering::SeqCst},
+    atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst},
 };
 
 use anyhow::bail;
@@ -43,16 +48,75 @@ pub const MAC_KEYS: Chord = Chord { mods: keys::OPT, need: RIGHT_OPT, forbid: LE
 /// Windows and Linux: Right Ctrl and nothing else (keys::Held puts Ctrl's side in macOS's bits).
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 pub const CTRL_KEYS: Chord = Chord { mods: keys::CTRL, need: keys::RIGHT_CTRL, forbid: keys::LEFT_CTRL };
+/// Either Ctrl and nothing else (tapped first: `Key::twice`).
+pub const EITHER_CTRL: Chord = Chord { mods: keys::CTRL, need: 0, forbid: 0 };
+
+/// A dictation key to pick (pref `dictation.key`): its pref value, its name, what you do (for
+/// sentences: "hold Right ⌥"), the keys, and whether they're tapped first.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Key {
+    pub name: &'static str,
+    pub label: &'static str,
+    pub how: &'static str,
+    pub keys: Chord,
+    pub twice: bool,
+}
+/// The first is the default.
 #[cfg(target_os = "macos")]
-pub const KEYS: Chord = MAC_KEYS;
-#[cfg(target_os = "macos")]
-pub const LABEL: &str = "Right ⌥";
+pub const CHOICES: [Key; 2] = [
+    Key { name: "right-opt", label: "Right ⌥", how: "hold Right ⌥", keys: MAC_KEYS, twice: false },
+    Key { name: "ctrl-twice", label: "⌃ twice", how: "tap ⌃, then hold it", keys: EITHER_CTRL, twice: true },
+];
 #[cfg(not(target_os = "macos"))]
-pub const KEYS: Chord = CTRL_KEYS;
-#[cfg(not(target_os = "macos"))]
-pub const LABEL: &str = "Right Ctrl";
+pub const CHOICES: [Key; 2] = [
+    Key { name: "right-ctrl", label: "Right Ctrl", how: "hold Right Ctrl", keys: CTRL_KEYS, twice: false },
+    Key { name: "ctrl-twice", label: "Ctrl twice", how: "tap Ctrl, then hold it", keys: EITHER_CTRL, twice: true },
+];
 /// Settings › Keys and the menu bar's Keys: "on" (unset is on) or "off".
 pub const PREF: &str = "dictation";
+/// Settings › Keys and the menu bar's Keys: which key (`CHOICES`; unset is the first).
+pub const KEY_PREF: &str = "dictation.key";
+static CHOSEN: AtomicUsize = AtomicUsize::new(0);
+/// Linux (X11): the keyboard's map has no Right Ctrl (a laptop without one, or a layout that made it
+/// Compose), so that choice can't work there; the other can.
+static NO_RIGHT_CTRL: AtomicBool = AtomicBool::new(false);
+
+pub fn chosen() -> Key {
+    CHOICES[CHOSEN.load(SeqCst).min(CHOICES.len() - 1)]
+}
+
+/// Picks the key by pref value; unknown or unset is the default.
+pub fn choose(name: Option<&str>) -> Key {
+    CHOSEN.store(CHOICES.iter().position(|k| Some(k.name) == name).unwrap_or(0), SeqCst);
+    chosen()
+}
+
+/// Checks a pref value for `dictation.key`.
+pub fn check_key(value: &str) -> anyhow::Result<()> {
+    if CHOICES.iter().any(|k| k.name == value) {
+        Ok(())
+    } else {
+        bail!("dictation.key is one of {}", CHOICES.iter().map(|k| k.name).collect::<Vec<_>>().join(", "))
+    }
+}
+
+/// The key pref was changed (Settings or the menu bar): the poller uses it from its next look (a hold
+/// under way is called off), and the app is told.
+pub fn set_key(app: &App, value: &str) {
+    choose(Some(value));
+    ready(app);
+}
+
+/// Whether the chosen key can be pressed on this keyboard, as far as can be told.
+fn key_there() -> bool {
+    !(chosen().keys == CTRL_KEYS && !chosen().twice && NO_RIGHT_CTRL.load(SeqCst))
+}
+
+/// "Hold Right ⌥", "Tap ⌃, then hold it": a sentence's start.
+fn capital(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+}
 /// What a recording from `source` becomes (voice.rs): a dictation types English whatever you speak
 /// (Hindi said, English typed: the user's choice, 2026-11-21); talking to Dune Bot keeps your words
 /// as said. A dictation taken over by a hold to talk (`takes_over`) is talk's from then on.
@@ -66,14 +130,14 @@ const MAX_CHARS: usize = 4000;
 static ON: AtomicBool = AtomicBool::new(true);
 static WATCHING: AtomicBool = AtomicBool::new(false);
 /// Wayland (no key state for apps): the shortcut the app starts and ends a dictation with, pressed
-/// once each (electron/dictation.mjs), for what the user is told. None: the key held here (LABEL).
+/// once each (electron/dictation.mjs), for what the user is told. None: the chosen key here.
 static PRESSED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
-/// What the user does, in sentences: "Hold Right Ctrl" or "Press Super+Alt+D".
+/// What the user does: the shortcut pressed (Wayland), or what's done with the key ("hold Right Ctrl").
 fn how() -> (String, bool) {
     match PRESSED.lock().unwrap().clone() {
         Some(k) => (k, true),
-        None => (LABEL.to_string(), false),
+        None => (chosen().how.to_string(), false),
     }
 }
 
@@ -96,14 +160,24 @@ pub fn set(app: &App, value: &str) {
     ready(app);
 }
 
+/// `watching`: the keyboard is read; `available`: and the chosen key is on it. `choices`: what can be
+/// picked (Settings › Keys, the menu bar), `key` the one picked.
 fn ready(app: &App) {
-    app.out.event("dictation.ready", json!({ "available": WATCHING.load(SeqCst), "on": on(), "keys": LABEL }));
+    let watching = WATCHING.load(SeqCst);
+    let k = chosen();
+    let choices: Vec<Value> = CHOICES.iter().map(|c| json!({ "name": c.name, "label": c.label, "how": c.how })).collect();
+    app.out.event(
+        "dictation.ready",
+        json!({ "available": watching && key_there(), "watching": watching, "on": on(), "keys": k.label, "how": k.how, "key": k.name, "choices": choices }),
+    );
 }
 
 /// Starts watching the key (the desktop app; never in tests) and tells the app.
 pub fn start(app: &Arc<App>) {
     let saved = app.db(|d| d.get_setting(&format!("pref.{PREF}"))).ok().flatten();
     ON.store(saved.as_deref() != Some("off"), SeqCst);
+    let key = app.db(|d| d.get_setting(&format!("pref.{KEY_PREF}"))).ok().flatten();
+    choose(key.as_deref());
     let out = app.out.clone();
     let watching = watch(move |fire| {
         if let Some(kind) = kind(fire) {
@@ -124,15 +198,74 @@ pub fn kind(fire: Fire) -> Option<&'static str> {
     }
 }
 
-/// One poll of the detector: the chord's rules (keys::step) with this system's key alone as the
-/// keys, and a tap doing nothing.
-pub fn step(state: State, s: Sample) -> (State, Option<Fire>) {
-    step_with(state, s, KEYS)
-}
-
+/// One poll for a key held on its own: the chord's rules (keys::step), a tap doing nothing.
 pub fn step_with(state: State, s: Sample, keys: Chord) -> (State, Option<Fire>) {
     let (next, fire) = keys::step(state, s, keys);
     (next, fire.filter(|f| *f != Fire::Tap))
+}
+
+/// The second press of "Ctrl twice" has to start within this long of the tap's release.
+pub const TWICE_MS: u64 = 400;
+
+/// What the poller keeps: the chord's state, and for a key tapped first, when it was tapped and
+/// whether the hold under way came right after a tap (only that one starts and ends a dictation).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Watch {
+    pub keys: State,
+    tapped: Option<u64>,
+    after_tap: bool,
+}
+
+impl Watch {
+    /// Gone over to something else: wait for every key to be let go.
+    fn spoiled() -> Self {
+        Watch { keys: State::Spoiled, ..Default::default() }
+    }
+
+    /// A dictation is listening: its key is held past the threshold (and, tapped first, after a tap).
+    pub fn listening(&self, key: Key) -> bool {
+        matches!(self.keys, State::Down { holding: true, .. }) && (!key.twice || self.after_tap)
+    }
+}
+
+/// One poll of the detector for `key`. Held on its own: `step_with`. Tapped first: a tap is
+/// remembered, and a hold starts a dictation only when its press began within TWICE_MS of the tap's
+/// release with nothing between (no key, click or other modifier); a plain hold, or a slow second
+/// press, does nothing at all.
+pub fn step(w: Watch, s: Sample, key: Key) -> (Watch, Option<Fire>) {
+    if !key.twice {
+        let (keys, fire) = step_with(w.keys, s, key.keys);
+        return (Watch { keys, ..Default::default() }, fire);
+    }
+    let (keys, fire) = keys::step(w.keys, s, key.keys);
+    // A key or a click since the tap, or another modifier (the chord's rules spoil it): no longer a
+    // tap then a hold.
+    let pressed_after = |t: u64| s.since_key < s.now.saturating_sub(t) || s.since_mouse < s.now.saturating_sub(t);
+    let tapped = w.tapped.filter(|&t| !pressed_after(t) && keys != State::Spoiled);
+    let mut next = Watch { keys, tapped, after_tap: w.after_tap };
+    let out = match fire {
+        Some(Fire::Tap) => {
+            next.tapped = Some(s.now);
+            None
+        }
+        Some(Fire::HoldStart) => {
+            let since = if let State::Down { since, .. } = keys { since } else { s.now };
+            let after_tap = tapped.is_some_and(|t| since >= t && since - t <= TWICE_MS);
+            next.tapped = None;
+            next.after_tap = after_tap;
+            after_tap.then_some(Fire::HoldStart)
+        }
+        Some(f) => {
+            next.after_tap = false;
+            w.after_tap.then_some(f) // its end or cancel, only for a hold that started one
+        }
+        None => None,
+    };
+    // A tap that no second press followed in time is forgotten (a press under way is judged above).
+    if next.tapped.is_some_and(|t| s.now.saturating_sub(t) > TWICE_MS) && !matches!(next.keys, State::Down { .. }) {
+        next.tapped = None;
+    }
+    (next, out)
 }
 
 #[cfg(target_os = "macos")]
@@ -149,18 +282,24 @@ fn watch(on_fire: impl Fn(Fire) + Send + 'static) -> bool {
         .is_ok()
 }
 
-/// Linux: X11 only (the keyboard is opened on the poller's thread, which keeps it).
+/// Linux: X11 only (the keyboard is opened on the poller's thread, which keeps it). A keyboard with no
+/// Right Ctrl is still watched: "Ctrl twice" needs only a Ctrl.
 #[cfg(target_os = "linux")]
 fn watch(on_fire: impl Fn(Fire) + Send + 'static) -> bool {
     let (tx, rx) = std::sync::mpsc::channel();
     let spawned = std::thread::Builder::new().name("dunebot-dictation".into()).spawn(move || {
-        let Some(mut kb) = keys::x11::Keyboard::open().filter(|k| k.has_right_ctrl()) else {
+        let Some(mut kb) = keys::x11::Keyboard::open() else {
             let _ = tx.send(false);
             return;
         };
+        NO_RIGHT_CTRL.store(!kb.has_right_ctrl(), SeqCst);
         let _ = tx.send(true);
         let mut polls = keys::Polls::default();
-        poll(on_fire, move |now| polls.sample(now, kb.held()));
+        poll(on_fire, move |now| {
+            let held = kb.held();
+            NO_RIGHT_CTRL.store(!kb.has_right_ctrl(), SeqCst); // the map is read again now and then
+            polls.sample(now, held)
+        });
     });
     spawned.is_ok() && rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap_or(false)
 }
@@ -175,27 +314,36 @@ fn watch(_on_fire: impl Fn(Fire) + Send + 'static) -> bool {
 fn poll(on_fire: impl Fn(Fire), mut sample: impl FnMut(u64) -> Sample) {
     use std::time::Duration;
     let start = std::time::Instant::now();
-    let mut state = State::default();
+    let mut w = Watch::default();
+    let mut key = chosen();
     loop {
-        let holding = matches!(state, State::Down { holding: true, .. });
+        // Another key picked: a dictation under way with the old one ends without typing.
+        if chosen() != key {
+            if w.listening(key) {
+                on_fire(Fire::HoldCancel);
+            }
+            (w, key) = (Watch::spoiled(), chosen());
+        }
+        let holding = w.listening(key);
         // Off: a hold under way ends without typing. While Dune Bot types or clicks (for an agent, or
         // what you just said), nothing new starts: what's held is part of its keys.
         if !on() || (keys::input_busy() && !holding) {
             if holding && !on() {
                 on_fire(Fire::HoldCancel);
             }
-            state = State::Spoiled;
+            w = Watch::spoiled();
             std::thread::sleep(Duration::from_millis(if on() { 30 } else { 200 }));
             continue;
         }
         let now = start.elapsed().as_millis() as u64;
-        let (next, fire) = step(state, sample(now));
-        state = next;
+        let (next, fire) = step(w, sample(now), key);
+        w = next;
         if let Some(f) = fire {
             on_fire(f);
         }
-        // Quick while a modifier is down, relaxed otherwise.
-        let ms = if matches!(state, State::Idle { .. }) { 30 } else { 12 };
+        // Quick while a modifier is down, relaxed otherwise. A tap waiting for its second press is
+        // looked at quickly too (a quick tap must not fall between two looks).
+        let ms = if matches!(w.keys, State::Idle { .. }) && w.tapped.is_none() { 30 } else { 12 };
         std::thread::sleep(Duration::from_millis(ms));
     }
 }
@@ -240,11 +388,11 @@ fn nothing_note(note: Option<&str>) -> String {
     match note {
         Some("Hold the keys while you talk.") => match how() {
             (k, true) => format!("Press {k}, talk, then press it again."),
-            (k, false) => format!("Hold {k} while you talk."),
+            (h, false) => format!("{} while you talk.", capital(&h)),
         },
         None | Some("Didn't catch that.") => match how() {
             (k, true) => format!("Didn't catch that. Press {k} and try again."),
-            (k, false) => format!("Didn't catch that. Hold {k} and try again."),
+            (h, false) => format!("Didn't catch that. {} and try again.", capital(&h)),
         },
         Some(other) => other.to_string(),
     }
@@ -413,6 +561,132 @@ mod tests {
             assert_eq!(words_for(talk), Words::AsSaid, "{talk}");
             assert_eq!(words_for(talk).mode(), "codemix", "{talk}");
         }
+    }
+
+    // "Ctrl twice" (every keyboard has a Ctrl): tapped, then held.
+    const LCTRL: keys::Held = keys::Held { left_ctrl: true, ..NONE };
+    const SHIFT_HELD: keys::Held = keys::Held { shift: true, ..NONE };
+    const CTRL_C: keys::Held = keys::Held { left_ctrl: true, other_key: true, ..NONE };
+    const TWICE: Key = CHOICES[1];
+
+    /// Windows and Linux: what's held at each poll, through the tap-then-hold rules.
+    fn run_twice(polls: &[(u64, keys::Held)]) -> Vec<Fire> {
+        let mut p = keys::Polls::default();
+        let mut w = Watch::default();
+        let mut out = vec![];
+        for &(now, held) in polls {
+            let (next, fire) = step(w, p.sample(now, held), TWICE);
+            w = next;
+            out.extend(fire);
+        }
+        out
+    }
+
+    /// `k` held from `from` to `to` (ms), polled every 12 ms, then let go.
+    fn held(k: keys::Held, from: u64, to: u64) -> Vec<(u64, keys::Held)> {
+        let mut v: Vec<_> = (from..to).step_by(12).map(|t| (t, k)).collect();
+        v.push((to, NONE));
+        v
+    }
+
+    fn then(parts: &[Vec<(u64, keys::Held)>]) -> Vec<(u64, keys::Held)> {
+        let mut v = vec![(0, NONE)];
+        for part in parts {
+            v.extend(part.iter().copied());
+        }
+        v
+    }
+
+    #[test]
+    fn the_choices_are_the_right_hand_key_then_ctrl_twice() {
+        assert!(!CHOICES[0].twice && CHOICES[1].twice && CHOICES[1].name == "ctrl-twice");
+        assert_eq!(CHOICES[1].keys, EITHER_CTRL);
+        assert!(check_key("ctrl-twice").is_ok() && check_key(CHOICES[0].name).is_ok());
+        assert!(check_key("fn").is_err() && check_key("").is_err());
+    }
+
+    #[test]
+    fn ctrl_tapped_then_held_starts_and_stops() {
+        assert_eq!(run_twice(&then(&[held(LCTRL, 1000, 1100), held(LCTRL, 1250, 2500)])), vec![Fire::HoldStart, Fire::HoldEnd]);
+        // Either Ctrl, and the tap and the hold needn't be the same one.
+        assert_eq!(run_twice(&then(&[held(RCTRL, 1000, 1100), held(LCTRL, 1250, 2500)])), vec![Fire::HoldStart, Fire::HoldEnd]);
+        // Again later: still works.
+        let mut v = then(&[held(LCTRL, 1000, 1100), held(LCTRL, 1250, 2500)]);
+        v.extend(then(&[held(LCTRL, 4000, 4100), held(LCTRL, 4200, 5000)]).into_iter().skip(1).map(|(t, h)| (t, h)));
+        assert_eq!(run_twice(&v), vec![Fire::HoldStart, Fire::HoldEnd, Fire::HoldStart, Fire::HoldEnd]);
+    }
+
+    #[test]
+    fn ctrl_held_without_a_tap_does_nothing() {
+        // A Ctrl held on its own, however long (before a shortcut, a Ctrl-drag): never the microphone.
+        assert!(run_twice(&then(&[held(LCTRL, 1000, 3000)])).is_empty());
+        assert!(run_twice(&then(&[held(RCTRL, 1000, 3000)])).is_empty());
+    }
+
+    #[test]
+    fn a_slow_second_press_does_nothing() {
+        // Let go at 1100; pressed again 500 ms later (more than TWICE_MS).
+        assert!(run_twice(&then(&[held(LCTRL, 1000, 1100), held(LCTRL, 1600, 3000)])).is_empty());
+        // Two taps only: nothing either.
+        assert!(run_twice(&then(&[held(LCTRL, 1000, 1100), held(LCTRL, 1200, 1300)])).is_empty());
+    }
+
+    #[test]
+    fn another_modifier_or_a_shortcut_between_spoils_it() {
+        // Tap Ctrl, tap Shift, hold Ctrl: not "Ctrl twice".
+        assert!(run_twice(&then(&[held(LCTRL, 1000, 1100), held(SHIFT_HELD, 1150, 1200), held(LCTRL, 1250, 2500)])).is_empty());
+        // Tap Ctrl, then Ctrl+C held (a copy): nothing.
+        assert!(run_twice(&then(&[held(LCTRL, 1000, 1100), held(CTRL_C, 1250, 2500)])).is_empty());
+    }
+
+    #[test]
+    fn a_key_after_the_start_cancels_and_ends_nothing_else() {
+        // Tapped, held past the start, then C with it: cancelled, never an end (nothing typed).
+        let mut v = then(&[held(LCTRL, 1000, 1100)]);
+        v.extend((1250..1700).step_by(12).map(|t| (t, LCTRL)));
+        v.extend((1700..1800).step_by(12).map(|t| (t, CTRL_C)));
+        v.push((1800, NONE));
+        assert_eq!(run_twice(&v), vec![Fire::HoldStart, Fire::HoldCancel]);
+    }
+
+    #[test]
+    fn right_ctrl_alone_does_nothing_while_ctrl_twice_is_picked() {
+        // Held once, as the default key is: with "Ctrl twice" picked that's just a Ctrl held.
+        assert!(run_twice(&then(&[held(RCTRL, 1000, 2500)])).is_empty());
+    }
+
+    /// macOS: (time ms, flags, ms since last key, ms since last click) through "⌃ twice".
+    fn run_mac_twice(samples: &[(u64, u64, u64, u64)]) -> Vec<Fire> {
+        let mut w = Watch::default();
+        let mut out = vec![];
+        for &(now, flags, since_key, since_mouse) in samples {
+            let (next, fire) = step(w, Sample { now, flags, since_key, since_mouse }, TWICE);
+            w = next;
+            out.extend(fire);
+        }
+        out
+    }
+
+    #[test]
+    fn mac_control_tapped_then_held() {
+        const C: u64 = CTRL | 0x01; // Left ⌃ (NX_DEVICELCTLKEYMASK)
+        let tap_hold = |key_at: Option<u64>| -> Vec<Fire> {
+            let mut v = vec![(0, 0, LONG, LONG)];
+            for t in (1000..1100).step_by(12) {
+                v.push((t, C, LONG, LONG));
+            }
+            for t in (1100u64..1250).step_by(12) {
+                v.push((t, 0, key_at.map_or(LONG, |k| t.saturating_sub(k)), LONG));
+            }
+            for t in (1250u64..2500).step_by(12) {
+                v.push((t, C, key_at.map_or(LONG, |k| t.saturating_sub(k)), LONG));
+            }
+            v.push((2500, 0, LONG, LONG));
+            run_mac_twice(&v)
+        };
+        assert_eq!(tap_hold(None), vec![Fire::HoldStart, Fire::HoldEnd]);
+        // A letter typed between the tap and the hold: not "⌃ twice".
+        assert!(tap_hold(Some(1150)).is_empty());
     }
 
     /// Runs samples (time ms, flags, ms since last key, ms since last click) and collects what fired.

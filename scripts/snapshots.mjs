@@ -79,6 +79,8 @@ const SHOTS = [
   ["permissions-voice", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-voice.js") }],
   // Settings › Look: the other theme picked; the window's colours follow (drawn in the one picked).
   ["permissions-theme", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-theme.js") }],
+  // Settings › Keys: the dictation key picker, "Ctrl twice" picked (for keyboards with no right-hand key).
+  ["settings-dictation-key", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "settings-dictation-key.js"), DUNEBOT_SNAPSHOT_APPLE_DICTATION: "1" }],
   // Permissions › Bots (three bots, one open in the editor), and the bar's picker with them in it.
   ["bots", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bots.js") }],
   ["bar-bots", "bar", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "bar-bots.js") }],
@@ -238,6 +240,27 @@ for (const theme of ["light", "dark"])
         res.settings.active;
       if (!ok) problems.push(`${name} ${theme}: pages ${JSON.stringify(res)}`);
       else note += ` ⌘, opens it; Settings: ${want}; Permissions: actions, Connectors, Phone, Bots, off limits`;
+    }
+    if (name === "settings-dictation-key") {
+      // Picking the second key saves it, and the row says what to do with it now. macOS (drawn with
+      // Apple's Dictation on): the clash warning shows after ⌃ twice is picked, not before.
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      const mac = res?.platform === "darwin"; // the page drawn (snapshots may draw another system's)
+      const want = mac ? ["Right ⌥,⌃ twice", "Hold Right ⌥ to type what you say", "⌃ twice", "Tap ⌃, then hold it to type what you say"] : ["Right Ctrl,Ctrl twice", "Hold Right Ctrl to type what you say", "Ctrl twice", "Tap Ctrl, then hold it to type what you say"];
+      const ok =
+        res?.found &&
+        res.buttons?.join() === want[0] &&
+        res.before === want[1] &&
+        res.picked === want[2] &&
+        res.after === want[3] &&
+        res.pref === "ctrl-twice" &&
+        res.warnedBefore === false &&
+        (mac ? /Apple's Dictation is also turned on/.test(res.warning ?? "") : res.warning === null);
+      if (!ok) problems.push(`${name} ${theme}: the dictation key picker didn't pick Ctrl twice (${JSON.stringify(res)})`);
+      else note += ` dictation key: ${res.buttons.join(" / ")}; picked ${res.picked}${mac ? "; Apple Dictation warning shown" : ""}`;
     }
     if (name === "permissions-theme") {
       // Picking Light in a dark window (Dark in a light one) turns the whole window over, and it stays picked.

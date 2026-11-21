@@ -7,7 +7,7 @@
 import {
   app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, Notification, safeStorage, screen, shell, systemPreferences, Tray,
 } from "electron";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import fs from "node:fs";
 import os from "node:os";
@@ -127,7 +127,8 @@ function startCore() {
   const env = { ...process.env };
   delete env.DUNEBOT_SARVAM_ENV; // a developer's one-time import (below); agents inherit the core's env
   // The core watches the keys: on macOS the ⌥⌘ chord (tap opens the bar, hold talks) and Right ⌥ for
-  // dictation; on Windows and Linux (X11) Right Ctrl for dictation (core/src/dictation.rs).
+  // dictation; on Windows and Linux (X11) Right Ctrl for dictation, or Ctrl twice on any keyboard
+  // (pref dictation.key; core/src/dictation.rs).
   if (!snapshot && !selfcheck) env.DUNEBOT_CHORD = "1";
   const cm = codemaxBinary();
   if (cm) env.DUNEBOT_CODEMAX = cm;
@@ -190,6 +191,23 @@ function fromOurPage(e) {
   const url = e.senderFrame?.url ?? "";
   return devUrl ? url.startsWith(devUrl) : url.startsWith(pathToFileURL(path.join(root, "dist", "ui")).href);
 }
+
+/** macOS: whether Apple's own Dictation is on (its switch in System Settings › Keyboard). Its shortcut
+ * may be Control pressed twice (macOS upgrades have been seen to set it back to that), and then
+ * dictation's "⌃ twice" would start both. Only read, never changed. Snapshots: from the environment. */
+function appleDictationOn() {
+  if (snapshot) return Promise.resolve(process.env.DUNEBOT_SNAPSHOT_APPLE_DICTATION === "1");
+  if (!isMac) return Promise.resolve(false);
+  return new Promise((resolve) =>
+    execFile("/usr/bin/defaults", ["read", "com.apple.assistant.support", "Dictation Enabled"], { timeout: 3000 }, (err, out) =>
+      resolve(!err && String(out).trim() === "1"),
+    ),
+  );
+}
+ipcMain.handle("dictation:apple", (e) => {
+  if (!fromOurPage(e)) throw new Error("refused");
+  return appleDictationOn();
+});
 
 ipcMain.handle("core:call", (e, method, params) => {
   if (!fromOurPage(e)) throw new Error("refused");
@@ -1178,6 +1196,7 @@ function onChord(kind) {
 const dictation = createDictation({
   call,
   log,
+  appleDictationOn,
   emit,
   micBlocked,
   openSetup,
