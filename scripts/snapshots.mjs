@@ -76,6 +76,8 @@ const SHOTS = [
   // A delete asks first (here on a switched-off schedule), and a draft stays with its chat.
   ["schedules-delete", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "schedules-delete.js") }],
   ["chat-draft", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "chat-draft.js") }],
+  // Activity in plain words (a file change you allowed, a schedule and a bot added).
+  ["activity", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "activity.js") }],
   ["permissions", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions.js") }],
   // Settings (bottom of the sidebar, or ⌘,): the look, keys and voice; Permissions keeps every safety control.
   ["settings", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "settings.js") }],
@@ -221,6 +223,16 @@ for (const theme of ["light", "dark"])
       if (!good) problems.push(`${name} ${theme}: ${JSON.stringify(res)}`);
       else note += name === "bots" ? " three bots, Ops in the editor, hand cursor on every button" : " bots in the picker, Writer picked";
     }
+    if (name === "activity") {
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      const has = (what, decided) => res?.rows?.some(([w, d]) => w === what && d === decided);
+      const good = has("File change", "You allowed it") && has("Schedule", "Added") && has("Bot", "Added") && !res.rows.some(([w]) => /^[a-z]+(-[a-z]+)+$/.test(w ?? ""));
+      if (!good) problems.push(`${name} ${theme}: ${JSON.stringify(res)}`);
+      else note += " plain words: File change · You allowed it, Schedule · Added, Bot · Added";
+    }
     if (name === "bots-new" || name === "schedules-delete" || name === "chat-draft") {
       let res = null;
       try {
@@ -235,9 +247,9 @@ for (const theme of ["light", "dark"])
             res.on?.[1]?.length === 0 &&
             res.coreDefault?.length === 10 &&
             !res.coreDefault.some((k) => accounts.includes(k)) &&
-            res.summary?.some((s) => s.endsWith("May do what Permissions allows on this computer; no account changes"))
+            res.summary?.some((s) => s.endsWith("No account changes; the rest Permissions allows"))
           : name === "schedules-delete"
-            ? res?.dialog === "Delete this schedule?" && /won't run again/.test(res.text ?? "") && res.focused === "Cancel" && res.faded === 0 && res.rows === 2 && res.left === 2
+            ? res?.dialog === "Delete this schedule?" && /won't run again/.test(res.text ?? "") && res.focused === "Cancel" && res.faded === 0 && res.rows === 5 && res.left === 5 && res.inView === true
             : res?.chats === true && res.inOther === "" && res.back === "Half a thought for the first chat";
       if (!good) problems.push(`${name} ${theme}: ${JSON.stringify(res)}`);
       else
@@ -245,7 +257,7 @@ for (const theme of ["light", "dark"])
           name === "bots-new"
             ? " 15 actions in two groups, a new bot starts without account changes (here and in the core)"
             : name === "schedules-delete"
-              ? " asks first, Cancel has the keyboard, not dimmed with the off row"
+              ? " asks first, comes into view from the window's bottom, Cancel has the keyboard, not dimmed with the off row"
               : " the draft stays with its chat";
     }
     if (name === "caption-held-read") {

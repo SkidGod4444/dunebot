@@ -83,7 +83,7 @@ export function mayText(may: string[]) {
   const yes = MAY_ALL.filter(([k]) => may.includes(k)).map(([k]) => k);
   const no = MAY_ALL.filter(([k]) => !may.includes(k)).map(([k]) => k);
   if (!no.length) return "May do what Permissions allows";
-  if (no.length === MAY_ACCOUNTS.length && MAY_ACCOUNTS.every(([k]) => no.includes(k))) return "May do what Permissions allows on this computer; no account changes";
+  if (no.length === MAY_ACCOUNTS.length && MAY_ACCOUNTS.every(([k]) => no.includes(k))) return "No account changes; the rest Permissions allows";
   if (!yes.length) return "Only answers and hands over";
   return no.length < yes.length ? `May do all but: ${no.map(label).join(", ")}` : `May: ${yes.map(label).join(", ")}`;
 }

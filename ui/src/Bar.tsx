@@ -66,6 +66,7 @@ export function Bar() {
   const card = useRef<HTMLDivElement>(null);
   const outer = useRef<HTMLDivElement>(null);
   const holding = useRef(false);
+  const byKey = useRef(false); // the hold started from Space/Enter on the mic button
   const held = useRef<Held>(null);
   const readWait = useRef(0);
   // Words for the box (added to whatever is typed there), with the bar open on them.
@@ -219,7 +220,10 @@ export function Bar() {
   function talkKey(e: React.KeyboardEvent, down: boolean) {
     if (e.key !== " " && e.key !== "Enter") return;
     e.preventDefault();
-    if (down && !e.repeat && !holding.current) startTalking();
+    if (down && !e.repeat && !holding.current) {
+      byKey.current = true;
+      startTalking();
+    }
     if (!down) talkEnd();
   }
   async function startTalking() {
@@ -235,6 +239,7 @@ export function Bar() {
   function talkEnd() {
     if (!holding.current) return;
     holding.current = false;
+    byKey.current = false;
     call("voice.stop");
   }
 
@@ -310,7 +315,9 @@ export function Bar() {
                 onPointerCancel={talkEnd}
                 onKeyDown={(e) => talkKey(e, true)}
                 onKeyUp={(e) => talkKey(e, false)}
-                onBlur={talkEnd}
+                // A key held on the button never comes up here once it has lost the keyboard: end
+                // that hold. A mouse hold is the pointer's (captured), so a blur leaves it alone.
+                onBlur={() => byKey.current && talkEnd()}
                 className={`grid size-8 place-items-center rounded-full transition-colors ${
                   listening ? "bg-ink text-white" : "text-muted hover:bg-bubble hover:text-ink"
                 }`}

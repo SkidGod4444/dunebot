@@ -14,6 +14,8 @@ export function Confirm({ title, confirm, onConfirm, onClose, children }: { titl
   const no = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     no.current?.focus({ preventScroll: true });
+    // A row near the bottom of the window: the question opens below it, so bring it into view.
+    box.current?.scrollIntoView({ block: "nearest" });
     const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     // Outside the button and its question (a press on the button itself toggles it, as before).
     const down = (e: PointerEvent) => !box.current?.parentElement?.contains(e.target as Node) && onClose();

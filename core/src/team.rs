@@ -171,7 +171,7 @@ pub fn save(app: &App, p: &Value) -> anyhow::Result<Bot> {
     let may: Vec<String> = match p.get("may") {
         // No list: an edit keeps what the bot had; a new bot may do everything on this computer
         // that Permissions allows, but changes nothing in your accounts (sending, posting) until
-        // you give it that (the user's choice, 2026-11-21).
+        // you give it that. The careful default (2026-11-21), put to the user to confirm.
         None | Some(Value::Null) => match id.and_then(|id| get(app, id)) {
             Some(b) => b.may,
             None => Action::ALL.iter().filter(|a| !a.is_account_change()).map(|a| a.key().to_string()).collect(),
