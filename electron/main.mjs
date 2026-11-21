@@ -2211,6 +2211,9 @@ app.whenReady().then(async () => {
   await startGnomeKeys();
   registerHotkey();
   createCaption();
+  // macOS: the microphone made ready, not started (no mic light, nothing heard): its first open
+  // after launch took ~2 s, longer than a short hold. Only once it's allowed: never a system box.
+  if (isMac && !micBlocked()) call("voice.warm").catch(() => {});
   log(`menu bar ready; ${isMac ? `chord ${keysLabel()}` : `hotkey ${hotkey ?? "none (taken, or blocked by the desktop)"}`}${process.platform === "linux" ? `; ${gnome ? `Wayland on GNOME (keys: GNOME's own shortcuts, ${gnome.status().added ? "added" : "not added yet"})` : wayland ? "Wayland (keys via the desktop's shortcut portal)" : "X11"}` : ""}`);
   createBar();
   refreshTray();
