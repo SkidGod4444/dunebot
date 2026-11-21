@@ -286,6 +286,49 @@ mod engine {
         Ok(())
     }
 
+    /// Gets the microphone ready without starting it, once (the desktop app asks at launch, when
+    /// the mic is already allowed). The first open after launch took 2.0 and 2.3 s on a Mac
+    /// (2026-11-21), longer than a short hold: the start of what was said, or all of it, was lost.
+    /// The stream is built and dropped, never started: nothing is heard, no mic light (cpal 0.18
+    /// on macOS only initializes the audio unit when building; it starts on `play()`).
+    /// macOS only: elsewhere building may already open a capture stream (Linux PipeWire shows its
+    /// mic icon for one), and no slow first open was seen there.
+    pub fn warm() {
+        if !cfg!(target_os = "macos") {
+            return;
+        }
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            let _ = std::thread::Builder::new().name("dunebot-mic-ready".into()).spawn(|| {
+                let t0 = std::time::Instant::now();
+                let r = (|| -> Result<Duration, String> {
+                    let device = cpal::default_host().default_input_device().ok_or("no microphone found")?;
+                    let config = device.default_input_config().map_err(|e| e.to_string())?;
+                    let found = t0.elapsed();
+                    let err = |e: cpal::Error| eprintln!("dunebot-core: microphone: {e}");
+                    let stream = match config.sample_format() {
+                        cpal::SampleFormat::F32 => device.build_input_stream::<f32, _, _>(config.into(), |_, _| {}, err, None),
+                        cpal::SampleFormat::I16 => device.build_input_stream::<i16, _, _>(config.into(), |_, _| {}, err, None),
+                        cpal::SampleFormat::I32 => device.build_input_stream::<i32, _, _>(config.into(), |_, _| {}, err, None),
+                        other => return Err(format!("unsupported format {other:?}")),
+                    }
+                    .map_err(|e| e.to_string())?;
+                    drop(stream); // never started
+                    Ok(found)
+                })();
+                match r {
+                    Ok(found) => eprintln!(
+                        "dunebot-core: microphone: made ready in {} ms (finding it {}, building {}); not started, nothing heard",
+                        t0.elapsed().as_millis(),
+                        found.as_millis(),
+                        (t0.elapsed() - found).as_millis()
+                    ),
+                    Err(e) => eprintln!("dunebot-core: microphone: couldn't make it ready ({e})"),
+                }
+            });
+        });
+    }
+
     /// Records until told to stop or MAX_RECORDING. Returns mono samples, their rate, and whether
     /// it stopped at the limit.
     fn record(app: &App, stop: mpsc::Receiver<()>, ok: mpsc::Sender<Result<(), String>>) -> Result<(Vec<f32>, u32, bool), String> {
@@ -610,6 +653,7 @@ mod engine_off {
         anyhow::bail!("this build of Dune Bot has no voice")
     }
     pub fn stop(_: &Arc<App>) {}
+    pub fn warm() {}
     pub fn cancel(_: &Arc<App>) {}
     pub fn stop_from(_: &Arc<App>, _: &str) {}
     pub fn cancel_from(_: &Arc<App>, _: &str) {}

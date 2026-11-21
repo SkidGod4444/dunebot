@@ -163,6 +163,12 @@ pub(crate) async fn handle(app: &Arc<App>, method: &str, p: &Value) -> anyhow::R
             crate::voice::cancel(app);
             json!({ "ok": true })
         }
+        // The app only (never a page), at launch with the mic allowed: the microphone made ready, not
+        // started (the first open after launch took ~2 s on a Mac and lost short holds).
+        "voice.warm" => {
+            crate::voice::warm();
+            json!({ "ok": true })
+        }
         // The app only (never a page): it's unlocking the voice keys (true) or done (false); a
         // recording's text waits for them (sarvam.rs).
         "voice.keysComing" => {

@@ -31,6 +31,15 @@ ready = wait(lambda m: m.get("event") == "ready")
 ok(True, f"core ready on {ready['platform']}")
 WIN = ready["platform"] == "windows"
 
+# The app asks at launch (macOS) for the microphone to be made ready: an answer at once, and it is
+# never started (no listening, nothing heard); a second ask does nothing more.
+i_warm = len(seen)
+ok(send("voice.warm").get("result", {}).get("ok") is True and send("voice.warm").get("result", {}).get("ok") is True,
+   "voice.warm answers at once, twice")
+time.sleep(0.5)
+while not q.empty(): seen.append(q.get())
+ok(not any(m.get("event", "").startswith("voice") for m in seen[i_warm:]), "making the mic ready never starts listening")
+
 def slow(n):
     """A command that runs for n seconds in a child process (cmd.exe on Windows, sh elsewhere)."""
     return f"cd . && ping -n {n} 127.0.0.1 > nul && echo late" if WIN else f"cd . && sleep {n}; echo late"
