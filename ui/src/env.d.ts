@@ -51,7 +51,7 @@ interface Window {
       last: () => void;
     };
     caption: {
-      hide: () => void;
+      hide: (n?: number) => void;
       mouse: (on: boolean) => void;
       onShow: (fn: (s: import("./Caption").CaptionShow) => void) => () => void;
       onHush: (fn: () => void) => () => void;

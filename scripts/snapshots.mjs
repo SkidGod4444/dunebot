@@ -47,6 +47,9 @@ const SHOTS = [
   ["caption-held-read", "caption", { DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-held-read.js") }],
   // The first question of a new chat, spoken from the bar, is read aloud.
   ["caption-voice-ask", "caption", { DUNEBOT_SNAPSHOT_WAIT: "100", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-voice-ask.js") }],
+  // A card closing just as a new one opens leaves the new one open and read aloud (main and the page).
+  // (FOLLOW "show": the scripted pointer and main's show hook only; the follow checks are caption-follow's.)
+  ["caption-reopen", "caption", { DUNEBOT_SNAPSHOT_FOLLOW: "show", DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-reopen.js") }],
   // The test agent clicks, scrolls, drags, types and presses keys; the app logs it (stand-ins, no real input).
   ["caption-click", "caption", {
     DUNEBOT_SCREEN_STUB: path.join(root, "electron", "assets", "icon.png"),
@@ -170,6 +173,23 @@ for (const theme of ["light", "dark"])
       } catch {}
       if (!/speech: .*streamed [1-9]/.test(log)) problems.push(`${name} ${theme}: a new chat's first answer wasn't read aloud (${JSON.stringify(res)})\n${log.split("\n").filter((l) => /speech|caption|turn/.test(l)).slice(-6).join("\n")}`);
       else note += " read aloud";
+    }
+    if (name === "caption-reopen") {
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      const lines = `\n${log.split("\n").filter((l) => /speech|caption|turn/.test(l)).slice(-8).join("\n")}`;
+      if (!res) problems.push(`${name} ${theme}: the script returned nothing`);
+      else {
+        const [x, y] = res.numbers ?? [];
+        if (!(typeof x === "number" && y === x + 1)) problems.push(`${name} ${theme}: main's cards weren't numbered one after another (${JSON.stringify(res.numbers)})`);
+        if (!/caption: an older card's close ignored/.test(log)) problems.push(`${name} ${theme}: main let an older card's close hide the newer card${lines}`);
+        if (!res.caught) problems.push(`${name} ${theme}: the fading card's close timer was never set`);
+        if (!res.open) problems.push(`${name} ${theme}: the old card's close took the new card with it (${JSON.stringify(res)})`);
+        if (!res.read || !/speech: .*streamed [1-9]/.test(log)) problems.push(`${name} ${theme}: the new card's answer wasn't read aloud (${JSON.stringify(res)})${lines}`);
+        if (problems.length === problemsBefore) note += " old close ignored, new card read aloud";
+      }
     }
     if (name === "caption-click") {
       // The picture is 512 px of the display under the pointer: (10, 20) in it is a point on that display.
@@ -405,7 +425,7 @@ for (const theme of ["light", "dark"])
         if (after) problems.push(`${name} ${theme}: moved ${after} times after holding still`);
         note += ` followed ${moves} moves, held at tick ${at}`;
       }
-    } else if (extra.DUNEBOT_SNAPSHOT_FOLLOW) {
+    } else if (extra.DUNEBOT_SNAPSHOT_FOLLOW === "1") {
       // "follow: 148 moves, 3 side changes, 0 on the pointer, 0 off the screen, held for a card 140 ticks with 0 moves"
       const m = log.match(/follow: (\d+) moves, (\d+) side changes, (\d+) on the pointer, (\d+) off the screen, held for a card (\d+) ticks with (\d+) moves/);
       if (!m) problems.push(`${name} ${theme}: no "follow:" line in the log`);
