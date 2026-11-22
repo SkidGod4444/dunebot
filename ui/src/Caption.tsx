@@ -34,6 +34,7 @@ function exchange(list: Message[]) {
 export function Caption() {
   const [show, setShow] = useState<CaptionShow | null>(null);
   const [hover, setHover] = useState(false);
+  const [scrolled, setScrolled] = useState(false); // a long answer scrolled down: its top fades (styles.css)
   const [speaking, setSpeakingState] = useState(false);
   // Also as a ref: the reading effect hands a sentence over and the "done" check after it, in the
   // same render, must already see it.
@@ -98,6 +99,7 @@ export function Caption() {
       setNote(null);
       if (!s.threadId) setAsked(false); // a new "Listening…"; the chat it was sent to keeps thinking
       setHover(false); // a card closed under the pointer never heard it leave
+      setScrolled(false);
       setShow(s);
       if (s.threadId && s.speak) warmVoice();
       // A chat followed since its turn started is already here; another is fetched.
@@ -258,7 +260,12 @@ export function Caption() {
         onMouseEnter={() => !moving.current && setHover(true)}
         onMouseLeave={() => setHover(false)}
       >
-        <div ref={scroller} className="dm-caption-scroll flex min-h-0 flex-col gap-2.5 overflow-y-auto px-4 py-3">
+        <div
+          ref={scroller}
+          data-scrolled={scrolled || undefined}
+          onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 1)}
+          className="dm-caption-scroll flex min-h-0 flex-col gap-2.5 overflow-y-auto px-4 py-3"
+        >
           {listening ? (
             <div className="flex h-[22.5px] items-center gap-2.5 text-[15px]">
               <Level level={voice.level} />

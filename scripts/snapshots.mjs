@@ -31,6 +31,8 @@ const SHOTS = [
   ["caption-markdown", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-markdown.js") }],
   ["caption-hover", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-hover.js") }],
   ["caption-long-code", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-long-code.js") }],
+  // A long answer on its newest lines: the lines above fade under the card's top edge.
+  ["caption-long-answer", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-long-answer.js") }],
   ["caption-approval-long", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-approval-long.js") }],
   ["caption-approval-all", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-approval-all.js") }],
   ["caption-approval", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "caption-approval.js") }],
@@ -386,6 +388,22 @@ for (const theme of ["light", "dark"])
           : name === "caption-approval-long" ? ` command box ${res.pre}px and scrolls; question and buttons in view; "${res.more}"; Allow waits until it's all seen`
           : name === "caption-approval-all" ? " Show all: the whole command, its last file too; still waiting for an answer"
           : ` keyboard focus outline ${res.focused} (none without it); toast ${res.toast.w}x${res.toast.h} box`;
+    }
+    if (name === "caption-long-answer") {
+      let res = null;
+      try {
+        res = JSON.parse(fs.readFileSync(file.replace(/\.png$/, "") + ".script.json", "utf8"));
+      } catch {}
+      const faded = (x) => !!x && x.fades && /gradient/.test(x.mask);
+      const plain = (x) => !!x && !x.fades && x.mask === "none";
+      const why = [];
+      if (!plain(res?.short)) why.push("a short answer fades");
+      if (!(res?.down?.top > 0)) why.push("the long answer didn't scroll to its newest lines");
+      else if (!faded(res.down)) why.push("scrolled down, the top doesn't fade");
+      if (!(res?.atStart?.top === 0 && plain(res.atStart))) why.push("back at its start, the top still fades");
+      if (!faded(res?.end)) why.push("the picture's card (scrolled down) has no fade");
+      if (why.length) problems.push(`${name} ${theme}: ${why.join("; ")} (${JSON.stringify(res)})`);
+      else note += ` top fades while scrolled down (${res.down.top}px), none at the start or on a short answer`;
     }
     if (name === "caption-first-line") {
       // "On it." read while the command still ran, then "Done." after it.
