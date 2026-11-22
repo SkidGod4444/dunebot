@@ -173,6 +173,13 @@ html.caption, html.caption body { background: transparent; overflow: hidden; }
 /* The card can't be scrolled sideways: a long code line wraps there instead of being cut off. */
 .dm-caption .md pre, .dm-caption .md pre code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .dm-caption-scroll::-webkit-scrollbar { display: none; }
+/* Scrolled down (a long answer on its newest lines), the lines above fade under the card's top edge,
+   so it shows there is more above instead of a line cut flat (user "ok" 2026-11-22). The mask stays
+   on the box while the words scroll; the card's own fill shows through, in either theme. */
+.dm-caption-scroll[data-scrolled] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 48px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 48px);
+}
 
 /* The bar's window is transparent; only its card (or the glass behind it) is drawn. */
 html.bar, html.bar body { background: transparent; }
