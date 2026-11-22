@@ -1,6 +1,8 @@
 // A long answer beside the pointer, on its newest lines: the lines above fade under the card's top
-// edge (there is more above), never cut flat. A short answer, or one scrolled back to its start, has
-// no fade. The picture is the long answer scrolled down.
+// edge (there is more above), never cut flat. A short answer, one scrolled back to its start, or a
+// short answer to a next question in the same card (after a long one scrolled down) has no fade.
+// The picture is a long answer scrolled down. Each state is waited for (up to 3 s), not a fixed
+// time: a hidden window on CI's slower machines hears of a scroll late.
 (async () => {
   const dm = window.__dm;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -28,6 +30,13 @@
     }
     await sleep(300);
   };
+  const settle = async (want) => {
+    const end = Date.now() + 3000;
+    while (Date.now() < end && !want(state())) await sleep(50);
+    return state();
+  };
+  const fading = (x) => !!x && x.fades && x.top > 0;
+  const plain = (x) => !!x && !x.fades && x.top === 0;
   await dm.send(t.id, "hello there", true);
   await answered(1);
   const short = state();
@@ -39,11 +48,16 @@
   ].join("\n\n");
   await dm.send(t.id, long, true);
   await answered(2);
-  const down = state();
+  const down = await settle(fading);
   box().scrollTop = 0;
-  await sleep(300);
-  const atStart = state();
+  const atStart = await settle(plain);
   box().scrollTop = box().scrollHeight;
-  await sleep(400);
-  return { short, down, atStart, end: state() };
+  await settle(fading);
+  // A next question in the same card: its short answer replaces the long one.
+  await dm.send(t.id, "thanks", true);
+  await answered(3);
+  const next = await settle(plain);
+  await dm.send(t.id, long, true);
+  await answered(4);
+  return { short, down, atStart, next, end: await settle(fading) };
 })();

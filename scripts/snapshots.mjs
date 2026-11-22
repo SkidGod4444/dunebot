@@ -401,9 +401,10 @@ for (const theme of ["light", "dark"])
       if (!(res?.down?.top > 0)) why.push("the long answer didn't scroll to its newest lines");
       else if (!faded(res.down)) why.push("scrolled down, the top doesn't fade");
       if (!(res?.atStart?.top === 0 && plain(res.atStart))) why.push("back at its start, the top still fades");
+      if (!(res?.next?.top === 0 && plain(res.next))) why.push("a short answer to the next question (after a long one) fades");
       if (!faded(res?.end)) why.push("the picture's card (scrolled down) has no fade");
       if (why.length) problems.push(`${name} ${theme}: ${why.join("; ")} (${JSON.stringify(res)})`);
-      else note += ` top fades while scrolled down (${res.down.top}px), none at the start or on a short answer`;
+      else note += ` top fades while scrolled down (${res.down.top}px), none at the start, on a short answer, or on the next short answer`;
     }
     if (name === "caption-first-line") {
       // "On it." read while the command still ran, then "Done." after it.
