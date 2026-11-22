@@ -9,6 +9,7 @@ import {
 } from "electron";
 import { execFile, spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { format } from "node:util";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -50,7 +51,57 @@ const stamp = () => {
   const d = new Date();
   return `${d.toTimeString().slice(0, 8)}.${String(d.getMilliseconds()).padStart(3, "0")}`;
 };
-const log = (...a) => console.log(stamp(), "dunebot:", ...a);
+// Every line also goes to a file (user asked, 2026-11-22): opened from Finder or the Dock the app has
+// nowhere else to write, and a card that didn't show can only be traced from its log. The lines say
+// what happened, not what was said (lengths, not words). main.log in the system's place for logs
+// (macOS ~/Library/Logs/Dunebot; Windows %APPDATA%\Dunebot\logs; Linux ~/.config/Dunebot/logs); past
+// 5 MB it becomes main.old.log at the next start. Test runs keep out of it (DUNEBOT_LOG_DIR: theirs).
+// Written at once (not a stream): the last lines before a quit or a crash are the ones that matter.
+let logFd = null;
+let logEarly = []; // lines before the folder is known (the app's name sets it); null once settled
+const toLogFile = (text) => {
+  if (logFd === null) return void logEarly?.push(text);
+  try {
+    fs.writeSync(logFd, text);
+  } catch {
+    logFd = null;
+  }
+};
+const log = (...a) => {
+  const line = format(stamp(), "dunebot:", ...a); // one time, and formatted as console.log would
+  console.log(line);
+  toLogFile(`${line}\n`);
+};
+function startLogFile() {
+  let dir = process.env.DUNEBOT_LOG_DIR || null;
+  if (!dir && !snapshot && !selfcheck) {
+    try {
+      dir = app.getPath("logs");
+    } catch {
+      dir = path.join(app.getPath("userData"), "logs");
+    }
+  }
+  try {
+    if (dir) {
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, "main.log");
+      try {
+        if (fs.statSync(file).size > 5 * 1024 * 1024) fs.renameSync(file, path.join(dir, "main.old.log"));
+      } catch {}
+      logFd = fs.openSync(file, "a");
+      const early = logEarly ?? [];
+      logEarly = null;
+      toLogFile(`\n=== Dune Bot ${app.getVersion()} started ${new Date().toString()} (${process.platform} ${process.arch})\n`);
+      for (const t of early) toLogFile(t);
+    }
+  } catch {
+    logFd = null;
+  }
+  logEarly = null;
+}
+// The core's lines (stderr) come through the app now, to the file too. With nowhere to write them
+// (a closed terminal), writing must not take the app down.
+process.stderr.on("error", () => {});
 
 // Linux on Wayland: apps only get global keys through the desktop's shortcut portal (the desktop
 // asks the user once). On X11 this changes nothing.
@@ -132,7 +183,11 @@ function startCore() {
   if (!snapshot && !selfcheck) env.DUNEBOT_CHORD = "1";
   const cm = codemaxBinary();
   if (cm) env.DUNEBOT_CODEMAX = cm;
-  core = spawn(bin, [], { env, stdio: ["pipe", "pipe", "inherit"] });
+  core = spawn(bin, [], { env, stdio: ["pipe", "pipe", "pipe"] });
+  core.stderr.on("data", (d) => {
+    process.stderr.write(d);
+    toLogFile(String(d));
+  });
   createInterface({ input: core.stdout }).on("line", (line) => {
     let m;
     try {
@@ -2340,6 +2395,7 @@ async function takeSnapshot(win) {
 // settings to Dune Bot's (core/src/main.rs); Electron has made its new folder by now, so its old
 // browser cache stays behind.
 app.setName("Dunebot");
+startLogFile();
 // Another launch: the GNOME shortcuts run `dunebot --bar` and `dunebot --stop`; anything else opens the bar.
 app.on("second-instance", (_e, argv) => {
   if (argv.includes("--stop")) return void stopAgents("the stop key");
