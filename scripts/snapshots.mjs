@@ -106,6 +106,8 @@ const SHOTS = [
   ["permissions-phone-code", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-phone-code.js") }],
   ["permissions-phone-paired", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-phone-paired.js") }],
   ["permissions-connectors", "main", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "permissions-connectors.js") }],
+  // The log kept in a file (a test folder per run): the app's lines and the core's, all of them.
+  ["log-file", "caption", { DUNEBOT_SNAPSHOT_SCRIPT: path.join(root, "scripts", "snap", "log-file.js") }],
 ];
 const problems = [];
 // DUNEBOT_SNAPSHOT_ONLY=caption,caption-stream: just those views.
@@ -133,6 +135,7 @@ for (const theme of ["light", "dark"])
       DUNEBOT_CODEMAX: path.join(root, "no-codemax-for-snapshots"),
       ...(as ? { DUNEBOT_SNAPSHOT_PLATFORM: as } : {}),
       ...extra,
+      ...(name === "log-file" ? { DUNEBOT_LOG_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "dunebot-log-")) } : {}),
     };
     const args = packaged ? [] : [electron, "."];
     if (process.platform === "linux") args.push("--no-sandbox"); // containers and CI have no setuid sandbox
@@ -469,6 +472,24 @@ for (const theme of ["light", "dark"])
           problems.push(`chat ${theme}: "${b.text}" sits under the window buttons (ends at ${b.x + b.w}, free up to ${fx + fw})`);
         note += ` window buttons from x ${fx + fw}`;
       }
+    }
+    if (name === "log-file") {
+      let text = "";
+      try {
+        text = fs.readFileSync(path.join(env.DUNEBOT_LOG_DIR, "main.log"), "utf8");
+      } catch {}
+      fs.rmSync(env.DUNEBOT_LOG_DIR, { recursive: true, force: true });
+      const kept = new Set(text.split(/\r?\n/));
+      const printed = log.split(/\r?\n/).filter((l) => /^\d\d:\d\d:\d\d\.\d{3} dunebot: |^dunebot-core: /.test(l));
+      const missing = printed.filter((l) => !kept.has(l));
+      const why = [];
+      if (!/^=== Dune Bot \S+ started /m.test(text)) why.push("no start line in the file");
+      if (!/^\d\d:\d\d:\d\d\.\d{3} dunebot: turn started$/m.test(text)) why.push("no app line (turn started) in the file");
+      if (!/^dunebot-core: a turn crashed/m.test(text)) why.push("no core line (a turn crashed) in the file");
+      if (!/dunebot-core: a turn crashed/.test(log)) why.push("the core's line no longer reaches the app's output");
+      if (missing.length) why.push(`${missing.length} of ${printed.length} printed lines not in the file, first: ${missing[0]}`);
+      if (why.length) problems.push(`${name} ${theme}: ${why.join("; ")}`);
+      else note += ` log file holds all ${printed.length} lines, the core's too`;
     }
     // A check failed: the core's own complaints (a crash prints "panicked"), and the end of the log
     // as it was, whatever the check looked for.
