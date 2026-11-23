@@ -308,6 +308,9 @@ then looked for on PATH; `DUNEBOT_CODEMAX_BIN` bundles another build). macOS bui
 unless `DUNEBOT_SIGN_IDENTITY` names a Developer ID certificate: then every part is signed for the
 hardened runtime with only the entitlements it needs, and with `DUNEBOT_NOTARY_PROFILE` (a
 `xcrun notarytool store-credentials` profile) notarized, stapled and checked with Gatekeeper.
+A Mac can sign every local build that way, so macOS keeps what it allowed (the microphone) from one
+rebuild to the next: `git config dunebot.signIdentity "Developer ID Application: …"` (this Mac only,
+never committed; `DUNEBOT_SIGN_IDENTITY` overrides it, `-` signs ad hoc).
 `DUNEBOT_ARCHIVE=1` also writes `out/Dunebot-<version>-<os>-<arch>.zip` (`.tar.gz` on Linux). The
 self-check uses temp folders and never touches your chats.
 
