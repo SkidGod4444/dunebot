@@ -94,8 +94,21 @@ if (process.env.DUNEBOT_PACKAGE_CODEMAX !== "0" && codemaxFits()) {
   extraResource.push(path.join(res, "codemax"));
 } else console.log(`package: no codemax build for ${platform}-${arch} bundled; agents are looked for on PATH`);
 
-// What each part may do under the hardened runtime (a Developer ID release only).
-const identity = isMac ? process.env.DUNEBOT_SIGN_IDENTITY : undefined;
+// A Mac that keeps a signing identity in its git settings signs every local build with it, like a
+// release (user's choice, 2026-11-22): `git config dunebot.signIdentity "Developer ID Application: …"`,
+// never committed and shared by every checkout of the repo. macOS then sees each rebuild as the same
+// app and keeps what it was allowed (the microphone); an ad-hoc signature is a new app every build.
+// DUNEBOT_SIGN_IDENTITY wins over it, and "-" signs ad hoc. Without either (CI): ad hoc.
+const gitSetting = (key) => {
+  try {
+    return execFileSync("git", ["config", "--get", key], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || undefined;
+  } catch {
+    return undefined; // not set (or no git)
+  }
+};
+const wanted = process.env.DUNEBOT_SIGN_IDENTITY ?? gitSetting("dunebot.signIdentity");
+// What each part may do under the hardened runtime (signed with a Developer ID only).
+const identity = isMac && wanted && wanted !== "-" ? wanted : undefined;
 const notaryProfile = process.env.DUNEBOT_NOTARY_PROFILE;
 if (notaryProfile && !identity) throw new Error("package: DUNEBOT_NOTARY_PROFILE needs DUNEBOT_SIGN_IDENTITY (a Developer ID certificate)");
 const allow = (...keys) => keys.map((k) => `com.apple.security.${k}`);
